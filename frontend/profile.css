@@ -1,0 +1,148 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=Quicksand:wght@300;500;700&display=swap');
+
+:root {
+    --paper-color: #fffdf5;
+    --staff-line: #bdc3c7;
+    --note-color: #2c3e50;
+    --primary: #457b9d;
+    --accent: #1d3557;
+}
+
+body {
+    font-family: 'Quicksand', 'Noto Serif SC', sans-serif;
+    background: #f0f2f5;
+    color: #333;
+    overflow-x: hidden;
+}
+
+.acrylic {
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(15px);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+/* 乐谱纸张样式 */
+.sheet-paper {
+    background-color: var(--paper-color);
+    background-image: radial-gradient(#d1d1d1 1px, transparent 1px);
+    background-size: 20px 20px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+    min-height: 800px;
+    position: relative;
+    padding: 60px 40px;
+    border-radius: 4px;
+}
+
+.staff-line-group {
+    margin-bottom: 60px;
+    position: relative;
+}
+
+.staff-line {
+    height: 1px;
+    background-color: var(--staff-line);
+    margin-bottom: 12px;
+    width: 100%;
+}
+
+.staff-line:last-child {
+    margin-bottom: 0;
+}
+
+/* ================= 核心修复：专业印刷级音符结构 ================= */
+.note-wrapper {
+    position: absolute;
+    cursor: pointer;
+    z-index: 10;
+    width: 14px;
+    height: 10px;
+}
+
+/* 符头：标准的斜椭圆 */
+.note-head {
+    width: 14.5px;
+    height: 10px;
+    background: var(--note-color);
+    border-radius: 50%;
+    transform: rotate(-24deg);
+    position: absolute;
+    left: 0;
+    top: 0;
+    z-index: 2; /* 关键：把符头图层置于符干上方 */
+    transition: filter 0.2s; /* 去掉容易导致错位的 scale 放大 */
+}
+
+/* 1. 二分音符空心符头：必须真正透明，让背后的五线谱横线穿透显示 */
+.note-head.half {
+    background: transparent;
+    border: 1.5px solid var(--note-color);
+    box-sizing: border-box;
+}
+
+/* 2. 🎵 终极修复：二分音符的专属符干 */
+/* 利用 CSS 相邻兄弟选择器，单独让它停在圆圈外缘，绝不穿模进入内部 */
+.note-head.half + .note-stem {
+    bottom: 7px;    /* 精准卡在倾斜椭圆右上角的几何切点上 */
+    height: 32px;   /* 底部缩短了，所以高度也相应减去 3px 保持顶部平齐 */
+}
+
+.note-wrapper:hover .note-head {
+    filter: drop-shadow(0 0 6px var(--primary)); /* 悬停时用蓝色辉光代替放大 */
+}
+
+/* 符干：笔直向上，无缝连接 */
+.note-stem {
+    width: 1.5px;
+    height: 35px;
+    background: var(--note-color);
+    position: absolute;
+    left: 12.5px; 
+    bottom: 4px;  /* ⬆️ 核心修复：把底边往上提，藏进翘起的符头内部，杜绝“穿模”露头 */
+    z-index: 1;   
+    pointer-events: none;
+}
+
+/* 八分音符的优美印刷体符尾 */
+.note-tail {
+    position: absolute;
+    width: 13px;
+    height: 30px;
+    left: 13px;  
+    bottom: 9px; /* ⬆️ 核心修复：符尾也同步上提 2px，确保始终与符干的最高点严丝合缝 (35-30+4=9) */
+    z-index: 1;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 15 30'%3E%3Cpath d='M 0 0 C 10 2 15 12 8 28 C 12 16 8 4 0 0 Z' fill='%232c3e50'/%3E%3C/svg%3E");
+    background-size: contain;
+    background-repeat: no-repeat;
+}
+/* ======================================================= */
+
+/* 侧边栏按钮 */
+.tool-btn {
+    @apply flex flex-col items-center justify-center p-3 rounded-xl transition-all duration-300;
+    background: white;
+    border: 1px solid #edf2f7;
+}
+
+.tool-btn:hover {
+    background: #f7fafc;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+
+.tool-btn.active {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
+/* 录音动画 */
+.recording-pulse {
+    animation: pulse-red 2s infinite;
+}
+
+@keyframes pulse-red {
+    0% { box-shadow: 0 0 0 0 rgba(230, 57, 70, 0.4); }
+    70% { box-shadow: 0 0 0 15px rgba(230, 57, 70, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(230, 57, 70, 0); }
+}

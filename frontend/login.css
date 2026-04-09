@@ -1,0 +1,60 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=Quicksand:wght@300;500;700&display=swap');
+
+:root {
+    --primary-soft: #a8dadc;
+    --accent-pink: #f1faee;
+    --text-main: #457b9d;
+    --wpf-acrylic: rgba(255, 255, 255, 0.75);
+    --staff-line: rgba(0, 0, 0, 0.05);
+}
+
+body {
+    font-family: 'Quicksand', 'Noto Serif SC', sans-serif;
+    overflow: hidden;
+    background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%);
+    height: 100vh;
+    color: var(--text-main);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.acrylic {
+    background: var(--wpf-acrylic);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    box-shadow: 0 15px 35px 0 rgba(31, 38, 135, 0.1);
+}
+
+.staff-bg {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    z-index: 0;
+    pointer-events: none;
+}
+
+.staff-line { height: 1px; background: var(--staff-line); width: 100%; position: absolute; }
+
+@keyframes breathe {
+    0%, 100% { transform: translateY(0) scale(1); opacity: 0.2; }
+    50% { transform: translateY(-15px) scale(1.05); opacity: 0.4; }
+}
+
+.floating-note { position: absolute; pointer-events: none; z-index: 1; animation: breathe 6s ease-in-out infinite; }
+
+.input-field { background: rgba(255, 255, 255, 0.5); border: 1px solid rgba(69, 123, 157, 0.2); transition: all 0.3s ease; }
+.input-field:focus { background: rgba(255, 255, 255, 0.9); border-color: #457b9d; box-shadow: 0 0 0 4px rgba(69, 123, 157, 0.1); outline: none; }
+
+.btn-primary { background: #457b9d; color: white; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+.btn-primary:hover { background: #1d3557; transform: translateY(-2px); box-shadow: 0 10px 20px rgba(69, 123, 157, 0.3); }
+
+.btn-secondary { background: transparent; border: 1px solid #457b9d; color: #457b9d; transition: all 0.3s ease; }
+.btn-secondary:hover { background: rgba(69, 123, 157, 0.05); transform: translateY(-1px); }
+
+.fade-in { animation: fadeIn 0.5s ease-out; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+.hidden-section { display: none; }

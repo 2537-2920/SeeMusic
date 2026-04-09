@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>SeeMusic - 灵感之声，视界无限</title>
+<script src="https://modao.cc/agent-py/static/source/js/tailwindcss.3.4.3.js"></script>
+<script src="https://modao.cc/agent-py/static/source/js/iconify-icon.min.1.0.7.js"></script>
+<link rel="stylesheet" href="index.css"/>
+</head>
+<body class="flex items-center justify-center">
+<div id="decoration-container">
+<svg class="absolute w-full h-full opacity-[0.05] top-0 pointer-events-none" viewbox="0 0 1000 1000">
+<line stroke="#000000" stroke-width="2" x1="0" x2="1000" y1="100" y2="100"></line>
+<line stroke="#000000" stroke-width="2" x1="0" x2="1000" y1="120" y2="120"></line>
+<line stroke="#000000" stroke-width="2" x1="0" x2="1000" y1="140" y2="140"></line>
+<line stroke="#000000" stroke-width="2" x1="0" x2="1000" y1="160" y2="160"></line>
+<line stroke="#000000" stroke-width="2" x1="0" x2="1000" y1="180" y2="180"></line>
+<line stroke="#000000" stroke-width="2" x1="0" x2="1000" y1="820" y2="820"></line>
+<line stroke="#000000" stroke-width="2" x1="0" x2="1000" y1="840" y2="840"></line>
+<line stroke="#000000" stroke-width="2" x1="0" x2="1000" y1="860" y2="860"></line>
+<line stroke="#000000" stroke-width="2" x1="0" x2="1000" y1="880" y2="880"></line>
+<line stroke="#000000" stroke-width="2" x1="0" x2="1000" y1="900" y2="900"></line>
+</svg>
+</div>
+
+<main class="relative z-10 text-center flex flex-col items-center">
+<div class="relative mb-20">
+<svg class="ribbon-staff" fill="none" viewbox="0 0 1000 200" xmlns="http://www.w3.org/2000/svg">
+<path class="ink-line" d="M-100 100 Q 150 20 400 100 T 900 100" opacity="0.6" stroke="black" stroke-width="1.5"></path>
+<path class="ink-line" d="M-100 110 Q 150 30 400 110 T 900 110" opacity="0.4" stroke="black" stroke-width="1.2" style="animation-delay: -2s;"></path>
+<path class="ink-line" d="M-100 90 Q 150 10 400 90 T 900 90" opacity="0.3" stroke="black" stroke-width="1" style="animation-delay: -5s;"></path>
+<path class="ink-line" d="M-100 120 Q 150 40 400 120 T 900 120" opacity="0.15" stroke="black" stroke-width="0.8" style="animation-delay: -8s;"></path>
+<path class="ink-line" d="M-100 80 Q 150 0 400 80 T 900 80" opacity="0.1" stroke="black" stroke-width="0.6" style="animation-delay: -12s;"></path>
+</svg>
+<h1 class="title-art relative z-10 select-none">SeeMusic</h1>
+<p class="text-xl tracking-widest text-black/40 font-light -mt-4">让音乐触手可及 · To See The Sound</p>
+</div>
+
+<div class="relative w-[800px] h-[300px] flex items-center justify-center" id="content-container">
+<div class="state-active transition-all duration-700" id="logged-out-view">
+<div class="login-btn-group">
+<a class="acrylic px-12 py-4 rounded-full text-lg font-medium border border-white/50 text-[#1d3557] btn-hover flex items-center gap-2" href="login.html?mode=login">
+<iconify-icon icon="solar:login-3-bold-duotone"></iconify-icon> 登 录
+                    </a>
+<a class="bg-[#457b9d] px-12 py-4 rounded-full text-lg font-medium text-white btn-hover shadow-lg shadow-blue-200 flex items-center gap-2" href="login.html?mode=register">
+<iconify-icon icon="solar:user-plus-bold-duotone"></iconify-icon> 注 册
+                    </a>
+</div>
+<p class="mt-8 text-sm text-gray-400 italic">开启您的智能音乐创作之旅</p>
+</div>
+
+<div class="state-hidden transition-all duration-700 w-full h-full" id="logged-in-view">
+<div class="arc-button left-[5%] top-[10%] group" onclick="window.location.href='transcription.html'">
+<div class="acrylic w-40 h-40 rounded-3xl flex flex-col items-center justify-center btn-hover cursor-pointer border-t border-l border-white/80">
+<iconify-icon class="text-5xl text-[#457b9d] mb-3" icon="solar:music-library-2-bold-duotone"></iconify-icon>
+<span class="font-bold">智能扒谱</span>
+<span class="text-[10px] opacity-40 mt-1 uppercase">AI Transcription</span>
+</div>
+</div>
+<div class="arc-button left-[28%] top-[45%] group" onclick="window.location.href='singing_evaluation.html'">
+<div class="acrylic w-40 h-40 rounded-3xl flex flex-col items-center justify-center btn-hover cursor-pointer border-t border-l border-white/80">
+<iconify-icon class="text-5xl text-[#e63946] mb-3" icon="solar:microphone-large-bold-duotone"></iconify-icon>
+<span class="font-bold">歌唱评估</span>
+<span class="text-[10px] opacity-40 mt-1 uppercase">Vocal Analysis</span>
+</div>
+</div>
+<div class="arc-button right-[28%] top-[45%] group" onclick="window.location.href='community.html'">
+<div class="acrylic w-40 h-40 rounded-3xl flex flex-col items-center justify-center btn-hover cursor-pointer border-t border-l border-white/80">
+<iconify-icon class="text-5xl text-[#457b9d] mb-3" icon="solar:users-group-rounded-bold-duotone"></iconify-icon>
+<span class="font-bold">乐谱社区</span>
+<span class="text-[10px] opacity-40 mt-1 uppercase">Score Community</span>
+</div>
+</div>
+<div class="arc-button right-[5%] top-[10%] group" onclick="window.location.href='profile.html'">
+    <div class="acrylic w-40 h-40 rounded-3xl flex flex-col items-center justify-center btn-hover cursor-pointer border-t border-l border-white/80">
+        <img alt="User Avatar" class="w-12 h-12 rounded-full mb-3 border-2 border-white" src="https://api.dicebear.com/7.x/avataaars/svg?seed=Felix"/>
+        <span class="font-bold">个人中心</span>
+        <span class="text-[10px] opacity-40 mt-1 uppercase">User Center</span>
+    </div>
+</div>
+
+<div class="absolute -bottom-10 left-0 w-full text-center text-sm text-gray-400 tracking-wider transition-all duration-500">
+    <p>欢迎回来，<span class="text-[#457b9d] font-bold text-base ml-1">灵感创作者</span></p>
+</div>
+</main>
+
+<footer class="fixed bottom-8 w-full px-12 flex justify-between items-center text-xs text-gray-400 tracking-widest uppercase">
+<div class="flex items-center gap-6">
+<span class="flex items-center gap-1"><iconify-icon icon="solar:calendar-bold"></iconify-icon> 2026年04月08日</span>
+<span class="flex items-center gap-1"><iconify-icon icon="solar:cpu-bold"></iconify-icon> Version 4.2.0-Alpha</span>
+</div>
+<div class="flex items-center gap-4">
+<span>© 2026 SeeMusic Studio. All Rights Reserved.</span>
+</div>
+</footer>
+
+<div class="fixed top-8 right-8 acrylic p-4 rounded-2xl flex flex-col gap-3 z-50">
+<div class="text-[10px] font-bold text-gray-400 uppercase mb-1">演示控制面板</div>
+<button class="px-4 py-2 rounded-lg bg-[#457b9d] text-white text-xs transition-all ring-2 ring-blue-100" id="btn-mock-out" onclick="toggleLogin(false)">模拟未登录</button>
+<button class="px-4 py-2 rounded-lg bg-white text-gray-600 text-xs hover:bg-gray-50 transition-all border border-gray-100" id="btn-mock-in" onclick="toggleLogin(true)">模拟已登录</button>
+</div>
+
+<script src="index.js"></script>
+</body>
+</html>

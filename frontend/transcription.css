@@ -1,0 +1,76 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=Quicksand:wght@300;500;700&display=swap');
+
+:root {
+    --primary-soft: #a8dadc;
+    --accent-pink: #f1faee;
+    --text-main: #457b9d;
+    --wpf-acrylic: rgba(255, 255, 255, 0.75);
+    --highlight: #e63946;
+}
+
+body {
+    font-family: 'Quicksand', 'Noto Serif SC', sans-serif;
+    background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%);
+    min-height: 100vh;
+    color: #333;
+}
+
+.acrylic {
+    background: var(--wpf-acrylic);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+}
+
+.card-shadow {
+    box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+}
+
+.action-btn {
+    background-color: var(--text-main);
+    color: white;
+    transition: all 0.3s ease;
+}
+.action-btn:hover {
+    opacity: 0.9;
+    transform: scale(1.02);
+}
+
+.secondary-btn {
+    border: 1px solid var(--text-main);
+    color: var(--text-main);
+    background: white;
+    transition: all 0.3s ease;
+}
+.secondary-btn:hover {
+    background: #f0f8ff;
+}
+
+.pitch-graph {
+    height: 120px;
+    background: #f9f9f9;
+    border-radius: 8px;
+    position: relative;
+    overflow: hidden;
+}
+
+.pitch-line {
+    position: absolute;
+    bottom: 40%;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: #ddd;
+}
+
+.user-pitch {
+    position: absolute;
+    height: 4px;
+    background: var(--text-main);
+    border-radius: 2px;
+}
+
+.error-highlight {
+    background: rgba(230, 57, 70, 0.1);
+    border: 1px dashed var(--highlight);
+}

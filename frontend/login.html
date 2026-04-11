@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>SeeMusic - 登录 &amp; 注册</title>
+<script src="https://modao.cc/agent-py/static/source/js/tailwindcss.3.4.3.js"></script>
+<script src="https://modao.cc/agent-py/static/source/js/iconify-icon.min.1.0.7.js"></script>
+<link rel="stylesheet" href="login.css"/>
+</head>
+<body>
+<div class="staff-bg" id="decoration-container">
+<div class="staff-line" style="top: 15%"></div>
+<div class="staff-line" style="top: 17%"></div>
+<div class="staff-line" style="top: 19%"></div>
+<div class="staff-line" style="top: 21%"></div>
+<div class="staff-line" style="top: 23%"></div>
+<div class="staff-line" style="top: 77%"></div>
+<div class="staff-line" style="top: 79%"></div>
+<div class="staff-line" style="top: 81%"></div>
+<div class="staff-line" style="top: 83%"></div>
+<div class="staff-line" style="top: 85%"></div>
+</div>
+
+<div class="acrylic w-full max-w-md p-10 rounded-[40px] relative z-10 fade-in m-4">
+<a class="absolute top-8 left-8 text-gray-400 hover:text-[#457b9d] transition-colors flex items-center gap-1 text-sm group" href="index.html">
+<iconify-icon class="group-hover:-translate-x-1 transition-transform" icon="solar:alt-arrow-left-linear"></iconify-icon>
+            返回主页
+        </a>
+
+<div class="text-center mb-10 mt-4">
+<h1 class="text-3xl font-bold text-[#1d3557] mb-2" id="page-title">欢迎回来</h1>
+<p class="text-gray-400 text-sm tracking-widest" id="page-subtitle">让灵感在五线谱上自由流淌</p>
+</div>
+
+<form class="space-y-6" id="auth-form">
+<div class="space-y-2">
+<label class="text-xs font-bold text-gray-500 uppercase ml-1">用户名</label>
+<div class="relative">
+<iconify-icon class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" icon="solar:user-linear"></iconify-icon>
+<input class="input-field w-full py-4 pl-12 pr-6 rounded-2xl text-sm" placeholder="请输入您的用户名" required="" type="text"/>
+</div>
+</div>
+<div class="space-y-2">
+<label class="text-xs font-bold text-gray-500 uppercase ml-1">密码</label>
+<div class="relative">
+<iconify-icon class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" icon="solar:lock-password-linear"></iconify-icon>
+<input class="input-field w-full py-4 pl-12 pr-6 rounded-2xl text-sm" placeholder="请输入您的密码" required="" type="password"/>
+</div>
+</div>
+<div class="space-y-2 hidden-section" id="confirm-password-container">
+<label class="text-xs font-bold text-gray-500 uppercase ml-1">确认密码</label>
+<div class="relative">
+<iconify-icon class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" icon="solar:shield-check-linear"></iconify-icon>
+<input class="input-field w-full py-4 pl-12 pr-6 rounded-2xl text-sm" placeholder="请再次输入密码" type="password"/>
+</div>
+</div>
+
+<div class="pt-4 space-y-4">
+<button type="submit" class="btn-primary w-full py-4 rounded-2xl font-bold shadow-lg shadow-blue-100 flex items-center justify-center gap-2" id="submit-btn">
+<iconify-icon icon="solar:login-3-bold-duotone"></iconify-icon>
+<span id="submit-text">立即登录</span>
+</button>
+<div class="flex items-center justify-between px-2">
+<div class="h-[1px] bg-gray-200 flex-1"></div>
+<span class="px-4 text-[10px] text-gray-300 font-bold uppercase tracking-widest">或</span>
+<div class="h-[1px] bg-gray-200 flex-1"></div>
+</div>
+<button class="btn-secondary w-full py-4 rounded-2xl font-bold flex items-center justify-center gap-2" id="switch-mode-btn" onclick="toggleMode()" type="button">
+<iconify-icon icon="solar:user-plus-bold-duotone"></iconify-icon>
+<span id="switch-text">创建新账号</span>
+</button>
+</div>
+</form>
+</div>
+
+<script src="login.js"></script>
+</body>
+</html>

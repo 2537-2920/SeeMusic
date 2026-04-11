@@ -220,6 +220,20 @@ POST /analyze
 pytest tests/
 ```
 
+### 缓存清理
+
+开发和测试过程中会生成 `__pycache__/`、`.pytest_cache/`、`*.pyc` 等缓存文件，这些文件不应提交到仓库。
+
+```bash
+bash scripts/clean_cache.sh
+```
+
+清理策略：
+
+* 通过 `.gitignore` 统一忽略 Python 缓存、测试缓存、覆盖率产物、本地环境目录和运行时 `storage/`
+* 通过 `scripts/clean_cache.sh` 做一次性清理，适合本地开发和提交前执行
+* CI 只安装依赖并跑测试，不缓存仓库内的 Python 编译产物
+
 ---
 
 ## 📦 开发阶段
@@ -280,5 +294,4 @@ pytest tests/
 * C：节奏分析与多轨分离
 * D：可视化与AI扩展
 * E：系统接口与用户系统
-
 

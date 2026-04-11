@@ -3,19 +3,17 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 
 from backend.api.schemas import (
     AudioLogRequest,
-    BeatDetectRequest,
     ChordGenerationRequest,
     CommunityScorePublishRequest,
     HistoryCreateRequest,
     LoginRequest,
     PitchCompareRequest,
-    PitchCurveQuery,
     PitchToScoreRequest,
     RegisterRequest,
     ReportExportRequest,
@@ -32,10 +30,10 @@ from backend.core.pitch.realtime_tuning import analyze_audio_frame
 from backend.core.rhythm.beat_detection import detect_beats
 from backend.core.rhythm.rhythm_analysis import score_rhythm
 from backend.core.separation.multi_track_separation import separate_tracks
-from backend.core.score.sheet_extraction import build_score_from_pitch_sequence
-from backend.services.analysis_service import analyze_audio
 from backend.services.report_service import export_report
 from backend.services.score_service import (
+    ScoreNotFoundError,
+    ScoreOperationError,
     create_score_from_pitch_sequence,
     edit_score,
     export_score,
@@ -119,22 +117,36 @@ def score_from_pitch_sequence(payload: PitchToScoreRequest):
 
 @router.patch("/scores/{score_id}")
 def patch_score(score_id: str, payload: ScoreEditRequest):
-    return ok(edit_score(score_id, [op.model_dump() for op in payload.operations]))
+    try:
+        return ok(edit_score(score_id, [op.model_dump() for op in payload.operations]))
+    except ScoreNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ScoreOperationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/scores/{score_id}/undo")
 def score_undo(score_id: str):
-    return ok(undo_score(score_id))
+    try:
+        return ok(undo_score(score_id))
+    except ScoreNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/scores/{score_id}/redo")
 def score_redo(score_id: str):
-    return ok(redo_score(score_id))
+    try:
+        return ok(redo_score(score_id))
+    except ScoreNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/scores/{score_id}/export")
 def score_export(score_id: str, payload: ScoreExportRequest):
-    return ok(export_score(score_id, payload.model_dump()))
+    try:
+        return ok(export_score(score_id, payload.model_dump()))
+    except ScoreNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/rhythm/beat-detect")

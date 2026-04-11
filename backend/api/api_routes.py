@@ -1,0 +1,265 @@
+"""REST and WebSocket routes for the Music AI System."""
+
+from __future__ import annotations
+
+import json
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+
+from backend.api.schemas import (
+    AudioLogRequest,
+    BeatDetectRequest,
+    ChordGenerationRequest,
+    CommunityScorePublishRequest,
+    HistoryCreateRequest,
+    LoginRequest,
+    PitchCompareRequest,
+    PitchCurveQuery,
+    PitchToScoreRequest,
+    RegisterRequest,
+    ReportExportRequest,
+    RhythmScoreRequest,
+    ScoreEditRequest,
+    ScoreExportRequest,
+    VariationSuggestionRequest,
+)
+from backend.core.generation.chord_generation import generate_chord_sequence
+from backend.core.generation.variation_suggestions import generate_variation_suggestions
+from backend.core.pitch.audio_utils import infer_audio_metadata
+from backend.core.pitch.pitch_detection import detect_pitch_sequence
+from backend.core.pitch.realtime_tuning import analyze_audio_frame
+from backend.core.rhythm.beat_detection import detect_beats
+from backend.core.rhythm.rhythm_analysis import score_rhythm
+from backend.core.separation.multi_track_separation import separate_tracks
+from backend.core.score.sheet_extraction import build_score_from_pitch_sequence
+from backend.services.analysis_service import analyze_audio
+from backend.services.report_service import export_report
+from backend.services.score_service import (
+    create_score_from_pitch_sequence,
+    edit_score,
+    export_score,
+    redo_score,
+    undo_score,
+)
+from backend.user.history_manager import delete_history, list_history, save_history
+from backend.user.user_system import get_current_user, login_user, register_user
+from backend.utils.audio_logger import record_audio_log
+from backend.utils.data_visualizer import build_pitch_curve
+
+
+router = APIRouter(prefix="/api/v1", tags=["api"])
+
+
+def ok(data: Any, message: str = "success") -> Dict[str, Any]:
+    return {"code": 0, "message": message, "data": data}
+
+
+@router.post("/pitch/detect")
+async def pitch_detect(
+    file: UploadFile = File(...),
+    sample_rate: Optional[int] = Form(None),
+    frame_ms: int = Form(20),
+    hop_ms: int = Form(10),
+    algorithm: str = Form("yin"),
+):
+    content = await file.read()
+    metadata = infer_audio_metadata(file.filename or "audio", sample_rate, None)
+    pitches = detect_pitch_sequence(
+        file_name=file.filename or "audio",
+        sample_rate=metadata["sample_rate"],
+        frame_ms=frame_ms,
+        hop_ms=hop_ms,
+        algorithm=algorithm,
+        duration=metadata["duration"],
+        audio_bytes=content,
+    )
+    return ok({"analysis_id": metadata["analysis_id"], "duration": metadata["duration"], "pitch_sequence": pitches})
+
+
+@router.websocket("/ws/realtime-pitch")
+async def realtime_pitch(websocket: WebSocket) -> None:
+    await websocket.accept()
+    try:
+        while True:
+            message = await websocket.receive_text()
+            payload = json.loads(message)
+            if payload.get("type") == "stop":
+                await websocket.send_json({"type": "stopped"})
+                break
+            if payload.get("type") != "audio_frame":
+                await websocket.send_json({"type": "error", "message": "unsupported message type"})
+                continue
+            frame = payload.get("pcm", "").encode("utf-8")
+            result = analyze_audio_frame(frame, int(payload.get("sample_rate", 16000)))
+            await websocket.send_json({"type": "pitch_update", **result})
+    except WebSocketDisconnect:
+        return
+
+
+@router.post("/pitch/compare")
+def pitch_compare(payload: PitchCompareRequest):
+    reference = detect_pitch_sequence(file_name=payload.reference_id, duration=10.0)
+    user = detect_pitch_sequence(file_name=payload.user_recording_id, duration=10.0)
+    deviation = [
+        {"time": item["time"], "cents_offset": item["frequency"] - reference[index]["frequency"]}
+        for index, item in enumerate(user[: len(reference)])
+    ]
+    summary = {
+        "accuracy": 92.3,
+        "average_deviation": round(sum(entry["cents_offset"] for entry in deviation) / max(len(deviation), 1), 2),
+    }
+    return ok({"reference": reference, "user": user, "deviation": deviation, "summary": summary})
+
+
+@router.post("/score/from-pitch-sequence")
+def score_from_pitch_sequence(payload: PitchToScoreRequest):
+    return ok(create_score_from_pitch_sequence(payload.model_dump()))
+
+
+@router.patch("/scores/{score_id}")
+def patch_score(score_id: str, payload: ScoreEditRequest):
+    return ok(edit_score(score_id, [op.model_dump() for op in payload.operations]))
+
+
+@router.post("/scores/{score_id}/undo")
+def score_undo(score_id: str):
+    return ok(undo_score(score_id))
+
+
+@router.post("/scores/{score_id}/redo")
+def score_redo(score_id: str):
+    return ok(redo_score(score_id))
+
+
+@router.post("/scores/{score_id}/export")
+def score_export(score_id: str, payload: ScoreExportRequest):
+    return ok(export_score(score_id, payload.model_dump()))
+
+
+@router.post("/rhythm/beat-detect")
+async def rhythm_beat_detect(
+    file: UploadFile = File(...),
+    bpm_hint: Optional[int] = Form(None),
+    sensitivity: float = Form(0.5),
+):
+    content = await file.read()
+    result = detect_beats(file.filename or "audio", bpm_hint=bpm_hint, sensitivity=sensitivity, audio_bytes=content)
+    return ok(result)
+
+
+@router.post("/audio/separate-tracks")
+async def audio_separate_tracks(
+    file: UploadFile = File(...),
+    model: str = Form("demucs"),
+    stems: int = Form(2),
+):
+    content = await file.read()
+    return ok(separate_tracks(file.filename or "audio", model=model, stems=stems, audio_bytes=content))
+
+
+@router.post("/rhythm/score")
+def rhythm_score(payload: RhythmScoreRequest):
+    return ok(score_rhythm(payload.reference_beats, payload.user_beats))
+
+
+@router.get("/community/scores")
+def list_community_scores(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    keyword: Optional[str] = None,
+    tag: Optional[str] = None,
+):
+    items = [
+        {
+            "score_id": "score_1001",
+            "title": "夜曲",
+            "author": "user_01",
+            "likes": 56,
+            "favorites": 24,
+            "tags": ["流行", "钢琴"],
+        }
+    ]
+    return ok({"total": len(items), "items": items, "page": page, "page_size": page_size, "keyword": keyword, "tag": tag})
+
+
+@router.post("/community/scores")
+def publish_community_score(payload: CommunityScorePublishRequest):
+    return ok({"community_score_id": f"cmt_{payload.score_id}", "published_at": "2026-04-11T10:30:00+08:00"})
+
+
+@router.post("/community/scores/{score_id}/like")
+def like_score(score_id: str):
+    return ok({"score_id": score_id, "liked": True})
+
+
+@router.delete("/community/scores/{score_id}/like")
+def unlike_score(score_id: str):
+    return ok({"score_id": score_id, "liked": False})
+
+
+@router.post("/community/scores/{score_id}/favorite")
+def favorite_score(score_id: str):
+    return ok({"score_id": score_id, "favorited": True})
+
+
+@router.delete("/community/scores/{score_id}/favorite")
+def unfavorite_score(score_id: str):
+    return ok({"score_id": score_id, "favorited": False})
+
+
+@router.post("/logs/audio")
+def audio_log(payload: AudioLogRequest):
+    return ok(record_audio_log(payload.model_dump()))
+
+
+@router.get("/charts/pitch-curve")
+def pitch_curve(analysis_id: str = Query(...), mode: str = Query("compare")):
+    reference_curve = detect_pitch_sequence(file_name=f"{analysis_id}_reference", duration=3.0)
+    user_curve = detect_pitch_sequence(file_name=f"{analysis_id}_user", duration=3.0)
+    return ok({"analysis_id": analysis_id, "mode": mode, **build_pitch_curve(reference_curve, user_curve)})
+
+
+@router.post("/generation/chords")
+def generation_chords(payload: ChordGenerationRequest):
+    return ok(generate_chord_sequence(payload.key, payload.tempo, payload.style, payload.melody))
+
+
+@router.post("/generation/variation-suggestions")
+def generation_variations(payload: VariationSuggestionRequest):
+    return ok(generate_variation_suggestions(payload.score_id, payload.style, payload.difficulty))
+
+
+@router.post("/auth/register")
+def auth_register(payload: RegisterRequest):
+    return ok(register_user(payload.username, payload.password, payload.email))
+
+
+@router.post("/auth/login")
+def auth_login(payload: LoginRequest):
+    return ok(login_user(payload.username, payload.password))
+
+
+@router.get("/users/me")
+def me(current_user: Dict[str, Any] = Depends(get_current_user)):
+    return ok(current_user)
+
+
+@router.get("/users/me/history")
+def get_history(current_user: Dict[str, Any] = Depends(get_current_user)):
+    return ok(list_history(current_user["user_id"]))
+
+
+@router.post("/users/me/history")
+def post_history(payload: HistoryCreateRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
+    return ok(save_history(current_user["user_id"], payload.model_dump()))
+
+
+@router.delete("/users/me/history/{history_id}")
+def remove_history(history_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    return ok(delete_history(current_user["user_id"], history_id))
+
+
+@router.post("/reports/export")
+def reports_export(payload: ReportExportRequest):
+    return ok(export_report(payload.model_dump()))

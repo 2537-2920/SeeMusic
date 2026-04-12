@@ -24,7 +24,7 @@ from backend.api.schemas import (
 )
 from backend.core.generation.chord_generation import generate_chord_sequence
 from backend.core.generation.variation_suggestions import generate_variation_suggestions
-from backend.core.pitch.audio_utils import infer_audio_metadata
+from backend.core.pitch.audio_utils import estimate_duration_from_bytes, infer_audio_metadata
 from backend.core.pitch.pitch_detection import detect_pitch_sequence
 from backend.core.pitch.realtime_tuning import analyze_audio_frame
 from backend.core.rhythm.beat_detection import detect_beats
@@ -62,7 +62,9 @@ async def pitch_detect(
     algorithm: str = Form("yin"),
 ):
     content = await file.read()
-    metadata = infer_audio_metadata(file.filename or "audio", sample_rate, None)
+    resolved_sample_rate = sample_rate or 16000
+    estimated_duration = estimate_duration_from_bytes(content, resolved_sample_rate)
+    metadata = infer_audio_metadata(file.filename or "audio", resolved_sample_rate, estimated_duration or None)
     pitches = detect_pitch_sequence(
         file_name=file.filename or "audio",
         sample_rate=metadata["sample_rate"],
@@ -80,16 +82,28 @@ async def realtime_pitch(websocket: WebSocket) -> None:
     await websocket.accept()
     try:
         while True:
-            message = await websocket.receive_text()
-            payload = json.loads(message)
+            message = await websocket.receive()
+            if message.get("type") == "websocket.disconnect":
+                break
+            if "bytes" in message and message["bytes"] is not None:
+                payload = {"type": "audio_frame", "pcm_bytes": message["bytes"], "sample_rate": 16000}
+            else:
+                payload = json.loads(message.get("text", "{}"))
             if payload.get("type") == "stop":
                 await websocket.send_json({"type": "stopped"})
                 break
             if payload.get("type") != "audio_frame":
                 await websocket.send_json({"type": "error", "message": "unsupported message type"})
                 continue
-            frame = payload.get("pcm", "").encode("utf-8")
-            result = analyze_audio_frame(frame, int(payload.get("sample_rate", 16000)))
+            frame = payload.get("pcm_bytes") or payload.get("pcm", "").encode("utf-8")
+            reference_frequency = payload.get("reference_frequency")
+            result = analyze_audio_frame(
+                frame,
+                int(payload.get("sample_rate", 16000)),
+                reference_frequency=float(reference_frequency) if reference_frequency is not None else None,
+                timestamp=float(payload.get("timestamp", payload.get("time", 0.0))),
+                algorithm=payload.get("algorithm", "yin"),
+            )
             await websocket.send_json({"type": "pitch_update", **result})
     except WebSocketDisconnect:
         return

@@ -52,6 +52,8 @@ music-ai-system/
 ├── backend/
 │   ├── api/                      # 接口层（人E）
 │   │   ├── api_routes.py
+│   ├── database/                 #数据库
+│   │   ├── models.py
 │   │
 │   ├── core/                     # 核心算法层
 │   │   ├── pitch/                # 音高相关（人A）

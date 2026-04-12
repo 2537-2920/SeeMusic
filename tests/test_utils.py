@@ -1,5 +1,8 @@
+from pathlib import Path
+
+from backend.config.settings import settings
 from backend.core.score.sheet_extraction import build_score_from_pitch_sequence
-from backend.export.export_utils import build_export_files, build_score_export_payload
+from backend.export.export_utils import build_export_files, build_score_export_payload, write_score_export
 from backend.utils.audio_logger import AUDIO_LOGS, record_audio_log
 from backend.utils.data_visualizer import build_pitch_curve
 
@@ -32,4 +35,18 @@ def test_build_score_export_payload_supports_visual_and_midi_formats():
     assert midi_payload["manifest"]["kind"] == "midi"
     assert pdf_payload["manifest"]["kind"] == "pdf"
     assert pdf_payload["manifest"]["pages"]
+
+
+def test_write_score_export_persists_real_files():
+    score = build_score_from_pitch_sequence([{"time": 0.0, "frequency": 440.0, "duration": 0.5}])
+
+    midi_payload = write_score_export(score, "midi", settings.storage_dir)
+    png_payload = write_score_export(score, "png", settings.storage_dir)
+    pdf_payload = write_score_export(score, "pdf", settings.storage_dir)
+
+    for payload in (midi_payload, png_payload, pdf_payload):
+        file_path = Path(payload["file_path"])
+        assert file_path.exists()
+        assert file_path.stat().st_size > 0
+        assert payload["download_url"].startswith("/storage/exports/")
 

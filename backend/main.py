@@ -10,10 +10,12 @@ if __package__ is None or __package__ == "":
 
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 import uvicorn
 
 from backend.api.api_routes import router
 from backend.config.settings import settings
+from backend.db.session import init_database
 from backend.services.analysis_service import analyze_audio
 
 
@@ -28,6 +30,12 @@ app.add_middleware(
 )
 
 app.include_router(router)
+app.mount("/storage", StaticFiles(directory=str(settings.storage_dir)), name="storage")
+
+
+@app.on_event("startup")
+def startup() -> None:
+    init_database()
 
 
 @app.get("/")

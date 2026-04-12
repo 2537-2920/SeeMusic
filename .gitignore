@@ -35,4 +35,7 @@ storage/
 .idea/
 .vscode/
 .codex
+.env
+.env.*
+!.env.example
 

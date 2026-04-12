@@ -52,7 +52,7 @@ def login_user(username_in: str, password: str) -> dict:
     token=f"tok_{uuid4().hex}"
     expired_time = datetime.now(timezone.utc) + timedelta(seconds=7200)
 
-    myuser_token=usertoken(token=token,user_id=myuser.user_id,expired_time=expired_time)
+    myuser_token=usertoken(token=token,id=myuser.id,expired_time=expired_time)
 
     db.seesion.add(myuser_token)
     db.seesion.commit()
@@ -64,7 +64,7 @@ def login_user(username_in: str, password: str) -> dict:
                 "token": token,
                 "expires_in": 7200,
                 "user": {
-                    "user_id": myuser.user_id,
+                    "user_id": myuser.id,
                     "username": myuser.username
                         }
                     }
@@ -77,7 +77,7 @@ def get_user_by_token(token: str) -> dict:
 
     if not token_record:
         raise HTTPException(status_code=401,detail="token invalid or expired")
-    myuser=user.query.get(token_record.user_id)
+    myuser=user.query.get(token_record.id)
     return  {
         "user_id":myuser.user_id,
         "username":myuser.username,

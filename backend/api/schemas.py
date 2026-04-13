@@ -1,4 +1,4 @@
-"""Request/response schemas for the API layer."""
+﻿"""Request/response schemas for the API layer."""
 
 from __future__ import annotations
 
@@ -26,6 +26,9 @@ class PitchCompareRequest(BaseModel):
 
 
 class PitchToScoreRequest(BaseModel):
+    user_id: int = Field(..., ge=1)
+    title: Optional[str] = None
+    analysis_id: Optional[str] = None
     tempo: int = 120
     time_signature: str = "4/4"
     key_signature: str = "C"
@@ -54,6 +57,11 @@ class ScoreEditRequest(BaseModel):
 
 class ScoreExportRequest(BaseModel):
     format: Literal["midi", "png", "pdf"]
+    page_size: Optional[str] = "A4"
+    with_annotations: bool = True
+
+
+class ScoreReExportRequest(BaseModel):
     page_size: Optional[str] = "A4"
     with_annotations: bool = True
 

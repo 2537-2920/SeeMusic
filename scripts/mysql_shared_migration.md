@@ -86,7 +86,7 @@ mysql -h 127.0.0.1 -P 3306 -u <dev_user> -p < scripts/verify_seemusic_import.sql
 
 Expected:
 - `SHOW TABLES` returns app tables
-- row counts return values for: `user`, `project`, `sheet`, `report`, `audio_analysis`
+- row counts return values for: `user`, `project`, `sheet`, `report`, `community_post`, `export_record`, `audio_analysis`, `pitch_sequence`, `user_history`
 
 ## 6) Shared permission baseline (DBA one-time)
 

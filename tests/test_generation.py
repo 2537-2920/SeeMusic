@@ -20,10 +20,31 @@ def test_generate_variation_suggestions_returns_expected_shape():
 
 
 def test_separate_tracks_returns_requested_stems():
-    result = separate_tracks("demo.wav", model="demucs", stems=3)
-    assert result["task_id"] == "sep_demo.wav"
-    assert len(result["tracks"]) == 3
+    result = separate_tracks("demo.wav", model="demucs", stems=4)
+    assert result["task_id"].startswith("sep_")
+    assert len(result["tracks"]) == 4
     assert result["tracks"][0]["name"] == "vocal"
+    assert result["status"] == "completed"
+    assert result["model"] == "demucs"
+    assert result["stems"] == 4
+
+
+def test_separate_tracks_with_two_stems():
+    result = separate_tracks("demo.wav", model="demucs", stems=2)
+    assert len(result["tracks"]) == 2
+    track_names = [t["name"] for t in result["tracks"]]
+    assert "vocal" in track_names
+    assert "accompaniment" in track_names
+
+
+def test_separate_tracks_returns_track_metadata():
+    result = separate_tracks("demo.wav", model="demucs", stems=2)
+    for track in result["tracks"]:
+        assert "name" in track
+        assert "file_name" in track
+        assert "download_url" in track
+        assert "duration" in track
+        assert isinstance(track["duration"], float)
 
 
 def test_traditional_instruments_include_expected_presets():

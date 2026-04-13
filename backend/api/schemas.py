@@ -66,14 +66,40 @@ class BeatDetectRequest(BaseModel):
 class RhythmScoreRequest(BaseModel):
     reference_beats: List[float]
     user_beats: List[float]
+    language: str = Field("en", description="Language for feedback ('en' or 'zh')")
+    scoring_model: str = Field("balanced", description="Scoring model: 'strict', 'balanced', or 'lenient'")
+    threshold_ms: float = Field(50.0, description="Time window for on-time classification (ms)")
+
+
+class AnalyzeRhythmRequest(BaseModel):
+    """Request for end-to-end rhythm audio analysis.
+    
+    Supports multilingual feedback and flexible scoring models.
+    """
+    language: str = Field("en", description="Language for feedback ('en' or 'zh')")
+    scoring_model: str = Field("balanced", description="Scoring model: 'strict', 'balanced', or 'lenient'")
+    threshold_ms: float = Field(50.0, description="Time window for on-time classification (ms)")
 
 
 class CommunityScorePublishRequest(BaseModel):
-    score_id: str
+    score_id: Optional[str] = None
     title: str
     description: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
+    style: Optional[str] = None
+    instrument: Optional[str] = None
+    price: Optional[float] = Field(default=0.0, ge=0)
+    cover_url: Optional[str] = None
+    subtitle: Optional[str] = None
+    author_name: Optional[str] = None
+    source_file_name: Optional[str] = None
     is_public: bool = True
+
+
+class CommunityCommentCreateRequest(BaseModel):
+    content: str
+    username: Optional[str] = None
+    avatar_url: Optional[str] = None
 
 
 class AudioLogRequest(BaseModel):

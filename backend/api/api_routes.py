@@ -1,4 +1,4 @@
-"""REST and WebSocket routes for the Music AI System."""
+﻿"""REST and WebSocket routes for the Music AI System."""
 
 from __future__ import annotations
 
@@ -8,7 +8,8 @@ import uuid
 import logging
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 
 from backend.api.schemas import (
     AnalyzeRhythmRequest,
@@ -25,6 +26,7 @@ from backend.api.schemas import (
     RhythmScoreRequest,
     ScoreEditRequest,
     ScoreExportRequest,
+    ScoreReExportRequest,
     VariationSuggestionRequest,
 )
 from backend.core.generation.chord_generation import generate_chord_sequence
@@ -46,11 +48,19 @@ from backend.services.community_service import (
     set_score_like,
 )
 from backend.services.score_service import (
+    ExportFileNotFoundError,
+    ExportRecordNotFoundError,
     ScoreNotFoundError,
     ScoreOperationError,
+    UserNotFoundError,
     create_score_from_pitch_sequence,
+    delete_score_export,
     edit_score,
     export_score,
+    get_score_export_file,
+    get_score_export_record,
+    list_score_exports,
+    regenerate_score_export,
     redo_score,
     undo_score,
 )
@@ -65,6 +75,16 @@ from backend.config.settings import settings
 
 
 router = APIRouter(prefix="/api/v1", tags=["api"])
+
+INLINE_PREVIEW_TYPES = (
+    "application/pdf",
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "image/gif",
+    "text/plain",
+)
+
 
 
 def ok(data: Any, message: str = "success") -> Dict[str, Any]:
@@ -148,7 +168,10 @@ def pitch_compare(payload: PitchCompareRequest):
 
 @router.post("/score/from-pitch-sequence")
 def score_from_pitch_sequence(payload: PitchToScoreRequest):
-    return ok(create_score_from_pitch_sequence(payload.model_dump()))
+    try:
+        return ok(create_score_from_pitch_sequence(payload.model_dump()))
+    except UserNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.patch("/scores/{score_id}")
@@ -183,6 +206,83 @@ def score_export(score_id: str, payload: ScoreExportRequest):
         return ok(export_score(score_id, payload.model_dump()))
     except ScoreNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/scores/{score_id}/exports")
+def score_export_list(score_id: str):
+    try:
+        return ok(list_score_exports(score_id))
+    except ScoreNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/scores/{score_id}/exports/{export_record_id}")
+def score_export_detail(score_id: str, export_record_id: int):
+    try:
+        return ok(get_score_export_record(score_id, export_record_id))
+    except ScoreNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ExportRecordNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.delete("/scores/{score_id}/exports/{export_record_id}")
+def score_export_delete(score_id: str, export_record_id: int):
+    try:
+        return ok(delete_score_export(score_id, export_record_id))
+    except ScoreNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ExportRecordNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/scores/{score_id}/exports/{export_record_id}/regenerate")
+def score_export_regenerate(score_id: str, export_record_id: int, payload: ScoreReExportRequest):
+    try:
+        return ok(regenerate_score_export(score_id, export_record_id, payload.model_dump()))
+    except ScoreNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ExportRecordNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/scores/{score_id}/exports/{export_record_id}/download")
+def score_export_download(score_id: str, export_record_id: int):
+    try:
+        export_data = get_score_export_file(score_id, export_record_id)
+    except ScoreNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ExportRecordNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ExportFileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return FileResponse(
+        path=export_data["file_path"],
+        filename=export_data["file_name"],
+        media_type=export_data["content_type"],
+        content_disposition_type="attachment",
+    )
+
+
+@router.get("/scores/{score_id}/exports/{export_record_id}/preview")
+def score_export_preview(score_id: str, export_record_id: int):
+    try:
+        export_data = get_score_export_file(score_id, export_record_id)
+    except ScoreNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ExportRecordNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ExportFileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    disposition = "inline" if str(export_data["content_type"]).startswith(INLINE_PREVIEW_TYPES) else "attachment"
+    return FileResponse(
+        path=export_data["file_path"],
+        filename=export_data["file_name"],
+        media_type=export_data["content_type"],
+        content_disposition_type=disposition,
+    )
 
 
 @router.post("/rhythm/beat-detect")

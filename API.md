@@ -188,18 +188,21 @@ Authorization: Bearer <token>
 
 ---
 
-## 3. B 模块：扒谱与乐谱编辑
+## 3. B ??????????
 
-### 3.1 音高序列转乐谱
+### 3.1 ???????
 
-**接口用途**：输入音高序列，返回五线谱结构数据。
+**????**??????????????? `project + sheet` ????????????
 
 * `POST /api/v1/score/from-pitch-sequence`
 
-#### 请求参数
+#### ????
 
 ```json
 {
+  "user_id": 1,
+  "title": "??????",
+  "analysis_id": "an_202604110001",
   "tempo": 120,
   "time_signature": "4/4",
   "key_signature": "C",
@@ -213,14 +216,20 @@ Authorization: Bearer <token>
 }
 ```
 
-#### 响应示例
+#### ????
 
 ```json
 {
   "code": 0,
   "message": "success",
   "data": {
+    "project_id": 12,
     "score_id": "score_1001",
+    "title": "??????",
+    "tempo": 120,
+    "time_signature": "4/4",
+    "key_signature": "C",
+    "version": 1,
     "measures": [
       {
         "measure_no": 1,
@@ -239,15 +248,15 @@ Authorization: Bearer <token>
 
 ---
 
-### 3.2 乐谱编辑接口
+### 3.2 ??????
 
-**接口用途**：增删改音符、节拍、调号，支持撤销/重做。
+**????**????????????????? / ???
 
 * `PATCH /api/v1/scores/{score_id}`
 * `POST /api/v1/scores/{score_id}/undo`
 * `POST /api/v1/scores/{score_id}/redo`
 
-#### 修改请求示例
+#### ??????
 
 ```json
 {
@@ -269,29 +278,15 @@ Authorization: Bearer <token>
 }
 ```
 
-#### 响应示例
-
-```json
-{
-  "code": 0,
-  "message": "success",
-  "data": {
-    "score_id": "score_1001",
-    "version": 12,
-    "updated_at": "2026-04-11T10:00:00+08:00"
-  }
-}
-```
-
 ---
 
-### 3.3 乐谱导出接口
+### 3.3 ??????
 
-**接口用途**：导出 MIDI / 图片 / PDF。
+**????**??? `MIDI / PNG / PDF` ???????? `export_record` ???
 
 * `POST /api/v1/scores/{score_id}/export`
 
-#### 请求参数
+#### ????
 
 ```json
 {
@@ -301,21 +296,142 @@ Authorization: Bearer <token>
 }
 ```
 
-#### 响应说明
-
-* `format=midi`：返回文件下载地址或二进制流
-* `format=png`：返回图片下载地址或文件流
-* `format=pdf`：返回 PDF 下载地址或文件流
-
-#### 响应示例
+#### ????
 
 ```json
 {
   "code": 0,
   "message": "success",
   "data": {
-    "download_url": "https://example.com/download/score_1001.pdf",
-    "expires_in": 3600
+    "project_id": 12,
+    "export_record_id": 8,
+    "score_id": "score_1001",
+    "format": "pdf",
+    "file_name": "score_1001_export_8.pdf",
+    "download_url": "/storage/exports/score_1001_export_8.pdf",
+    "detail_url": "/api/v1/scores/score_1001/exports/8",
+    "preview_url": "/api/v1/scores/score_1001/exports/8/preview",
+    "download_api_url": "/api/v1/scores/score_1001/exports/8/download",
+    "regenerate_url": "/api/v1/scores/score_1001/exports/8/regenerate",
+    "delete_url": "/api/v1/scores/score_1001/exports/8",
+    "content_type": "application/pdf",
+    "exists": true,
+    "size_bytes": 40960,
+    "manifest": {
+      "kind": "pdf",
+      "page_size": "A4",
+      "with_annotations": true
+    }
+  }
+}
+```
+
+---
+
+### 3.4 ?????????
+
+**????**??????????????????????????
+
+* `GET /api/v1/scores/{score_id}/exports`
+* `GET /api/v1/scores/{score_id}/exports/{export_record_id}`
+
+#### ??????
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "score_id": "score_1001",
+    "project_id": 12,
+    "count": 2,
+    "items": [
+      {
+        "export_record_id": 9,
+        "format": "png",
+        "file_name": "score_1001_export_9.png",
+        "download_url": "/storage/exports/score_1001_export_9.png",
+        "preview_url": "/api/v1/scores/score_1001/exports/9/preview",
+        "download_api_url": "/api/v1/scores/score_1001/exports/9/download",
+        "regenerate_url": "/api/v1/scores/score_1001/exports/9/regenerate",
+        "delete_url": "/api/v1/scores/score_1001/exports/9",
+        "content_type": "image/png",
+        "exists": true,
+        "size_bytes": 182340
+      }
+    ]
+  }
+}
+```
+
+---
+
+### 3.5 ?????????
+
+**????**????????????
+
+* `GET /api/v1/scores/{score_id}/exports/{export_record_id}/download`
+* `GET /api/v1/scores/{score_id}/exports/{export_record_id}/preview`
+
+#### ??
+
+* `download`??????????`Content-Disposition: attachment`
+* `preview`?? `pdf/png/jpg/webp/gif/text` ????????????????
+
+---
+
+### 3.6 ???????????
+
+**????**????? `export_record` ???????????????????
+
+* `POST /api/v1/scores/{score_id}/exports/{export_record_id}/regenerate`
+* `DELETE /api/v1/scores/{score_id}/exports/{export_record_id}`
+
+#### ????????
+
+```json
+{
+  "page_size": "LETTER",
+  "with_annotations": false
+}
+```
+
+#### ????????
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "project_id": 12,
+    "export_record_id": 8,
+    "format": "pdf",
+    "file_name": "score_1001_export_8.pdf",
+    "regenerated": true,
+    "download_url": "/storage/exports/score_1001_export_8.pdf",
+    "manifest": {
+      "kind": "pdf",
+      "page_size": "LETTER",
+      "with_annotations": false
+    }
+  }
+}
+```
+
+#### ??????
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "score_id": "score_1001",
+    "project_id": 12,
+    "export_record_id": 9,
+    "format": "png",
+    "file_name": "score_1001_export_9.png",
+    "deleted": true,
+    "file_deleted": true
   }
 }
 ```
@@ -862,15 +978,15 @@ Authorization: Bearer <token>
 
 ---
 
-## 8. 接口清单总览
+## 8. ??????
 
-| 模块 | 接口 |
+| ?? | ?? |
 | --- | --- |
-| A 音高识别 | `/pitch/detect`、`/ws/realtime-pitch`、`/pitch/compare` |
-| B 扒谱与乐谱 | `/score/from-pitch-sequence`、`/scores/{id}`、`/scores/{id}/export` |
-| C 节奏与社区 | `/rhythm/beat-detect`、`/audio/separate-tracks`、`/rhythm/score`、`/community/scores` |
-| D 日志与增强 | `/logs/audio`、`/charts/pitch-curve`、`/generation/chords`、`/generation/variation-suggestions` |
-| E 用户与数据 | `/auth/register`、`/auth/login`、`/users/me`、`/users/me/history`、`/reports/export` |
+| A ???? | `/pitch/detect`?`/ws/realtime-pitch`?`/pitch/compare` |
+| B ????? | `/score/from-pitch-sequence`?`/scores/{id}`?`/scores/{id}/undo`?`/scores/{id}/redo`?`/scores/{id}/export`?`/scores/{id}/exports`?`/scores/{id}/exports/{export_record_id}`?`/scores/{id}/exports/{export_record_id}/preview`?`/scores/{id}/exports/{export_record_id}/download`?`/scores/{id}/exports/{export_record_id}/regenerate`?`DELETE /scores/{id}/exports/{export_record_id}` |
+| C ????? | `/rhythm/beat-detect`?`/audio/separate-tracks`?`/rhythm/score`?`/community/scores` |
+| D ????? | `/logs/audio`?`/charts/pitch-curve`?`/generation/chords`?`/generation/variation-suggestions` |
+| E ????? | `/auth/register`?`/auth/login`?`/users/me`?`/users/me/history`?`/reports/export` |
 
 ---
 
@@ -881,3 +997,7 @@ Authorization: Bearer <token>
 3. 导出类接口建议支持异步任务，文件生成完成后再返回下载地址。
 4. 如果后续需要，我可以继续把这份文档整理成 OpenAPI 3.0 / Swagger 版本。
 
+
+## 10. ??????
+
+?????????????????????????????? `frontend/export_panel_integration.md`?

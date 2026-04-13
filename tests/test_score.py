@@ -1,3 +1,7 @@
+import pytest
+
+from backend.db.models import ExportRecord, Sheet
+from backend.db.session import session_scope
 from backend.core.score.note_mapping import (
     beats_per_measure,
     beats_to_duration_label,
@@ -7,7 +11,14 @@ from backend.core.score.note_mapping import (
     quantize_beats,
 )
 from backend.core.score.sheet_extraction import build_score_from_pitch_sequence
-from backend.services.score_service import edit_score, export_score, redo_score, undo_score
+from backend.services.score_service import (
+    UserNotFoundError,
+    create_score_from_pitch_sequence,
+    edit_score,
+    export_score,
+    redo_score,
+    undo_score,
+)
 
 
 def test_note_mapping_round_trip_supports_core_notes_and_rest():
@@ -61,8 +72,17 @@ def test_build_score_from_pitch_sequence_merges_adjacent_same_pitch():
     assert notes[0]["duration"] == "half"
 
 
-def test_score_editing_and_history_round_trip():
-    score = build_score_from_pitch_sequence([{"time": 0.0, "frequency": 440.0, "duration": 0.5}])
+def test_score_editing_and_history_round_trip(score_database: dict[str, int | str]):
+    score = create_score_from_pitch_sequence(
+        {
+            "user_id": score_database["user_id"],
+            "title": "Unit Test Score",
+            "tempo": 120,
+            "time_signature": "4/4",
+            "key_signature": "C",
+            "pitch_sequence": [{"time": 0.0, "frequency": 440.0, "duration": 0.5}],
+        }
+    )
     score_id = score["score_id"]
     original_note_id = score["measures"][0]["notes"][0]["note_id"]
 
@@ -91,9 +111,25 @@ def test_score_editing_and_history_round_trip():
     redone = redo_score(score_id)
     assert len(redone["measures"][0]["notes"]) == 1
 
+    with session_scope() as session:
+        sheet = session.query(Sheet).filter_by(score_id=score_id).one()
+        assert sheet.project_id == score["project_id"]
+        assert sheet.note_data["version"] == redone["version"]
+        assert sheet.bpm == redone["tempo"]
+        assert sheet.key_sign == redone["key_signature"]
+        assert sheet.time_sign == redone["time_signature"]
 
-def test_score_export_builds_structured_manifests():
-    score = build_score_from_pitch_sequence([{"time": 0.0, "frequency": 440.0, "duration": 0.5}])
+
+def test_score_export_builds_structured_manifests(score_database: dict[str, int | str]):
+    score = create_score_from_pitch_sequence(
+        {
+            "user_id": score_database["user_id"],
+            "tempo": 120,
+            "time_signature": "4/4",
+            "key_signature": "C",
+            "pitch_sequence": [{"time": 0.0, "frequency": 440.0, "duration": 0.5}],
+        }
+    )
     score_id = score["score_id"]
 
     midi_export = export_score(score_id, {"format": "midi"})
@@ -102,6 +138,30 @@ def test_score_export_builds_structured_manifests():
 
     assert midi_export["manifest"]["kind"] == "midi"
     assert midi_export["manifest"]["tracks"][0]["events"][0]["pitch"] == "A4"
+    assert midi_export["download_url"].startswith("/storage/exports/")
     assert pdf_export["manifest"]["kind"] == "pdf"
     assert pdf_export["manifest"]["pages"]
+    assert pdf_export["download_url"].startswith("/storage/exports/")
     assert png_export["manifest"]["kind"] == "png"
+    assert png_export["download_url"].startswith("/storage/exports/")
+
+    with session_scope() as session:
+        records = session.query(ExportRecord).filter_by(project_id=score["project_id"]).all()
+        assert len(records) == 3
+        assert {record.format for record in records} == {"midi", "pdf", "png"}
+        assert all(record.file_url for record in records)
+
+
+def test_create_score_from_pitch_sequence_rejects_unknown_user(score_database: dict[str, int | str]):
+    with pytest.raises(UserNotFoundError) as exc_info:
+        create_score_from_pitch_sequence(
+            {
+                "user_id": int(score_database["user_id"]) + 999,
+                "tempo": 120,
+                "time_signature": "4/4",
+                "key_signature": "C",
+                "pitch_sequence": [{"time": 0.0, "frequency": 440.0, "duration": 0.5}],
+            }
+        )
+
+    assert "not found" in str(exc_info.value)

@@ -4,20 +4,32 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from contextlib import asynccontextmanager
 
 if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 import uvicorn
 
 from backend.api.api_routes import router
 from backend.config.settings import settings
+from backend.db.session import close_mysql_tunnel, init_database
 from backend.services.analysis_service import analyze_audio
 
 
-app = FastAPI(title=settings.app_name, version="0.1.0")
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    init_database()
+    try:
+        yield
+    finally:
+        close_mysql_tunnel()
+
+
+app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,6 +40,7 @@ app.add_middleware(
 )
 
 app.include_router(router)
+app.mount("/storage", StaticFiles(directory=str(settings.storage_dir)), name="storage")
 
 
 @app.get("/")

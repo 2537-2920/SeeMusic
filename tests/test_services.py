@@ -6,6 +6,7 @@ from backend.services.score_service import (
     ExportRecordNotFoundError,
     ScoreNotFoundError,
     ScoreOperationError,
+    _resolve_export_path,
     create_score_from_pitch_sequence,
     delete_score_export,
     edit_score,
@@ -15,6 +16,7 @@ from backend.services.score_service import (
     list_score_exports,
     regenerate_score_export,
 )
+from backend.config.settings import settings
 
 
 
@@ -33,6 +35,12 @@ def test_report_service_returns_requested_files():
     assert result["analysis_id"] == "an_001"
     assert len(result["files"]) == 2
     assert result["include_charts"] is False
+
+
+def test_score_service_resolves_storage_urls_inside_configured_storage():
+    resolved = _resolve_export_path("/storage/exports/example.pdf")
+
+    assert resolved == (settings.storage_dir / "exports" / "example.pdf").resolve()
 
 
 

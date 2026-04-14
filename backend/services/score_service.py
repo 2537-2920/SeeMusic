@@ -111,15 +111,16 @@ def _resolve_export_path(file_url: str | None) -> Path | None:
     if not file_url:
         return None
 
-    candidate = Path(file_url)
-    if candidate.is_absolute():
-        resolved = candidate.resolve()
-    else:
-        relative_path = file_url
-        if relative_path.startswith(STORAGE_PREFIX):
-            relative_path = relative_path[len(STORAGE_PREFIX) :]
-        relative_path = relative_path.lstrip("/\\")
+    if file_url.startswith(STORAGE_PREFIX):
+        relative_path = file_url[len(STORAGE_PREFIX) :]
         resolved = (settings.storage_dir / relative_path).resolve()
+    else:
+        candidate = Path(file_url)
+        if candidate.is_absolute():
+            resolved = candidate.resolve()
+        else:
+            relative_path = file_url.lstrip("/\\")
+            resolved = (settings.storage_dir / relative_path).resolve()
 
     storage_root = settings.storage_dir.resolve()
     if resolved != storage_root and storage_root not in resolved.parents:

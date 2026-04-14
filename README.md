@@ -42,6 +42,9 @@ API输出 / 用户系统 / 导出
 * API：对外接口
 * User：用户系统与数据管理
 
+> 说明：当前仓库里的 `backend/` 只提供 API 服务，不直接渲染网页。浏览器界面位于 `frontend/` 目录，B 模块的主要入口是 `frontend/transcription.html`。  
+> `python backend/main.py` 启动后，`0.0.0.0:8000` 只是监听地址，不是可以直接打开的页面；浏览器里请访问 `http://127.0.0.1:8000` 或 `http://localhost:8000`。
+
 ---
 
 ## 📁 项目结构
@@ -52,7 +55,9 @@ music-ai-system/
 ├── backend/
 │   ├── api/                      # 接口层（人E）
 │   │   ├── api_routes.py
-│   │
+│   ├── database/                 #数据库
+│   │   ├── models.py
+│   │   ├── db.py
 │   ├── core/                     # 核心算法层
 │   │   ├── pitch/                # 音高相关（人A）
 │   │   │   ├── pitch_detection.py
@@ -99,7 +104,7 @@ music-ai-system/
 │   │
 │   └── main.py                  # 后端入口
 │
-├── frontend/                    # 前端（可后续扩展）
+├── frontend/                    # 前端静态页面（需单独打开或用静态服务器）
 │
 ├── tests/                       # 测试
 │   ├── test_pitch.py
@@ -119,7 +124,14 @@ music-ai-system/
 * 音高识别（Pitch Detection）
 * 实时音准检测（Realtime Tuning）
 * 节奏分析（Beat Detection）
-* 多轨分离（Vocal / Accompaniment）
+* **多轨分离（Multi-track Separation）** ✨ **[完整实现]**
+  - 支持2、4、5、6轨分离
+  - 人声 + 伴奏分离
+  - 人声 + 鼓 + 贝司 + 其他
+  - 人声 + 鼓 + 贝司 + 吉他 + 钢琴 + 其他
+  - 单轨WAV文件输出
+  - API: `POST /api/v1/audio/separate-tracks`
+  - 详见: [多轨分离完整文档](./AUDIO_SEPARATION_IMPLEMENTATION.md)
 
 ### 🎼 乐谱系统
 
@@ -167,7 +179,7 @@ music-ai-system/
 * Audio Processing：librosa / torchaudio
 * ML / AI：PyTorch
 * Visualization：matplotlib / plotly
-* Frontend：React / Vue（可选）
+* Frontend：静态 HTML / CSS / JavaScript
 * Storage：SQLite / PostgreSQL
 
 ---
@@ -183,15 +195,16 @@ cd music-ai-system
 
 ---
 
-### 2. 安装依赖
+### 2. 激活运行环境并安装依赖
 
 ```bash
+conda activate SeeMusic
 pip install -r requirements.txt
 ```
 
 ---
 
-### 3. 启动服务
+### 3. 启动后端 API
 
 ```bash
 python backend/main.py
@@ -199,18 +212,197 @@ python backend/main.py
 
 ---
 
-### 4. 调用接口
+### 4. 打开前端界面
+
+推荐直接启动一个静态服务器，然后打开前端页面：
 
 ```bash
-POST /analyze
+python -m http.server 5173 --directory frontend
 ```
 
-上传音频文件，即可返回：
+注意：
+
+* 前端静态服务器请用 `5173` 或其他空闲端口，不要占用 `8000`
+* `8000` 已留给后端 API 服务使用
+* 如果页面右上角的健康检查显示离线，先检查 API base 是否仍然是 `http://127.0.0.1:8000/api/v1`
+* 如果你之前打开过旧版本页面，建议先强制刷新一次，或者清掉浏览器里 `seemusic.transcription.apiBase` 这条本地缓存
+
+然后在浏览器中打开：
+
+```text
+http://127.0.0.1:5173/index.html
+```
+
+如果你只负责B模块，直接打开：
+
+```text
+http://127.0.0.1:5173/transcription.html
+```
+
+前端页面默认读取的 API base 是：
+
+```text
+http://127.0.0.1:8000/api/v1
+```
+
+你也可以在页面里手动修改 API base，再点击 `Save`。
+
+---
+
+### 5. 调用接口
+
+后端提供的是 API，而不是网页首页。常用接口示例：
+
+```bash
+# 音频分析整体
+POST /analyze
+
+# 多轨分离（新增功能）
+POST /api/v1/audio/separate-tracks
+```
+
+上传音频文件示例：
+
+```bash
+# 基础分析
+curl -X POST http://localhost:8000/analyze \
+  -F "file=@song.mp3"
+
+# 多轨分离 - 4轨（人声+鼓+贝司+其他）
+curl -X POST http://localhost:8000/api/v1/audio/separate-tracks \
+  -F "file=@song.mp3" \
+  -F "stems=4"
+
+# 多轨分离 - 6轨（完整乐器分离）
+curl -X POST http://localhost:8000/api/v1/audio/separate-tracks \
+  -F "file=@song.mp3" \
+  -F "stems=6"
+```
+
+返回数据示例：
 
 * 音高数据
 * 节奏数据
 * 乐谱结构
 * 可视化分析结果
+* **分离的音频轨道** (多轨分离功能)
+
+---
+
+## 🎯 多轨分离快速入门
+
+已完整实现多轨音频分离功能，支持人声、鼓、贝司、吉他、钢琴等多种乐器分离。
+
+### 使用示例
+
+```python
+from backend.core.separation.multi_track_separation import separate_tracks
+
+# 读取音频
+with open("song.mp3", "rb") as f:
+    audio_bytes = f.read()
+
+# 执行4轨分离
+result = separate_tracks(
+    file_name="song.mp3",
+    model="demucs",
+    stems=4,
+    audio_bytes=audio_bytes
+)
+
+# 获取分离结果
+for track in result['tracks']:
+    print(f"轨道: {track['name']}")
+    print(f"文件: {track['file_path']}")
+    print(f"时长: {track['duration']}秒")
+
+print(result["backend_used"])   # "demucs" or "simple"
+print(result["fallback_used"])  # True when Demucs failed and simple separation was used
+print(result["warnings"])       # Failure reason when fallback happened
+```
+
+### 支持的分离模式
+
+| 轨道数 | 分离范围 | 适用场景 |
+|-------|--------|--------|
+| 2 | 人声 + 伴奏 | 快速分离 |
+| 4 | + 鼓 + 贝司 | 通用编辑 |
+| 5 | + 钢琴 | 详细编辑 |
+| 6 | + 吉他 | 完整分离 |
+
+### Demucs 权重缓存与离线预置
+
+项目里的 Demucs 默认按下面的顺序找权重：
+
+1. 本地离线 repo：`storage/demucs-repo/`
+2. Torch 缓存：`storage/.cache/torch/hub/checkpoints/`
+3. 在线下载
+
+可选环境变量：
+
+```bash
+export DEMUCS_REPO_DIR=/absolute/path/to/demucs-repo
+export DEMUCS_CACHE_DIR=/absolute/path/to/demucs-cache
+export DEMUCS_MODEL_NAME=htdemucs
+```
+
+默认模型 `htdemucs` 对应的官方权重文件名是：
+
+```text
+955717e8-8726e21a.th
+```
+
+离线运行有两种推荐方式。
+
+方式一：预置 Torch 缓存文件
+
+```bash
+mkdir -p storage/.cache/torch/hub/checkpoints
+cp 955717e8-8726e21a.th storage/.cache/torch/hub/checkpoints/
+```
+
+这种方式不需要改代码，Demucs 会直接命中本地缓存。
+
+方式二：预置本地离线 repo
+
+```bash
+mkdir -p storage/demucs-repo
+cp 955717e8-8726e21a.th storage/demucs-repo/
+```
+
+代码会自动从已安装的 `demucs` 包里补齐 `htdemucs.yaml`，然后以本地 repo 模式加载，不再依赖联网下载。
+
+如果你想手工完整准备 repo，目录应当像这样：
+
+```text
+storage/demucs-repo/
+├── htdemucs.yaml
+└── 955717e8-8726e21a.th
+```
+
+### Demucs 失败排查
+
+如果返回结果里出现：
+
+```json
+{
+  "backend_used": "simple",
+  "fallback_used": true
+}
+```
+
+说明请求虽然写的是 `model=demucs`，但实际并没有成功跑到 Demucs，而是回退到了简化分离逻辑。此时优先检查：
+
+1. `storage/.cache/torch/hub/checkpoints/955717e8-8726e21a.th` 是否存在
+2. `storage/demucs-repo/955717e8-8726e21a.th` 是否存在
+3. 当前运行环境是否能解析 `dl.fbaipublicfiles.com`
+4. 返回的 `warnings` 字段里是否有具体错误
+
+### 更多信息
+
+- 📖 [详细实现文档](./AUDIO_SEPARATION_IMPLEMENTATION.md)
+- 🚀 [快速使用指南](./AUDIO_SEPARATION_QUICKSTART.md)
+- ✅ [完成总结](./COMPLETION_SUMMARY.md)
 
 ---
 
@@ -294,4 +486,3 @@ bash scripts/clean_cache.sh
 * C：节奏分析与多轨分离
 * D：可视化与AI扩展
 * E：系统接口与用户系统
-

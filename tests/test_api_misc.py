@@ -1,3 +1,5 @@
+import json
+
 from backend.api.api_routes import (
     audio_log,
     auth_login,
@@ -44,7 +46,8 @@ def test_misc_api_routes_cover_compare_community_generation_and_chart():
         VariationSuggestionRequest(score_id="score_001", style="traditional", difficulty="medium")
     )
 
-    assert compare_result["data"]["summary"]["accuracy"] == 92.3
+    assert compare_result["data"]["summary"]["accuracy"] == 100.0
+    assert compare_result["data"]["chart"]["chart_type"] == "pitch_comparison"
     assert community_result["data"]["total"] == 1
     assert publish_result["data"]["community_score_id"] == "cmt_score_001"
     assert like_score("score_001")["data"]["liked"] is True
@@ -52,8 +55,41 @@ def test_misc_api_routes_cover_compare_community_generation_and_chart():
     assert favorite_score("score_001")["data"]["favorited"] is True
     assert unfavorite_score("score_001")["data"]["favorited"] is False
     assert chart_result["data"]["analysis_id"] == "an_001"
+    assert chart_result["data"]["report_payload"]["chart_type"] == "pitch_comparison"
     assert chord_result["data"]["chords"]
     assert variation_result["data"]["suggestions"]
+
+
+def test_pitch_compare_accepts_json_paths(tmp_path):
+    reference_path = tmp_path / "reference_pitch.json"
+    user_path = tmp_path / "user_pitch.json"
+    reference_path.write_text(
+        json.dumps(
+            [
+                {"time": 0.0, "frequency": 440.0, "confidence": 0.9},
+                {"time": 0.5, "frequency": 442.0, "confidence": 0.9},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    user_path.write_text(
+        json.dumps(
+            {"pitch_sequence": [{"time": 0.0, "frequency": 441.0}, {"time": 0.5, "frequency": 444.0}]}
+        ),
+        encoding="utf-8",
+    )
+
+    result = pitch_compare(
+        PitchCompareRequest(
+            reference_pitch_path=str(reference_path),
+            user_pitch_path=str(user_path),
+        )
+    )
+
+    assert result["data"]["reference_curve"] == [440.0, 442.0]
+    assert result["data"]["user_curve"] == [441.0, 444.0]
+    assert result["data"]["chart"]["series"][2]["id"] == "deviation_cents"
+    assert result["data"]["summary"]["matched_points"] == 2
 
 
 def test_auth_history_log_and_report_routes_work_together():
@@ -77,4 +113,8 @@ def test_auth_history_log_and_report_routes_work_together():
     assert len(list_result["data"]["items"]) == 1
     assert delete_result["data"]["deleted"] is True
     assert log_result["data"]["log_id"].startswith("log_")
+    assert log_result["data"]["sample_rate"] == 16000
+    assert log_result["data"]["duration"] == 1.0
+    assert log_result["data"]["source"] == "api"
+    assert log_result["data"]["stage"] == "manual"
     assert len(report_result["data"]["files"]) == 2

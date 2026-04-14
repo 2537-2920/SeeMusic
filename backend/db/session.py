@@ -10,8 +10,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from backend.config.settings import settings
+from backend.config.settings import Settings
 from backend.db.base import Base
+from backend.db.tunnel import close_mysql_tunnel, ensure_mysql_tunnel
 
 
 _ENGINES: dict[str, Engine] = {}
@@ -19,7 +20,10 @@ _SESSION_FACTORIES: dict[str, sessionmaker[Session]] = {}
 
 
 def resolve_database_url() -> str:
-    return os.getenv("DATABASE_URL", settings.database_url)
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        return database_url
+    return Settings().database_url
 
 
 def _engine_options(database_url: str) -> dict[str, object]:
@@ -32,6 +36,8 @@ def _engine_options(database_url: str) -> dict[str, object]:
 def get_engine() -> Engine:
     database_url = resolve_database_url()
     if database_url not in _ENGINES:
+        if not os.getenv("DATABASE_URL"):
+            ensure_mysql_tunnel()
         _ENGINES[database_url] = create_engine(database_url, **_engine_options(database_url))
     return _ENGINES[database_url]
 
@@ -57,6 +63,9 @@ def session_scope() -> Iterator[Session]:
 
 
 def init_database() -> None:
+    # Import all ORM models before creating tables so Base.metadata is complete.
+    from backend.db import models as _models  # noqa: F401
+
     Base.metadata.create_all(bind=get_engine())
 
 
@@ -65,4 +74,4 @@ def reset_database_state() -> None:
         engine.dispose()
     _ENGINES.clear()
     _SESSION_FACTORIES.clear()
-
+    close_mysql_tunnel()

@@ -35,8 +35,12 @@ def _safe_float(value: Any) -> float | None:
 
 def inspect_audio_bytes(audio_bytes: bytes, file_name: str = "audio") -> dict[str, Any]:
     """Inspect raw audio bytes and return debug-friendly metadata."""
+    # Import at top of function to avoid UnboundLocalError
+    from pathlib import Path as PathlibPath
+    import tempfile
+    
     byte_size = len(audio_bytes)
-    suffix = Path(file_name).suffix.lower().removeprefix(".") or None
+    suffix = PathlibPath(file_name).suffix.lower().removeprefix(".") or None
     metadata: dict[str, Any] = {
         "byte_size": byte_size,
         "file_extension": suffix,
@@ -52,34 +56,35 @@ def inspect_audio_bytes(audio_bytes: bytes, file_name: str = "audio") -> dict[st
         metadata["duration"] = 0.0
         return metadata
 
+    temp_path = None
     try:
         # Write bytes to temporary file for soundfile inspection
-        import tempfile
-        from pathlib import Path
-        
         with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
             temp_path = f.name
             f.write(audio_bytes)
+            f.flush()  # Ensure data is written to disk
         
-        try:
-            info = sf.info(temp_path)
-        finally:
-            Path(temp_path).unlink(missing_ok=True)
+        # Read file info after temp file is created
+        info = sf.info(temp_path)
+        
+        duration = round(float(info.frames) / info.samplerate, 4) if info.samplerate else 0.0
+        metadata.update(
+            {
+                "sample_rate": int(info.samplerate) if info.samplerate else None,
+                "duration": duration,
+                "channels": int(info.channels) if info.channels else None,
+                "frame_count": int(info.frames) if info.frames else None,
+                "audio_format": (info.format or suffix or "unknown").lower(),
+                "subtype": info.subtype,
+            }
+        )
     except Exception:
         metadata["duration"] = estimate_duration_from_bytes(audio_bytes)
-        return metadata
-
-    duration = round(float(info.frames) / info.samplerate, 4) if info.samplerate else 0.0
-    metadata.update(
-        {
-            "sample_rate": int(info.samplerate) if info.samplerate else None,
-            "duration": duration,
-            "channels": int(info.channels) if info.channels else None,
-            "frame_count": int(info.frames) if info.frames else None,
-            "audio_format": (info.format or suffix or "unknown").lower(),
-            "subtype": info.subtype,
-        }
-    )
+    finally:
+        # Clean up temporary file
+        if temp_path and PathlibPath(temp_path).exists():
+            PathlibPath(temp_path).unlink(missing_ok=True)
+    
     return metadata
 
 

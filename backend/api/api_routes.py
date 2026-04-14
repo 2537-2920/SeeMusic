@@ -116,6 +116,10 @@ def resolve_pitch_sequence_source(
     fallback_id: str | None = None,
     duration: float = 10.0,
 ) -> list[dict[str, Any]]:
+    # Ensure pitch_path is a string or None (not a Query object)
+    if pitch_path is not None and not isinstance(pitch_path, str):
+        pitch_path = None
+    
     if pitch_sequence:
         return pitch_sequence
     if pitch_path:

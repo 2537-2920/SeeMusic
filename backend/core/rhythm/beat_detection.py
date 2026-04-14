@@ -267,8 +267,18 @@ class AdvancedBeatDetector:
             Mono audio waveform at target sample rate.
         """
         if audio_bytes is not None:
-            with io.BytesIO(audio_bytes) as buffer:
-                y, sr = sf.read(buffer, dtype='float32')
+            # Write bytes to temporary file for audio loading
+            import tempfile
+            from pathlib import Path
+            
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
+                temp_path = f.name
+                f.write(audio_bytes)
+            
+            try:
+                y, sr = librosa.load(temp_path, sr=None, mono=True)
+            finally:
+                Path(temp_path).unlink(missing_ok=True)
         else:
             y, sr = librosa.load(audio_path, sr=None, mono=True)
 

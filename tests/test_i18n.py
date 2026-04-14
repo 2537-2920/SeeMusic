@@ -198,12 +198,12 @@ class TestInternationalizationSupport:
     def test_consistency_assessment_languages(self):
         """Test consistency assessment in different languages."""
         test_cases = [
-            (0.95, ['very_stable', '稳定']),
-            (0.75, ['generally_stable', '总体稳定']),
-            (0.50, ['Inconsistent', '不稳定']),
+            (0.95, 'stable', '稳定'),
+            (0.75, 'generally', '总体'),
+            (0.50, 'Inconsistent', '不稳定'),
         ]
 
-        for consistency_score, expected_keywords in test_cases:
+        for consistency_score, en_keyword, zh_keyword in test_cases:
             formatter_en = FeedbackFormatter('en')
             assessment_en = formatter_en.format_consistency_assessment(consistency_score)
 
@@ -211,10 +211,12 @@ class TestInternationalizationSupport:
             assessment_zh = formatter_zh.format_consistency_assessment(consistency_score)
 
             # Check English
-            assert any(kw.lower() in assessment_en.lower() for kw in expected_keywords[:1])
+            assert en_keyword.lower() in assessment_en.lower(), \
+                f"Expected '{en_keyword}' in English text: '{assessment_en}'"
 
-            # Check Chinese (simpler check for characters)
-            assert len(assessment_zh) > 0
+            # Check Chinese
+            assert zh_keyword in assessment_zh, \
+                f"Expected '{zh_keyword}' in Chinese text: '{assessment_zh}'"
 
     def test_accuracy_level_translation(self):
         """Test accuracy level formatting in different languages."""

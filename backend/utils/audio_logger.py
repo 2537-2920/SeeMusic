@@ -53,7 +53,18 @@ def inspect_audio_bytes(audio_bytes: bytes, file_name: str = "audio") -> dict[st
         return metadata
 
     try:
-        info = sf.info(io.BytesIO(audio_bytes))
+        # Write bytes to temporary file for soundfile inspection
+        import tempfile
+        from pathlib import Path
+        
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
+            temp_path = f.name
+            f.write(audio_bytes)
+        
+        try:
+            info = sf.info(temp_path)
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
     except Exception:
         metadata["duration"] = estimate_duration_from_bytes(audio_bytes)
         return metadata

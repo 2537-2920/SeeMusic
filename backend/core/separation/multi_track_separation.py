@@ -45,10 +45,19 @@ class AudioSeparator:
     def _load_audio(self, audio_bytes: bytes, sr: int = 44100) -> tuple[np.ndarray, int]:
         """Load audio from bytes."""
         try:
-            # Convert bytes to numpy array via BytesIO
-            audio_data = io.BytesIO(audio_bytes)
-            y, sr = librosa.load(audio_data, sr=sr, mono=False)
-            return y, sr
+            # Write bytes to temporary file for audio loading
+            import tempfile
+            from pathlib import Path
+            
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
+                temp_path = f.name
+                f.write(audio_bytes)
+            
+            try:
+                y, sr = librosa.load(temp_path, sr=sr, mono=False)
+                return y, sr
+            finally:
+                Path(temp_path).unlink(missing_ok=True)
         except Exception as e:
             logger.error(f"Failed to load audio: {e}")
             raise

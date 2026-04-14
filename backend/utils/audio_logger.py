@@ -175,3 +175,37 @@ def record_audio_processing_log(
         extra=extra,
     )
     return record_audio_log(payload, persist=persist)
+
+
+def get_audio_logs(analysis_id: str | None = None, stage: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+    """Retrieve audio logs from in-memory cache, optionally filtered by analysis_id or stage."""
+    logs = AUDIO_LOGS
+    if analysis_id:
+        logs = [log for log in logs if log.get("analysis_id") == analysis_id]
+    if stage:
+        logs = [log for log in logs if log.get("stage") == stage]
+    return logs[-limit:] if limit else logs
+
+
+def read_audio_logs_from_file(log_file: Path | None = None, limit: int = 100) -> list[dict[str, Any]]:
+    """Read audio logs from jsonl file with optional limit."""
+    log_file = log_file or DEFAULT_AUDIO_LOG_FILE
+    if not log_file.exists():
+        return []
+    
+    logs = []
+    try:
+        with log_file.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if line.strip():
+                    logs.append(json.loads(line))
+    except Exception:
+        return []
+    
+    return logs[-limit:] if limit else logs
+
+
+def clear_audio_logs() -> None:
+    """Clear in-memory audio logs (for testing)."""
+    global AUDIO_LOGS
+    AUDIO_LOGS = []

@@ -67,7 +67,7 @@ from backend.services.score_service import (
 )
 from backend.user.history_manager import delete_history, list_history, save_history
 from backend.user.user_system import get_current_user, get_user_by_token, login_user, register_user
-from backend.utils.audio_logger import record_audio_log, record_audio_processing_log
+from backend.utils.audio_logger import record_audio_log, record_audio_processing_log, get_audio_logs, read_audio_logs_from_file
 
 # 引入节奏处理服务与项目配置项
 from backend.services.analysis_service import process_rhythm_scoring
@@ -683,6 +683,46 @@ def unfavorite_score(score_id: str, authorization: str = Header(default="")):
 @router.post("/logs/audio")
 def audio_log(payload: AudioLogRequest):
     return ok(record_audio_log(payload.model_dump()))
+
+
+@router.get("/logs/audio")
+def get_logs(
+    analysis_id: str | None = Query(None),
+    stage: str | None = Query(None),
+    limit: int = Query(100, ge=1, le=1000),
+    persist: bool = Query(False),
+):
+    """Retrieve audio processing logs (采样率、时长、格式等调试数据).
+    
+    Query parameters:
+    - analysis_id: Filter by specific analysis ID
+    - stage: Filter by processing stage (e.g., 'pitch_detect', 'rhythm_beat_detect', 'analyze_audio')
+    - limit: Maximum number of logs to return (default: 100, max: 1000)
+    - persist: If true, read from disk file instead of in-memory cache
+    
+    Returns:
+    - List of audio logs, each containing:
+        - log_id: Unique log identifier
+        - file_name: Processed audio file name
+        - sample_rate: Audio sample rate (Hz)
+        - duration: Audio duration (seconds)
+        - channels: Number of audio channels
+        - frame_count: Total audio frames
+        - byte_size: Raw audio byte size
+        - audio_format: Format (wav, mp3, etc.)
+        - file_extension: File extension
+        - subtype: Audio subtype (PCM16, etc.)
+        - source: Source of the log (api, service, system)
+        - stage: Processing stage
+        - analysis_id: Associated analysis ID
+        - created_at: UTC timestamp
+        - params: Additional processing parameters
+    """
+    if persist:
+        logs = read_audio_logs_from_file(limit=limit)
+    else:
+        logs = get_audio_logs(analysis_id=analysis_id, stage=stage, limit=limit)
+    return ok({"total": len(logs), "logs": logs})
 
 
 @router.get("/charts/pitch-curve")

@@ -18,7 +18,7 @@ from backend.core.score.note_mapping import (
 SCORES: Dict[str, Dict[str, Any]] = {}
 
 
-def _snapshot(score: Dict[str, Any]) -> Dict[str, Any]:
+def snapshot_score(score: Dict[str, Any]) -> Dict[str, Any]:
     clone = deepcopy(score)
     clone.pop("undo_stack", None)
     clone.pop("redo_stack", None)
@@ -139,24 +139,34 @@ def create_score(
         }
     )
     SCORES[score["score_id"]] = deepcopy(score)
-    return _snapshot(score)
+    return snapshot_score(score)
 
 
 def get_score(score_id: str) -> Dict[str, Any]:
     if score_id not in SCORES:
         raise KeyError(f"score {score_id} not found")
+    return snapshot_score(SCORES[score_id])
+
+
+def get_score_state(score_id: str) -> Dict[str, Any]:
+    if score_id not in SCORES:
+        raise KeyError(f"score {score_id} not found")
     return deepcopy(SCORES[score_id])
+
+
+def reset_score_cache() -> None:
+    SCORES.clear()
 
 
 def save_score(score: Dict[str, Any]) -> Dict[str, Any]:
     prepared = _prepare_score_for_storage(score)
     SCORES[prepared["score_id"]] = deepcopy(prepared)
-    return _snapshot(prepared)
+    return snapshot_score(prepared)
 
 
 def apply_operations(score: Dict[str, Any], operations: List[Dict[str, Any]]) -> Dict[str, Any]:
     working = _prepare_score_for_storage(score)
-    working["undo_stack"].append(_snapshot(working))
+    working["undo_stack"].append(snapshot_score(working))
     working["redo_stack"] = []
 
     for operation in operations:
@@ -191,12 +201,12 @@ def apply_operations(score: Dict[str, Any], operations: List[Dict[str, Any]]) ->
 
 
 def undo_score(score_id: str) -> Dict[str, Any]:
-    score = get_score(score_id)
+    score = get_score_state(score_id)
     if not score.get("undo_stack"):
-        return _snapshot(score)
+        return snapshot_score(score)
 
     previous_public_state = score["undo_stack"].pop()
-    score["redo_stack"].append(_snapshot(score))
+    score["redo_stack"].append(snapshot_score(score))
     restored = _prepare_score_for_storage(
         {
             **previous_public_state,
@@ -205,16 +215,16 @@ def undo_score(score_id: str) -> Dict[str, Any]:
         }
     )
     SCORES[score_id] = deepcopy(restored)
-    return _snapshot(restored)
+    return snapshot_score(restored)
 
 
 def redo_score(score_id: str) -> Dict[str, Any]:
-    score = get_score(score_id)
+    score = get_score_state(score_id)
     if not score.get("redo_stack"):
-        return _snapshot(score)
+        return snapshot_score(score)
 
     next_public_state = score["redo_stack"].pop()
-    score["undo_stack"].append(_snapshot(score))
+    score["undo_stack"].append(snapshot_score(score))
     restored = _prepare_score_for_storage(
         {
             **next_public_state,
@@ -223,4 +233,4 @@ def redo_score(score_id: str) -> Dict[str, Any]:
         }
     )
     SCORES[score_id] = deepcopy(restored)
-    return _snapshot(restored)
+    return snapshot_score(restored)

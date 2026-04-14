@@ -3,260 +3,275 @@
 <head>
     <meta charset="utf-8"/>
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-    <title>智能扒谱 - SeeMusic 2026</title>
-    <script src="https://modao.cc/agent-py/static/source/js/tailwindcss.3.4.3.js"></script>
-    <script src="https://modao.cc/agent-py/static/source/js/iconify-icon.min.1.0.7.js"></script>
-    <link rel="stylesheet" href="transcription.css">
+    <title>SeeMusic B Workspace</title>
+    <link href="transcription.css" rel="stylesheet"/>
 </head>
-<body class="flex flex-col h-screen overflow-hidden">
-    <header class="h-16 acrylic flex items-center justify-between px-6 z-50 flex-shrink-0">
-        <div class="flex items-center gap-4">
-            <a class="flex items-center gap-2 group" href="index.html">
-                <div class="w-8 h-8 bg-[#457b9d] rounded flex items-center justify-center text-white transition-all duration-300 group-hover:rotate-12 group-hover:scale-110">
-                    <iconify-icon icon="solar:music-note-bold"></iconify-icon>
-                </div>
-                <span class="text-xl font-bold tracking-tight text-[#1d3557]">SeeMusic <span class="text-xs font-normal text-gray-400">v2026.4</span></span>
-            </a>
-            <div class="h-6 w-px bg-gray-200 mx-2"></div>
-            <div class="flex items-center gap-1 text-sm font-medium text-gray-600">
-                <iconify-icon class="text-lg text-[#457b9d]" icon="solar:document-music-bold-duotone"></iconify-icon>
-                <span>未命名项目.musicxml</span>
+<body>
+    <div class="page-shell">
+        <header class="topbar">
+            <div>
+                <a class="brand" href="index.html">SeeMusic</a>
+                <p class="brand-subtitle">B Module Workspace for score creation, editing, export, and preview.</p>
             </div>
-        </div>
-        <div class="flex items-center gap-4">
-            <div class="flex bg-gray-100 p-1 rounded-lg">
-                <button class="px-3 py-1 bg-white rounded shadow-sm text-xs font-bold">编辑视图</button>
-                <button class="px-3 py-1 text-xs text-gray-500 font-bold hover:text-gray-700">混合视图</button>
-            </div>
-            <button class="bg-[#1d3557] text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-[#2c3e50] transition-colors">
-                <iconify-icon icon="solar:export-bold"></iconify-icon> 导出
-            </button>
-            <img alt="Avatar" class="w-8 h-8 rounded-full border border-gray-200" src="https://api.dicebear.com/7.x/avataaars/svg?seed=Felix"/>
-        </div>
-    </header>
-    <div class="flex flex-1 overflow-hidden">
-        <aside class="w-80 bg-white border-r border-gray-200 flex flex-col overflow-y-auto">
-            <div class="p-5">
-                <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">音频输入源</h3>
-                <div class="grid grid-cols-2 gap-3 mb-6">
-                    <button class="tool-btn active">
-                        <iconify-icon class="text-2xl mb-1" icon="solar:upload-bold-duotone"></iconify-icon>
-                        <span class="text-[10px] font-bold">本地音频</span>
-                    </button>
-                    <button class="tool-btn" onclick="toggleRecording()">
-                        <iconify-icon class="text-2xl mb-1" icon="solar:microphone-large-bold-duotone"></iconify-icon>
-                        <span class="text-[10px] font-bold">麦克风录音</span>
-                    </button>
-                    <button class="tool-btn">
-                        <iconify-icon class="text-2xl mb-1" icon="solar:videocamera-record-bold-duotone"></iconify-icon>
-                        <span class="text-[10px] font-bold">视频提取</span>
-                    </button>
-                    <button class="tool-btn">
-                        <iconify-icon class="text-2xl mb-1" icon="solar:library-bold-duotone"></iconify-icon>
-                        <span class="text-[10px] font-bold">内置示例</span>
-                    </button>
+            <div class="topbar-meta">
+                <div class="status-chip" id="backend-status-chip">
+                    <span class="status-dot" id="backend-status-dot"></span>
+                    <span id="backend-status-text">Waiting for backend</span>
                 </div>
-                <div class="space-y-4">
-                    <div class="bg-blue-50/50 p-4 rounded-2xl border border-blue-100">
-                        <p class="text-xs font-bold text-[#457b9d] mb-2 flex items-center gap-1">
-                            <iconify-icon icon="solar:stars-minimalistic-bold-duotone"></iconify-icon> AI 智能分离引擎
-                        </p>
-                        <div class="space-y-2">
-                            <label class="flex items-center justify-between">
-                                <span class="text-xs text-gray-600">旋律分离</span>
-                                <input checked="" class="accent-[#457b9d]" type="checkbox"/>
-                            </label>
-                            <label class="flex items-center justify-between">
-                                <span class="text-xs text-gray-600">伴奏分离</span>
-                                <input checked="" class="accent-[#457b9d]" type="checkbox"/>
-                            </label>
-                            <label class="flex items-center justify-between">
-                                <span class="text-xs text-gray-600">节奏分析</span>
-                                <input checked="" class="accent-[#457b9d]" type="checkbox"/>
-                            </label>
-                        </div>
-                    </div>
+                <div class="status-chip">
+                    <span>Current score</span>
+                    <strong id="score-linkage-status">Not linked</strong>
+                </div>
+            </div>
+        </header>
+
+        <main class="workspace-grid">
+            <section class="panel left-panel">
+                <div class="panel-header">
                     <div>
-                        <span class="text-[10px] font-bold text-gray-400 uppercase">音乐风格判断</span>
-                        <div class="flex flex-wrap gap-2 mt-2">
-                            <span class="px-2 py-1 bg-gray-100 rounded text-[10px] font-bold text-gray-600">古典</span>
-                            <span class="px-2 py-1 bg-blue-100 rounded text-[10px] font-bold text-[#457b9d]">流行 (Pop)</span>
-                            <span class="px-2 py-1 bg-gray-100 rounded text-[10px] font-bold text-gray-600">爵士</span>
+                        <p class="eyebrow">Connection</p>
+                        <h2>Backend Bridge</h2>
+                    </div>
+                    <button class="ghost-button" id="ping-backend-btn" type="button">Check backend</button>
+                </div>
+
+                <label class="field-label" for="api-base-input">API base</label>
+                <div class="inline-field">
+                    <input id="api-base-input" placeholder="http://127.0.0.1:8000/api/v1" type="text"/>
+                    <button class="secondary-button" id="save-api-base-btn" type="button">Save</button>
+                </div>
+
+                <div class="divider"></div>
+
+                <div class="panel-header compact">
+                    <div>
+                        <p class="eyebrow">Create</p>
+                        <h2>Generate Score</h2>
+                    </div>
+                    <button class="ghost-button" id="load-sample-btn" type="button">Load sample</button>
+                </div>
+
+                <div class="field-grid">
+                    <label class="field-label" for="user-id-input">User ID</label>
+                    <input id="user-id-input" min="1" step="1" type="number"/>
+
+                    <label class="field-label" for="project-title-input">Project title</label>
+                    <input id="project-title-input" placeholder="B module live demo" type="text"/>
+
+                    <label class="field-label" for="analysis-id-input">Analysis ID</label>
+                    <input id="analysis-id-input" placeholder="Optional analysis link" type="text"/>
+                </div>
+
+                <div class="meta-row">
+                    <label>
+                        <span class="field-label">Tempo</span>
+                        <input id="tempo-input" min="40" step="1" type="number"/>
+                    </label>
+                    <label>
+                        <span class="field-label">Time</span>
+                        <input id="time-signature-input" placeholder="4/4" type="text"/>
+                    </label>
+                    <label>
+                        <span class="field-label">Key</span>
+                        <input id="key-signature-input" placeholder="C" type="text"/>
+                    </label>
+                </div>
+
+                <label class="field-label" for="pitch-sequence-input">Pitch sequence JSON</label>
+                <textarea id="pitch-sequence-input" rows="14"></textarea>
+                <p class="helper-text">Use backend-compatible JSON. The sample loader gives you a ready-to-run payload.</p>
+
+                <div class="button-row">
+                    <button class="secondary-button" id="clear-sequence-btn" type="button">Clear</button>
+                    <button class="primary-button" id="create-score-btn" type="button">Create score</button>
+                </div>
+            </section>
+
+            <section class="center-column">
+                <div class="panel summary-panel">
+                    <div class="summary-head">
+                        <div>
+                            <p class="eyebrow">Linked Score</p>
+                            <h2 id="score-title-display">No score loaded</h2>
+                        </div>
+                        <div class="summary-badges">
+                            <span class="pill"><span>Score</span><strong id="score-id-badge">--</strong></span>
+                            <span class="pill"><span>Project</span><strong id="project-id-badge">--</strong></span>
+                            <span class="pill"><span>Version</span><strong id="score-version-badge">--</strong></span>
                         </div>
                     </div>
-                    <button class="w-full bg-[#457b9d] text-white py-3 rounded-xl font-bold text-sm shadow-lg shadow-blue-200/50 hover:bg-[#3d6d8a] transition-all">
-                        重新分析音频
-                    </button>
-                </div>
-            </div>
-            <div class="mt-auto border-t border-gray-100 p-5 bg-gray-50/50">
-                <h3 class="text-xs font-bold text-gray-400 uppercase mb-3">音轨管理</h3>
-                <div class="space-y-2">
-                    <div class="flex items-center gap-3 p-2 bg-white rounded-lg border border-gray-100">
-                        <iconify-icon class="text-[#457b9d]" icon="solar:music-note-bold"></iconify-icon>
-                        <span class="text-xs font-bold flex-1">主旋律 (Piano)</span>
-                        <iconify-icon class="text-gray-300" icon="solar:volume-loud-bold"></iconify-icon>
-                    </div>
-                    <div class="flex items-center gap-3 p-2 bg-white rounded-lg border border-gray-100 opacity-50">
-                        <iconify-icon class="text-gray-400" icon="solar:clapperboard-edit-bold"></iconify-icon>
-                        <span class="text-xs font-bold flex-1">伴奏音轨</span>
-                        <iconify-icon class="text-gray-300" icon="solar:volume-cross-bold"></iconify-icon>
+                    <div class="toolbar">
+                        <button class="tool-button" id="apply-score-settings-btn" type="button">Apply tempo/time/key</button>
+                        <button class="tool-button" id="undo-btn" type="button">Undo</button>
+                        <button class="tool-button" id="redo-btn" type="button">Redo</button>
+                        <button class="tool-button" id="pitch-up-btn" type="button">Pitch +1</button>
+                        <button class="tool-button" id="pitch-down-btn" type="button">Pitch -1</button>
+                        <button class="tool-button danger" id="delete-note-btn" type="button">Delete note</button>
                     </div>
                 </div>
-            </div>
-        </aside>
-        <main class="flex-1 overflow-y-auto bg-gray-100 p-10 flex flex-col items-center">
-            <div class="w-[850px] mb-6 flex items-center justify-between">
-                <div class="flex items-center gap-2 bg-white p-1.5 rounded-xl shadow-sm border border-gray-200">
-                    <button class="p-2 hover:bg-gray-100 rounded-lg text-gray-600" title="撤销"><iconify-icon icon="solar:undo-left-round-bold"></iconify-icon></button>
-                    <button class="p-2 hover:bg-gray-100 rounded-lg text-gray-600" title="重做"><iconify-icon icon="solar:undo-right-round-bold"></iconify-icon></button>
-                    <div class="w-px h-4 bg-gray-200 mx-1"></div>
-                    <button class="p-2 bg-blue-50 text-[#457b9d] rounded-lg" title="选择工具"><iconify-icon icon="solar:cursor-bold"></iconify-icon></button>
-                    <button class="p-2 hover:bg-gray-100 rounded-lg text-gray-600" title="添加音符"><iconify-icon icon="solar:music-note-4-bold"></iconify-icon></button>
-                    <button class="p-2 hover:bg-gray-100 rounded-lg text-gray-600" title="删除"><iconify-icon icon="solar:trash-bin-trash-bold"></iconify-icon></button>
-                    <div class="w-px h-4 bg-gray-200 mx-1"></div>
-                    <button class="p-2 hover:bg-gray-100 rounded-lg text-gray-600" title="升调"><iconify-icon icon="solar:arrow-up-bold"></iconify-icon></button>
-                    <button class="p-2 hover:bg-gray-100 rounded-lg text-gray-600" title="降调"><iconify-icon icon="solar:arrow-down-bold"></iconify-icon></button>
-                </div>
-                <div class="flex items-center gap-2 bg-white p-1.5 rounded-xl shadow-sm border border-gray-200">
-                    <div class="flex items-center gap-1 px-3 py-1 bg-gray-50 rounded-lg border border-gray-100">
-                        <span class="text-xs font-bold text-gray-500">拍号</span>
-                        <span class="text-xs font-black text-[#1d3557]">4/4</span>
-                    </div>
-                    <div class="flex items-center gap-1 px-3 py-1 bg-gray-50 rounded-lg border border-gray-100">
-                        <span class="text-xs font-bold text-gray-500">BPM</span>
-                        <span class="text-xs font-black text-[#1d3557]">120</span>
-                    </div>
-                </div>
-            </div>
-            <div class="w-[850px] sheet-paper" id="sheet-paper">
-                <h1 class="text-center text-3xl font-serif mb-12">夜的钢琴曲 (AI 生成稿)</h1>
-                <div class="staff-line-group" id="staff-1">
-                    <div class="absolute -left-10 top-[-15px] flex flex-col items-center">
-                        <span class="text-[60px] text-gray-800 leading-none" style="font-family: 'Segoe UI Symbol', 'Arial Unicode MS', serif;">&#x1D11E;</span>
-                        <div class="flex flex-col items-center absolute" style="left: 35px; top: 25px;">
-                            <span class="text-[14px] font-bold leading-none mb-0.5">4</span>
-                            <span class="text-[14px] font-bold leading-none">4</span>
+
+                <div class="editor-grid">
+                    <div class="panel note-panel">
+                        <div class="panel-header compact">
+                            <div>
+                                <p class="eyebrow">Edit</p>
+                                <h2>Selected Note</h2>
+                            </div>
+                            <button class="ghost-button" id="clear-note-selection-btn" type="button">Clear selection</button>
                         </div>
+                        <p class="helper-text" id="selected-note-summary">Select a note from the staff or add a new one.</p>
+                        <div class="note-form-grid">
+                            <label>
+                                <span class="field-label">Measure</span>
+                                <input id="note-measure-input" min="1" step="1" type="number"/>
+                            </label>
+                            <label>
+                                <span class="field-label">Beat</span>
+                                <input id="note-beat-input" min="1" step="0.25" type="number"/>
+                            </label>
+                            <label>
+                                <span class="field-label">Pitch</span>
+                                <input id="note-pitch-input" placeholder="C4 or Rest" type="text"/>
+                            </label>
+                            <label>
+                                <span class="field-label">Beats</span>
+                                <input id="note-beats-input" min="0.25" step="0.25" type="number"/>
+                            </label>
+                        </div>
+                        <div class="button-row">
+                            <button class="secondary-button" id="add-note-btn" type="button">Add note</button>
+                            <button class="primary-button" id="update-note-btn" type="button">Update selected</button>
+                        </div>
+                        <p class="helper-text">Click inside a measure to prefill measure and beat. Pitch snapping uses the current input for accidentals and can be adjusted after selection.</p>
                     </div>
-                    <div class="staff-line"></div>
-                    <div class="staff-line"></div>
-                    <div class="staff-line"></div>
-                    <div class="staff-line"></div>
-                    <div class="staff-line"></div>
 
-                    <div class="note-wrapper" onclick="selectNote(this)" style="left: 100px; top: 18px;">
-                        <div class="note-head"></div>
-                        <div class="note-stem"></div>
+                    <div class="panel note-panel">
+                        <div class="panel-header compact">
+                            <div>
+                                <p class="eyebrow">Status</p>
+                                <h2>Current Score Data</h2>
+                            </div>
+                        </div>
+                        <div class="score-stat-grid">
+                            <div class="stat-card">
+                                <span class="stat-label">Tempo</span>
+                                <strong class="stat-value" id="tempo-display">--</strong>
+                            </div>
+                            <div class="stat-card">
+                                <span class="stat-label">Time signature</span>
+                                <strong class="stat-value" id="time-display">--</strong>
+                            </div>
+                            <div class="stat-card">
+                                <span class="stat-label">Key signature</span>
+                                <strong class="stat-value" id="key-display">--</strong>
+                            </div>
+                            <div class="stat-card">
+                                <span class="stat-label">Measures</span>
+                                <strong class="stat-value" id="measure-count-display">--</strong>
+                            </div>
+                        </div>
+                        <p class="helper-text">Tempo, time signature, and key signature inputs at the left are reused both for creation and live score updates.</p>
                     </div>
-                    <div class="note-wrapper" onclick="selectNote(this)" style="left: 160px; top: 30px;">
-                        <div class="note-head"></div>
-                        <div class="note-stem"></div>
-                        <div class="note-tail"></div> 
-                    </div>
-                    <div class="note-wrapper" onclick="selectNote(this)" style="left: 220px; top: 42px;">
-                        <div class="note-head half"></div> 
-                        <div class="note-stem"></div>
-                    </div>
-
-                    <div class="absolute h-[49px] w-px bg-gray-400 right-[50%] top-0"></div>
-                    <div class="absolute h-[49px] w-px bg-gray-800 right-0 top-0 border-r-2 border-gray-800"></div>
                 </div>
 
-                <div class="staff-line-group" id="staff-2">
-                    <div class="staff-line"></div>
-                    <div class="staff-line"></div>
-                    <div class="staff-line"></div>
-                    <div class="staff-line"></div>
-                    <div class="staff-line"></div>
-                    <div class="absolute h-[49px] w-px bg-gray-400 right-[50%] top-0"></div>
-                    <div class="absolute h-[49px] w-px bg-gray-800 right-0 top-0 border-r-2 border-gray-800"></div>
+                <div class="panel score-panel">
+                    <div class="panel-header">
+                        <div>
+                            <p class="eyebrow">Score Surface</p>
+                            <h2>Interactive Staff</h2>
+                        </div>
+                        <button class="ghost-button" id="refresh-score-view-btn" type="button">Refresh view</button>
+                    </div>
+                    <div class="score-empty" id="score-empty">
+                        <h3>No linked score yet</h3>
+                        <p>Create a score first, then edit notes directly from this staff and sync every action to the backend.</p>
+                    </div>
+                    <div class="score-canvas" id="score-canvas"></div>
                 </div>
-                <div class="staff-line-group" id="staff-3">
-                    <div class="staff-line"></div>
-                    <div class="staff-line"></div>
-                    <div class="staff-line"></div>
-                    <div class="staff-line"></div>
-                    <div class="staff-line"></div>
+            </section>
+
+            <aside class="panel right-panel">
+                <div class="panel-header">
+                    <div>
+                        <p class="eyebrow">Export</p>
+                        <h2>Export Studio</h2>
+                    </div>
+                    <button class="ghost-button" id="refresh-exports-btn" type="button">Refresh history</button>
                 </div>
-                <p class="text-center text-gray-300 text-xs italic mt-20">--- 点击右侧面板选择时值，然后在五线谱上点击画音符 ---</p>
-            </div>
+
+                <div class="export-controls">
+                    <label>
+                        <span class="field-label">Format</span>
+                        <select id="export-format-select">
+                            <option value="pdf">PDF</option>
+                            <option value="png">PNG</option>
+                            <option value="midi">MIDI</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span class="field-label">Page size</span>
+                        <select id="export-page-size-select">
+                            <option value="A4">A4</option>
+                            <option value="LETTER">LETTER</option>
+                        </select>
+                    </label>
+                    <label class="toggle-row" for="export-annotations-input">
+                        <span class="field-label">Annotations</span>
+                        <input checked id="export-annotations-input" type="checkbox"/>
+                    </label>
+                </div>
+
+                <div class="button-row">
+                    <button class="primary-button" id="create-export-btn" type="button">Create export</button>
+                    <button class="secondary-button" id="regenerate-selected-export-btn" type="button">Regenerate selected</button>
+                </div>
+
+                <div class="export-actions">
+                    <button class="tool-button" id="download-selected-export-btn" type="button">Download</button>
+                    <button class="tool-button danger" id="delete-selected-export-btn" type="button">Delete</button>
+                </div>
+
+                <div class="divider"></div>
+
+                <div class="panel-header compact">
+                    <div>
+                        <p class="eyebrow">History</p>
+                        <h2>Export Records</h2>
+                    </div>
+                    <span class="count-pill" id="export-count-badge">0 records</span>
+                </div>
+                <div class="export-empty" id="export-empty">
+                    <p>No export history yet. Generate a PDF, PNG, or MIDI file to populate this panel.</p>
+                </div>
+                <div class="export-list" id="export-list"></div>
+
+                <div class="divider"></div>
+
+                <div class="panel-header compact">
+                    <div>
+                        <p class="eyebrow">Preview</p>
+                        <h2 id="preview-title">Nothing selected</h2>
+                    </div>
+                </div>
+                <div class="detail-grid">
+                    <div class="detail-line"><span>Format</span><strong id="detail-format">--</strong></div>
+                    <div class="detail-line"><span>Size</span><strong id="detail-size">--</strong></div>
+                    <div class="detail-line"><span>Updated</span><strong id="detail-updated">--</strong></div>
+                    <div class="detail-line"><span>Status</span><strong id="detail-status">--</strong></div>
+                </div>
+                <div class="preview-stage" id="preview-stage">
+                    <div class="preview-empty" id="preview-empty">
+                        <p>Select an export record to preview PDF or image output here.</p>
+                    </div>
+                </div>
+            </aside>
         </main>
 
-        <aside class="w-72 bg-white border-l border-gray-200 flex flex-col p-6">
-            <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-6">导出格式</h3>
-            <div class="space-y-4">
-                <button class="w-full flex items-center justify-between p-4 bg-gray-50 rounded-2xl hover:bg-gray-100 transition-colors group">
-                    <div class="flex items-center gap-3">
-                        <div class="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center text-red-500 group-hover:scale-110 transition-transform">
-                            <iconify-icon class="text-2xl" icon="solar:file-pdf-bold-duotone"></iconify-icon>
-                        </div>
-                        <div class="text-left">
-                            <p class="text-sm font-bold">PDF 打印稿</p>
-                            <p class="text-[10px] text-gray-400">标准高质量乐谱</p>
-                        </div>
-                    </div>
-                    <iconify-icon class="text-gray-300" icon="solar:alt-arrow-right-bold"></iconify-icon>
-                </button>
-                <button class="w-full flex items-center justify-between p-4 bg-gray-50 rounded-2xl hover:bg-gray-100 transition-colors group">
-                    <div class="flex items-center gap-3">
-                        <div class="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center text-blue-500 group-hover:scale-110 transition-transform">
-                            <iconify-icon class="text-2xl" icon="solar:music-note-slider-bold-duotone"></iconify-icon>
-                        </div>
-                        <div class="text-left">
-                            <p class="text-sm font-bold">MIDI 数据</p>
-                            <p class="text-[10px] text-gray-400">用于 DAW 或编曲</p>
-                        </div>
-                    </div>
-                    <iconify-icon class="text-gray-300" icon="solar:alt-arrow-right-bold"></iconify-icon>
-                </button>
-                <button class="w-full flex items-center justify-between p-4 bg-gray-50 rounded-2xl hover:bg-gray-100 transition-colors group">
-                    <div class="flex items-center gap-3">
-                        <div class="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center text-green-500 group-hover:scale-110 transition-transform">
-                            <iconify-icon class="text-2xl" icon="solar:gallery-bold-duotone"></iconify-icon>
-                        </div>
-                        <div class="text-left">
-                            <p class="text-sm font-bold">PNG 图片</p>
-                            <p class="text-[10px] text-gray-400">快速分享预览图</p>
-                        </div>
-                    </div>
-                    <iconify-icon class="text-gray-300" icon="solar:alt-arrow-right-bold"></iconify-icon>
-                </button>
-            </div>
-            <div class="mt-10">
-                <h3 class="text-xs font-bold text-gray-400 uppercase mb-4">音符属性</h3>
-                <div class="bg-gray-50 p-4 rounded-2xl border border-gray-100">
-                    <div class="flex justify-between items-center mb-4">
-                        <span class="text-xs text-gray-500">当前音高</span>
-                        <span class="text-xs font-bold" id="selected-pitch">C4</span>
-                    </div>
-                    <div class="flex justify-between items-center mb-4">
-                        <span class="text-xs text-gray-500">时值</span>
-                        <select id="note-duration" class="text-xs font-bold bg-transparent outline-none">
-                            <option>四分音符</option>
-                            <option>八分音符</option>
-                            <option>二分音符</option>
-                        </select>
-                    </div>
-                    <div class="flex justify-between items-center">
-                        <span class="text-xs text-gray-500">力度</span>
-                        <input class="w-24 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#457b9d]" type="range"/>
-                    </div>
-                </div>
-            </div>
-        </aside>
+        <footer class="statusbar">
+            <span id="app-status">Ready. Connect the backend, create a score, then everything else will chain from the returned score ID.</span>
+        </footer>
     </div>
-    <footer class="h-8 bg-[#1d3557] text-white flex items-center px-4 justify-between text-[10px]">
-        <div class="flex gap-4">
-            <span>状态: AI 核心已连接</span>
-            <span>延迟: 12ms</span>
-        </div>
-        <div class="flex gap-4">
-            <span>SeeMusic Transcription Engine v4.2</span>
-            <span>2026-04-01</span>
-        </div>
-    </footer>
-    
+
     <script src="transcription.js"></script>
 </body>
 </html>

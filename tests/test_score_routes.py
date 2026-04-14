@@ -5,9 +5,10 @@ from backend.api.api_routes import patch_score, score_export, score_from_pitch_s
 from backend.api.schemas import PitchToScoreRequest, ScoreEditRequest, ScoreExportRequest
 
 
-def test_score_routes_happy_path():
+def test_score_routes_happy_path(score_database: dict[str, int | str]):
     create_response = score_from_pitch_sequence(
         PitchToScoreRequest(
+            user_id=score_database["user_id"],
             tempo=120,
             time_signature="4/4",
             key_signature="C",
@@ -51,7 +52,7 @@ def test_score_routes_happy_path():
     assert export_data["manifest"]["kind"] == "pdf"
 
 
-def test_score_routes_return_404_for_missing_score():
+def test_score_routes_return_404_for_missing_score(score_database: dict[str, int | str]):
     with pytest.raises(HTTPException) as exc_info:
         score_export("score_missing", ScoreExportRequest(format="midi", page_size="A4", with_annotations=True))
     assert exc_info.value.status_code == 404

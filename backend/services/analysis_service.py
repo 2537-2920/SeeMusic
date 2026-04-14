@@ -8,7 +8,7 @@ from typing import Any
 from backend.core.pitch.audio_utils import infer_audio_metadata
 from backend.core.pitch.pitch_detection import detect_pitch_sequence
 from backend.core.score.sheet_extraction import build_score_from_pitch_sequence
-from backend.utils.audio_logger import record_audio_log
+from backend.utils.audio_logger import record_audio_processing_log
 from backend.utils.data_visualizer import build_pitch_curve
 
 
@@ -25,13 +25,15 @@ def analyze_audio(file_name: str, audio_bytes: bytes, sample_rate: int | None = 
     beat_result = detect_beats(file_name, audio_bytes=audio_bytes)
     score = build_score_from_pitch_sequence(pitch_sequence)
     pitch_curve = build_pitch_curve(pitch_sequence, pitch_sequence)
-    log_entry = record_audio_log(
-        {
-            "file_name": file_name,
-            "sample_rate": metadata["sample_rate"],
-            "duration": metadata["duration"],
-            "analysis_id": metadata["analysis_id"],
-        }
+    log_entry = record_audio_processing_log(
+        file_name=file_name,
+        audio_bytes=audio_bytes,
+        sample_rate=metadata["sample_rate"],
+        duration=metadata["duration"],
+        analysis_id=metadata["analysis_id"],
+        source="service",
+        stage="analyze_audio",
+        params={"pipeline": "analyze_audio"},
     )
     return {
         "analysis_id": metadata["analysis_id"],

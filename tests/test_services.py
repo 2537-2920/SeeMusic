@@ -25,6 +25,10 @@ def test_analysis_service_returns_end_to_end_payload():
     assert result["beat_result"]["beat_times"]
     assert result["score"]["score_id"].startswith("score_")
     assert result["log"]["log_id"].startswith("log_")
+    assert result["log"]["sample_rate"] == 16000
+    assert result["log"]["duration"] == 1.0
+    assert result["log"]["byte_size"] == 32000
+    assert result["log"]["stage"] == "analyze_audio"
 
 
 

@@ -8,7 +8,7 @@ import uuid
 import logging
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 
 from backend.api.schemas import (
@@ -31,6 +31,7 @@ from backend.api.schemas import (
 )
 from backend.core.generation.chord_generation import generate_chord_sequence
 from backend.core.generation.variation_suggestions import generate_variation_suggestions
+from backend.core.pitch.pitch_comparison import build_pitch_comparison_payload, load_pitch_sequence_json
 from backend.core.pitch.audio_utils import infer_audio_metadata
 from backend.core.pitch.pitch_detection import detect_pitch_sequence
 from backend.core.pitch.realtime_tuning import analyze_audio_frame
@@ -66,8 +67,7 @@ from backend.services.score_service import (
 )
 from backend.user.history_manager import delete_history, list_history, save_history
 from backend.user.user_system import get_current_user, get_user_by_token, login_user, register_user
-from backend.utils.audio_logger import record_audio_log
-from backend.utils.data_visualizer import build_pitch_curve
+from backend.utils.audio_logger import record_audio_log, record_audio_processing_log
 
 # 引入节奏处理服务与项目配置项
 from backend.services.analysis_service import process_rhythm_scoring
@@ -109,6 +109,27 @@ def optional_query_int(value: Any, default: int) -> int:
     return value if isinstance(value, int) else default
 
 
+def resolve_pitch_sequence_source(
+    *,
+    pitch_path: str | None = None,
+    pitch_sequence: list[dict[str, Any]] | None = None,
+    fallback_id: str | None = None,
+    duration: float = 10.0,
+) -> list[dict[str, Any]]:
+    if pitch_sequence:
+        return pitch_sequence
+    if pitch_path:
+        try:
+            return load_pitch_sequence_json(pitch_path)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if fallback_id:
+        return detect_pitch_sequence(file_name=fallback_id, duration=duration)
+    raise HTTPException(status_code=400, detail="missing pitch source")
+
+
 @router.post("/pitch/detect")
 async def pitch_detect(
     file: UploadFile = File(...),
@@ -119,6 +140,16 @@ async def pitch_detect(
 ):
     content = await file.read()
     metadata = infer_audio_metadata(file.filename or "audio", sample_rate, None)
+    log_entry = record_audio_processing_log(
+        file_name=file.filename or "audio",
+        audio_bytes=content,
+        sample_rate=metadata["sample_rate"],
+        duration=metadata["duration"],
+        analysis_id=metadata["analysis_id"],
+        source="api",
+        stage="pitch_detect",
+        params={"frame_ms": frame_ms, "hop_ms": hop_ms, "algorithm": algorithm},
+    )
     pitches = detect_pitch_sequence(
         file_name=file.filename or "audio",
         sample_rate=metadata["sample_rate"],
@@ -128,7 +159,14 @@ async def pitch_detect(
         duration=metadata["duration"],
         audio_bytes=content,
     )
-    return ok({"analysis_id": metadata["analysis_id"], "duration": metadata["duration"], "pitch_sequence": pitches})
+    return ok(
+        {
+            "analysis_id": metadata["analysis_id"],
+            "duration": metadata["duration"],
+            "pitch_sequence": pitches,
+            "audio_log": log_entry,
+        }
+    )
 
 
 @router.websocket("/ws/realtime-pitch")
@@ -153,17 +191,41 @@ async def realtime_pitch(websocket: WebSocket) -> None:
 
 @router.post("/pitch/compare")
 def pitch_compare(payload: PitchCompareRequest):
-    reference = detect_pitch_sequence(file_name=payload.reference_id, duration=10.0)
-    user = detect_pitch_sequence(file_name=payload.user_recording_id, duration=10.0)
-    deviation = [
-        {"time": item["time"], "cents_offset": item["frequency"] - reference[index]["frequency"]}
-        for index, item in enumerate(user[: len(reference)])
-    ]
-    summary = {
-        "accuracy": 92.3,
-        "average_deviation": round(sum(entry["cents_offset"] for entry in deviation) / max(len(deviation), 1), 2),
-    }
-    return ok({"reference": reference, "user": user, "deviation": deviation, "summary": summary})
+    reference = resolve_pitch_sequence_source(
+        pitch_path=payload.reference_pitch_path,
+        pitch_sequence=[item.model_dump() for item in payload.reference_pitch_sequence]
+        if payload.reference_pitch_sequence
+        else None,
+        fallback_id=payload.reference_id,
+    )
+    user = resolve_pitch_sequence_source(
+        pitch_path=payload.user_pitch_path,
+        pitch_sequence=[item.model_dump() for item in payload.user_pitch_sequence]
+        if payload.user_pitch_sequence
+        else None,
+        fallback_id=payload.user_recording_id,
+    )
+    comparison = build_pitch_comparison_payload(
+        reference,
+        user,
+        time_range=payload.range.model_dump() if payload.range else None,
+        mode="compare",
+    )
+    return ok(
+        {
+            "reference": comparison["reference_points"],
+            "user": comparison["user_points"],
+            "deviation": comparison["deviation"],
+            "summary": comparison["summary"],
+            "alignment": comparison["alignment"],
+            "chart": comparison["report_payload"],
+            "x_axis": comparison["x_axis"],
+            "reference_curve": comparison["reference_curve"],
+            "user_curve": comparison["user_curve"],
+            "deviation_curve": comparison["deviation_curve"],
+            "deviation_cents_curve": comparison["deviation_cents_curve"],
+        }
+    )
 
 
 @router.post("/score/from-pitch-sequence")
@@ -294,8 +356,15 @@ async def rhythm_beat_detect(
     from backend.core.rhythm.beat_detection import detect_beats
 
     content = await file.read()
+    log_entry = record_audio_processing_log(
+        file_name=file.filename or "audio",
+        audio_bytes=content,
+        source="api",
+        stage="rhythm_beat_detect",
+        params={"bpm_hint": bpm_hint, "sensitivity": sensitivity},
+    )
     result = detect_beats(file.filename or "audio", bpm_hint=bpm_hint, sensitivity=sensitivity, audio_bytes=content)
-    return ok(result)
+    return ok({**result, "audio_log": log_entry})
 
 
 @router.post("/audio/separate-tracks")
@@ -305,7 +374,15 @@ async def audio_separate_tracks(
     stems: int = Form(2),
 ):
     content = await file.read()
-    return ok(separate_tracks(file.filename or "audio", model=model, stems=stems, audio_bytes=content))
+    log_entry = record_audio_processing_log(
+        file_name=file.filename or "audio",
+        audio_bytes=content,
+        source="api",
+        stage="audio_separate_tracks",
+        params={"model": model, "stems": stems},
+    )
+    result = separate_tracks(file.filename or "audio", model=model, stems=stems, audio_bytes=content)
+    return ok({**result, "audio_log": log_entry})
 
 
 @router.post("/rhythm/score")
@@ -390,6 +467,13 @@ async def analyze_rhythm_api(
         content = await user_audio.read()
         with open(temp_user_path, "wb") as f:
             f.write(content)
+        log_entry = record_audio_processing_log(
+            file_name=user_audio.filename or "audio",
+            audio_bytes=content,
+            source="api",
+            stage="analyze_rhythm_upload",
+            params={"ref_id": ref_id, "language": language, "scoring_model": scoring_model, "threshold_ms": threshold_ms},
+        )
         
         # Construct reference audio path
         ref_audio_path = os.path.join("assets", "references", f"{ref_id}.wav")
@@ -411,7 +495,7 @@ async def analyze_rhythm_api(
             threshold_ms=threshold_ms,
         )
         
-        return ok(report)
+        return ok({**report, "audio_log": log_entry})
 
     except HTTPException:
         raise
@@ -598,10 +682,23 @@ def audio_log(payload: AudioLogRequest):
 
 
 @router.get("/charts/pitch-curve")
-def pitch_curve(analysis_id: str = Query(...), mode: str = Query("compare")):
-    reference_curve = detect_pitch_sequence(file_name=f"{analysis_id}_reference", duration=3.0)
-    user_curve = detect_pitch_sequence(file_name=f"{analysis_id}_user", duration=3.0)
-    return ok({"analysis_id": analysis_id, "mode": mode, **build_pitch_curve(reference_curve, user_curve)})
+def pitch_curve(
+    analysis_id: str = Query(...),
+    mode: str = Query("compare"),
+    reference_pitch_path: str | None = Query(None),
+    user_pitch_path: str | None = Query(None),
+):
+    reference_curve = resolve_pitch_sequence_source(
+        pitch_path=reference_pitch_path,
+        fallback_id=f"{analysis_id}_reference",
+        duration=3.0,
+    )
+    user_curve = resolve_pitch_sequence_source(
+        pitch_path=user_pitch_path,
+        fallback_id=f"{analysis_id}_user",
+        duration=3.0,
+    )
+    return ok({"analysis_id": analysis_id, **build_pitch_comparison_payload(reference_curve, user_curve, mode=mode)})
 
 
 @router.post("/generation/chords")

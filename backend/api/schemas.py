@@ -20,8 +20,12 @@ class PitchSequenceItem(BaseModel):
 
 
 class PitchCompareRequest(BaseModel):
-    reference_id: str
-    user_recording_id: str
+    reference_id: Optional[str] = None
+    user_recording_id: Optional[str] = None
+    reference_pitch_path: Optional[str] = None
+    user_pitch_path: Optional[str] = None
+    reference_pitch_sequence: Optional[List[PitchSequenceItem]] = None
+    user_pitch_sequence: Optional[List[PitchSequenceItem]] = None
     range: Optional[TimeRange] = None
 
 
@@ -114,6 +118,15 @@ class AudioLogRequest(BaseModel):
     file_name: str
     sample_rate: int
     duration: float
+    analysis_id: Optional[str] = None
+    channels: Optional[int] = None
+    frame_count: Optional[int] = None
+    byte_size: Optional[int] = None
+    audio_format: Optional[str] = None
+    file_extension: Optional[str] = None
+    subtype: Optional[str] = None
+    source: str = "api"
+    stage: str = "manual"
     params: Dict[str, Any] = Field(default_factory=dict)
 
 

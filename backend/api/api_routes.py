@@ -94,7 +94,70 @@ async def pitch_detect(
         duration=metadata["duration"],
         audio_bytes=content,
     )
-    return ok({"analysis_id": metadata["analysis_id"], "duration": metadata["duration"], "pitch_sequence": pitches})
+    return ok(
+        {
+            "analysis_id": metadata["analysis_id"],
+            "duration": metadata["duration"],
+            "sample_rate": metadata["sample_rate"],
+            "frame_ms": frame_ms,
+            "hop_ms": hop_ms,
+            "algorithm": algorithm,
+            "track_count": 1,
+            "tracks": [{"name": file.filename or "audio"}],
+            "pitch_sequence": pitches,
+        }
+    )
+
+
+@router.post("/pitch/detect-multitrack")
+async def pitch_detect_multitrack(
+    files: list[UploadFile] = File(...),
+    sample_rate: Optional[int] = Form(None),
+    frame_ms: int = Form(20),
+    hop_ms: int = Form(10),
+    algorithm: str = Form("yin"),
+):
+    if not files:
+        raise HTTPException(status_code=400, detail="at least one audio track is required")
+
+    resolved_sample_rate = sample_rate or 16000
+    tracks = []
+    durations = []
+    for index, upload in enumerate(files):
+        content = await upload.read()
+        if not content:
+            continue
+        track_name = upload.filename or f"track_{index + 1}"
+        tracks.append({"name": track_name, "audio_bytes": content, "sample_rate": resolved_sample_rate})
+        durations.append(estimate_duration_from_bytes(content, resolved_sample_rate))
+
+    if not tracks:
+        raise HTTPException(status_code=400, detail="uploaded tracks are empty")
+
+    duration = max(durations) if durations else None
+    metadata = infer_audio_metadata("multitrack", resolved_sample_rate, duration or None)
+    pitches = detect_pitch_sequence(
+        file_name="multitrack",
+        sample_rate=metadata["sample_rate"],
+        frame_ms=frame_ms,
+        hop_ms=hop_ms,
+        algorithm=algorithm,
+        duration=metadata["duration"],
+        audio_bytes={"sample_rate": metadata["sample_rate"], "tracks": tracks},
+    )
+    return ok(
+        {
+            "analysis_id": metadata["analysis_id"],
+            "duration": metadata["duration"],
+            "sample_rate": metadata["sample_rate"],
+            "frame_ms": frame_ms,
+            "hop_ms": hop_ms,
+            "algorithm": algorithm,
+            "track_count": len(tracks),
+            "tracks": [{"name": track["name"]} for track in tracks],
+            "pitch_sequence": pitches,
+        }
+    )
 
 
 @router.websocket("/ws/realtime-pitch")

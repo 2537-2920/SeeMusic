@@ -8,13 +8,16 @@ autocorrelation fallback to produce frontend-friendly pitch time series data.
 
 from __future__ import annotations
 
-import io
-import math
-import wave
 from math import sin
-from statistics import mean
-from typing import Sequence
+from typing import Any, Sequence
 
+from backend.core.pitch.audio_utils import (
+    audio_bytes_to_samples,
+    extract_audio_features,
+    prepare_pitch_frame,
+    preprocess_audio_features,
+    safe_sample_rate,
+)
 from backend.core.score.note_mapping import frequency_to_midi, frequency_to_note, midi_to_frequency
 
 DEFAULT_SAMPLE_RATE = 16000
@@ -29,92 +32,11 @@ def _clamp(value: float, low: float, high: float) -> float:
 
 
 def _safe_sample_rate(sample_rate: int | None) -> int:
-    rate = sample_rate or DEFAULT_SAMPLE_RATE
-    return int(rate) if int(rate) > 0 else DEFAULT_SAMPLE_RATE
-
-
-def _normalize_int_samples(raw: bytes, sample_width: int, channels: int) -> list[float]:
-    if not raw:
-        return []
-
-    channels = max(int(channels or 1), 1)
-    sample_width = max(int(sample_width or 2), 1)
-
-    values: list[float] = []
-    frame_width = sample_width * channels
-    usable_length = len(raw) - (len(raw) % frame_width)
-
-    for frame_start in range(0, usable_length, frame_width):
-        channel_values: list[float] = []
-        for channel in range(channels):
-            start = frame_start + channel * sample_width
-            chunk = raw[start : start + sample_width]
-            if sample_width == 1:
-                value = (chunk[0] - 128) / 128.0
-            else:
-                integer = int.from_bytes(chunk, byteorder="little", signed=True)
-                max_abs = float(1 << (8 * sample_width - 1))
-                value = integer / max_abs
-            channel_values.append(value)
-        values.append(sum(channel_values) / len(channel_values))
-
-    return values
-
-
-def audio_bytes_to_samples(audio_bytes: bytes | None, sample_rate: int | None = None) -> tuple[list[float], int]:
-    """Decode WAV or raw signed 16-bit PCM bytes into mono float samples."""
-
-    rate = _safe_sample_rate(sample_rate)
-    if not audio_bytes:
-        return [], rate
-
-    if audio_bytes[:4] == b"RIFF" and audio_bytes[8:12] == b"WAVE":
-        try:
-            with wave.open(io.BytesIO(audio_bytes), "rb") as wav_file:
-                rate = wav_file.getframerate() or rate
-                raw = wav_file.readframes(wav_file.getnframes())
-                samples = _normalize_int_samples(raw, wav_file.getsampwidth(), wav_file.getnchannels())
-                return samples, rate
-        except (wave.Error, EOFError):
-            return [], rate
-
-    return _normalize_int_samples(audio_bytes, sample_width=2, channels=1), rate
-
-
-def extract_audio_features(frame: Sequence[float]) -> dict[str, float]:
-    """Extract lightweight features used by pitch detection and visual reports."""
-
-    if not frame:
-        return {"rms": 0.0, "zcr": 0.0, "peak": 0.0, "energy": 0.0}
-
-    rms = math.sqrt(sum(sample * sample for sample in frame) / len(frame))
-    peak = max(abs(sample) for sample in frame)
-    crossings = 0
-    previous = frame[0]
-    for sample in frame[1:]:
-        if (previous >= 0 > sample) or (previous < 0 <= sample):
-            crossings += 1
-        previous = sample
-    zcr = crossings / max(len(frame) - 1, 1)
-    return {
-        "rms": round(rms, 5),
-        "zcr": round(zcr, 5),
-        "peak": round(peak, 5),
-        "energy": round(rms * rms, 7),
-    }
+    return safe_sample_rate(sample_rate)
 
 
 def _prepare_frame(frame: Sequence[float]) -> list[float]:
-    if not frame:
-        return []
-    dc = mean(frame)
-    length = len(frame)
-    if length == 1:
-        return [frame[0] - dc]
-    return [
-        (sample - dc) * (0.5 - 0.5 * math.cos(2 * math.pi * index / (length - 1)))
-        for index, sample in enumerate(frame)
-    ]
+    return prepare_pitch_frame(frame)
 
 
 def _yin_pitch(
@@ -297,7 +219,7 @@ def detect_pitch_sequence(
     hop_ms: int = 10,
     algorithm: str = "yin",
     duration: float | None = None,
-    audio_bytes: bytes | None = None,
+    audio_bytes: Any = None,
 ) -> list[dict]:
     """Return a pitch time series compatible with `/api/v1/pitch/detect`."""
 
@@ -306,7 +228,9 @@ def detect_pitch_sequence(
     hop_ms = max(int(hop_ms or 10), 1)
     algorithm = algorithm or "yin"
 
-    samples, actual_rate = audio_bytes_to_samples(audio_bytes, requested_rate)
+    preprocessed = preprocess_audio_features(audio_bytes, requested_rate)
+    samples = preprocessed["samples"]
+    actual_rate = preprocessed["sample_rate"]
     if not samples:
         fallback_duration = duration or 4.0
         return _fallback_pitch_sequence(fallback_duration, hop_ms, algorithm)

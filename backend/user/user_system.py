@@ -1,8 +1,8 @@
+from __future__ import annotations
 """Simple in-memory auth/user system."""
 from backend.database.models import user,usertoken
 from backend.database.db import db
 
-from __future__ import annotations
 
 import hashlib
 from datetime import datetime, timezone,timedelta

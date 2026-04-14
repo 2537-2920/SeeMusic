@@ -9,6 +9,9 @@ const STORAGE_KEYS = {
     pitchSequence: "seemusic.transcription.pitchSequence",
 };
 
+const DEFAULT_BACKEND_ORIGIN = "http://127.0.0.1:8000";
+const DEFAULT_API_BASE = `${DEFAULT_BACKEND_ORIGIN}/api/v1`;
+
 const NOTE_INDEX = {
     C: 0,
     "C#": 1,
@@ -131,7 +134,7 @@ function cacheElements() {
 }
 
 function hydrateInputs() {
-    els.apiBaseInput.value = localStorage.getItem(STORAGE_KEYS.apiBase) || resolveDefaultApiBase();
+    els.apiBaseInput.value = loadPreferredApiBase();
     els.userIdInput.value = localStorage.getItem(STORAGE_KEYS.userId) || "1";
     els.projectTitleInput.value = localStorage.getItem(STORAGE_KEYS.title) || "B module live demo";
     els.analysisIdInput.value = localStorage.getItem(STORAGE_KEYS.analysisId) || "";
@@ -144,6 +147,25 @@ function hydrateInputs() {
     els.noteBeatInput.value = "1";
     els.notePitchInput.value = "C4";
     els.noteBeatsInput.value = "1";
+}
+
+function loadPreferredApiBase() {
+    const storedValue = localStorage.getItem(STORAGE_KEYS.apiBase);
+    if (!storedValue) {
+        return resolveDefaultApiBase();
+    }
+
+    const normalizedStoredValue = normalizeApiBase(storedValue);
+    try {
+        const storedUrl = new URL(normalizedStoredValue);
+        const isLocalHost = ["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(storedUrl.hostname);
+        if (isLocalHost && storedUrl.port !== "8000") {
+            return resolveDefaultApiBase();
+        }
+    } catch {
+        return resolveDefaultApiBase();
+    }
+    return normalizedStoredValue;
 }
 
 function bindEvents() {
@@ -184,21 +206,14 @@ function bindEvents() {
 }
 
 function resolveDefaultApiBase() {
-    if (window.location.origin && window.location.origin !== "null" && /^https?:$/.test(window.location.protocol)) {
-        return `${window.location.origin.replace(/\/$/, "")}/api/v1`;
-    }
-    return "http://127.0.0.1:8000/api/v1";
+    return DEFAULT_API_BASE;
 }
 
 function normalizeApiBase(rawValue) {
     let value = (rawValue || "").trim() || resolveDefaultApiBase();
     if (!/^https?:\/\//i.test(value)) {
         if (value.startsWith("/")) {
-            const origin =
-                window.location.origin && window.location.origin !== "null"
-                    ? window.location.origin
-                    : "http://127.0.0.1:8000";
-            value = `${origin}${value}`;
+            value = `${DEFAULT_BACKEND_ORIGIN}${value}`;
         } else {
             value = `http://${value}`;
         }
@@ -1159,4 +1174,3 @@ function formatDate(value) {
         minute: "2-digit",
     }).format(date);
 }
-

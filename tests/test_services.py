@@ -1,4 +1,9 @@
-﻿import pytest
+﻿import tempfile
+from pathlib import Path
+
+import numpy as np
+import pytest
+import soundfile as sf
 
 from backend.services.analysis_service import analyze_audio
 from backend.services.report_service import export_report
@@ -17,14 +22,38 @@ from backend.services.score_service import (
 )
 
 
+@pytest.fixture
+def temp_audio_bytes():
+    """Generate temporary audio bytes for testing."""
+    sr = 16000
+    duration = 2  # 2 seconds
+    t = np.linspace(0, duration, sr * duration)
+    # Generate a simple sine wave
+    y = np.sin(2 * np.pi * 440 * t).astype(np.float32)
+    
+    # Write to temporary file and read back as bytes
+    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
+        temp_path = f.name
+    
+    try:
+        sf.write(temp_path, y, sr)
+        with open(temp_path, 'rb') as f:
+            audio_bytes = f.read()
+        return audio_bytes
+    finally:
+        Path(temp_path).unlink(missing_ok=True)
 
-def test_analysis_service_returns_end_to_end_payload():
-    result = analyze_audio("demo.wav", b"\x00" * 32000, sample_rate=16000)
+
+def test_analysis_service_returns_end_to_end_payload(temp_audio_bytes):
+    result = analyze_audio("demo.wav", temp_audio_bytes, sample_rate=16000)
     assert result["analysis_id"].startswith("an_")
     assert result["pitch_sequence"]
     assert result["beat_result"]["beat_times"]
     assert result["score"]["score_id"].startswith("score_")
     assert result["log"]["log_id"].startswith("log_")
+    assert result["log"]["sample_rate"] == 16000
+    assert result["log"]["duration"] == 2.0  # 2 seconds as defined in fixture
+    assert result["log"]["stage"] == "analyze_audio"
 
 
 

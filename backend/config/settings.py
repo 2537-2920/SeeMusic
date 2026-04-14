@@ -20,10 +20,30 @@ def _load_env_file(path: Path) -> None:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+        key = key.strip()
+        file_value = value.strip().strip("\"'")
+        current_value = os.environ.get(key)
+        if current_value is not None:
+            cleaned_current = current_value.strip()
+            if cleaned_current and not cleaned_current.lower().startswith("your_"):
+                continue
+        os.environ[key] = file_value
 
 
 _load_env_file(ROOT_DIR / ".env")
+
+
+def _nonempty_env(*values: str | None) -> str | None:
+    for value in values:
+        if value is None:
+            continue
+        cleaned = value.strip()
+        if not cleaned:
+            continue
+        if cleaned.lower().startswith("your_"):
+            continue
+        return cleaned
+    return None
 
 
 @dataclass(frozen=True)
@@ -35,8 +55,17 @@ class Settings:
     debug: bool = field(default_factory=lambda: os.getenv("DEBUG", "0") == "1")
     storage_dir: Path = field(default_factory=lambda: (ROOT_DIR / os.getenv("STORAGE_DIR", "storage")).resolve())
     max_upload_size_mb: int = field(default_factory=lambda: int(os.getenv("MAX_UPLOAD_SIZE_MB", "100")))
+    ssh_host: str = field(default_factory=lambda: os.getenv("SSH_HOST", ""))
+    ssh_port: int = field(default_factory=lambda: int(os.getenv("SSH_PORT", "22")))
+    ssh_user: str = field(default_factory=lambda: os.getenv("SSH_USER", ""))
+    ssh_key_file: str = field(default_factory=lambda: os.getenv("SSH_KEY_FILE", ""))
+    mysql_host: str = field(default_factory=lambda: os.getenv("MYSQL_HOST", "127.0.0.1"))
+    mysql_port: int = field(default_factory=lambda: int(os.getenv("MYSQL_PORT", "3306")))
+    mysql_user: str = field(default_factory=lambda: os.getenv("MYSQL_USER", ""))
+    mysql_password: str = field(default_factory=lambda: os.getenv("MYSQL_PASSWORD", ""))
+    mysql_db_name: str = field(default_factory=lambda: os.getenv("MYSQL_DB_NAME", ""))
     db_host: str = field(default_factory=lambda: os.getenv("DB_HOST", "127.0.0.1"))
-    db_port: int = field(default_factory=lambda: int(os.getenv("DB_PORT", "3306")))
+    db_port: int = field(default_factory=lambda: int(os.getenv("DB_PORT", "3307")))
     db_user: str = field(default_factory=lambda: os.getenv("DB_USER", "root"))
     db_password: str = field(default_factory=lambda: os.getenv("DB_PASSWORD", ""))
     db_name: str = field(default_factory=lambda: os.getenv("DB_NAME", "SeeMusic"))
@@ -47,11 +76,11 @@ class Settings:
         if database_url:
             return database_url
 
-        user = quote_plus(self.db_user)
-        password = quote_plus(self.db_password)
-        return f"mysql+pymysql://{user}:{password}@{self.db_host}:{self.db_port}/{self.db_name}?charset=utf8mb4"
+        user = _nonempty_env(self.mysql_user, self.db_user) or self.db_user
+        password = _nonempty_env(self.mysql_password, self.db_password) or self.db_password
+        db_name = _nonempty_env(self.mysql_db_name, self.db_name) or self.db_name
+        return f"mysql+pymysql://{quote_plus(user)}:{quote_plus(password)}@{self.db_host}:{self.db_port}/{db_name}?charset=utf8mb4"
 
 
 settings = Settings()
 settings.storage_dir.mkdir(parents=True, exist_ok=True)
-

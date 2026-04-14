@@ -5,7 +5,7 @@ from __future__ import annotations
 import soundfile as sf
 from typing import Any
 
-from backend.core.pitch.audio_utils import infer_audio_metadata
+from backend.core.pitch.audio_utils import infer_audio_metadata, estimate_duration_from_bytes
 from backend.core.pitch.pitch_detection import detect_pitch_sequence
 from backend.core.score.sheet_extraction import build_score_from_pitch_sequence
 from backend.utils.audio_logger import record_audio_processing_log
@@ -15,7 +15,10 @@ from backend.utils.data_visualizer import build_pitch_curve
 def analyze_audio(file_name: str, audio_bytes: bytes, sample_rate: int | None = None) -> dict[str, Any]:
     from backend.core.rhythm.beat_detection import detect_beats
 
-    metadata = infer_audio_metadata(file_name, sample_rate=sample_rate, duration=None)
+    # Infer actual duration from audio bytes
+    inferred_sample_rate = sample_rate or 16000
+    estimated_duration = estimate_duration_from_bytes(audio_bytes, sample_rate=inferred_sample_rate)
+    metadata = infer_audio_metadata(file_name, sample_rate=inferred_sample_rate, duration=estimated_duration)
     pitch_sequence = detect_pitch_sequence(
         file_name=file_name,
         sample_rate=metadata["sample_rate"],

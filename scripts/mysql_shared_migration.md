@@ -13,6 +13,7 @@ SSH_PORT=22
 SSH_KEY_FILE=C:\Users\yourName\.ssh\yourkeyname
 MYSQL_USER=your_mysql_user
 MYSQL_PASSWORD=
+MYSQL_ALLOW_EMPTY_PASSWORD=0
 MYSQL_HOST=127.0.0.1
 MYSQL_PORT=3306
 MYSQL_DB_NAME=SeeMusic
@@ -23,15 +24,25 @@ MYSQL_KEEP_REMOTE_FILES=0
 MYSQL_SKIP_VERIFY=0
 ```
 
-Then run:
+Then run a full dump import:
 
 ```bash
 python scripts/migrate_mysql_dump.py
 ```
 
+To execute an incremental migration SQL instead of a full dump, point `--input` at that file and use a temporary output path:
+
+```bash
+python scripts/migrate_mysql_dump.py \
+  --input seemusic_db_migration_20260415.sql \
+  --output /tmp/seemusic_db_migration_20260415.safe.sql
+```
+
 Notes:
 - `MYSQL_USER` is required and should be your real MySQL account, not the SSH login user unless they are intentionally the same.
 - If `MYSQL_PASSWORD` is empty, the script prompts for it at runtime.
+- If the MySQL account intentionally uses an empty password, set `MYSQL_ALLOW_EMPTY_PASSWORD=1` or pass `--allow-empty-password`.
+- The verification step now checks the new community interaction tables and key migrated columns as well.
 - Command-line flags still work and override `.env` values when needed.
 
 ## 1) Prepare a safe dump locally

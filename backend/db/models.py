@@ -114,6 +114,7 @@ class ExportRecord(Base):
 
 class Report(Base):
     __tablename__ = "report"
+    __table_args__ = (UniqueConstraint("report_id", name="uq_report_report_id"),)
 
     id: Mapped[int] = mapped_column(BIGINT_COMPAT, primary_key=True, autoincrement=True)
     report_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
@@ -141,6 +142,10 @@ class Report(Base):
 
 class CommunityPost(Base):
     __tablename__ = "community_post"
+    __table_args__ = (
+        UniqueConstraint("community_score_id", name="uq_community_post_community_score_id"),
+        UniqueConstraint("score_id", name="uq_community_post_score_id"),
+    )
 
     id: Mapped[int] = mapped_column(BIGINT_COMPAT, primary_key=True, autoincrement=True)
     user_id: Mapped[int | None] = mapped_column(
@@ -199,7 +204,7 @@ class AudioAnalysis(Base):
     bpm: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     params: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
-    result_data: Mapped[dict[str, Any]] = mapped_column("result", JSON, default=dict, nullable=False)
+    result: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     create_time: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)
     update_time: Mapped[datetime] = mapped_column(
         DateTime,

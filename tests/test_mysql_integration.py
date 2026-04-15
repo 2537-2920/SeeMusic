@@ -1,294 +1,339 @@
-"""Integration tests that run against the real cloud MySQL database.
-
-These tests are **skipped by default** in local development and only run
-when explicitly selected with ``pytest -m mysql``.
-
-Required environment variables (set in CI secrets):
-    SSH_HOST, SSH_USER, SSH_KEY_FILE, MYSQL_HOST, MYSQL_PORT,
-    MYSQL_USER, MYSQL_PASSWORD, MYSQL_DB_NAME, DB_HOST, DB_PORT
-"""
-
 from __future__ import annotations
 
-import uuid
+import os
 
 import pytest
+from sqlalchemy import func, inspect, select, text
+from sqlalchemy.exc import IntegrityError
 
+from backend.config.settings import Settings
+from backend.db.base import Base
 from backend.db.models import (
     AudioAnalysis,
     CommunityComment,
     CommunityFavorite,
     CommunityLike,
     CommunityPost,
-    PitchSequence,
+    Project,
     Report,
+    Sheet,
     User,
     UserHistory,
-    UserToken,
 )
-from backend.db.session import session_scope
-from backend.services import analysis_service, community_service, report_service
-from backend.user import history_manager, user_system
-
-pytestmark = pytest.mark.mysql
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-_TAG = f"ci_{uuid.uuid4().hex[:8]}"  # unique per run to avoid collisions
+from backend.db.repositories import get_sheet_by_score_id
+from backend.db.session import get_engine, reset_database_state, resolve_database_url, session_scope
+from backend.services.score_service import create_score_from_pitch_sequence
 
 
-def _unique(prefix: str) -> str:
-    return f"{prefix}_{_TAG}"
+MYSQL_INTEGRATION_DATABASE_URL_ENV = "MYSQL_INTEGRATION_DATABASE_URL"
+RUN_MYSQL_INTEGRATION_ENV = "RUN_MYSQL_INTEGRATION"
+
+pytestmark = pytest.mark.mysql_integration
 
 
-# ---------------------------------------------------------------------------
-# 1. Connection & schema
-# ---------------------------------------------------------------------------
+def _parse_bool(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _resolve_mysql_test_database_url() -> str | None:
+    explicit_url = os.getenv(MYSQL_INTEGRATION_DATABASE_URL_ENV)
+    if explicit_url and explicit_url.startswith("mysql"):
+        return explicit_url
+
+    database_url = os.getenv("DATABASE_URL")
+    if database_url and database_url.startswith("mysql"):
+        return database_url
+
+    if _parse_bool(os.getenv(RUN_MYSQL_INTEGRATION_ENV)):
+        resolved = Settings().database_url
+        if resolved.startswith("mysql"):
+            return resolved
+
+    return None
+
+
+def _recreate_schema() -> None:
+    from backend.db import models as _models  # noqa: F401
+
+    engine = get_engine()
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+
+@pytest.fixture
+def mysql_database(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    database_url = _resolve_mysql_test_database_url()
+    if not database_url:
+        pytest.skip(
+            "MySQL integration test skipped. Set MYSQL_INTEGRATION_DATABASE_URL or "
+            "DATABASE_URL to a mysql+pymysql URL, or set RUN_MYSQL_INTEGRATION=1 "
+            "with the existing SSH/MySQL env configuration."
+        )
+
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    reset_database_state()
+    _recreate_schema()
+
+    try:
+        yield {"database_url": resolve_database_url()}
+    finally:
+        try:
+            _recreate_schema()
+        finally:
+            reset_database_state()
+
+
+def _create_user(
+    *,
+    username: str = "mysql_tester",
+    password: str = "secret",
+    email: str = "mysql_tester@example.com",
+) -> int:
+    with session_scope() as session:
+        user = User(username=username, password=password, email=email)
+        session.add(user)
+        session.flush()
+        return int(user.id)
 
 
 class TestMySQLConnection:
-    """Verify the SSH tunnel + MySQL handshake works."""
+    def test_mysql_connection_is_alive(self, mysql_database: dict[str, str]) -> None:
+        with get_engine().connect() as connection:
+            assert connection.execute(text("SELECT 1")).scalar_one() == 1
 
-    def test_mysql_connection_is_alive(self, mysql_database: dict) -> None:
-        """Engine can execute a trivial query on the real server."""
-        from backend.db.session import get_engine
+        assert mysql_database["database_url"].startswith("mysql")
 
-        with get_engine().connect() as conn:
-            result = conn.execute(__import__("sqlalchemy").text("SELECT 1"))
-            assert result.scalar() == 1
+    def test_all_orm_tables_exist_in_mysql(self, mysql_database: dict[str, str]) -> None:
+        inspector = inspect(get_engine())
+        table_names = set(inspector.get_table_names())
 
-    def test_all_orm_tables_exist_in_mysql(self, mysql_database: dict) -> None:
-        """Every table declared in models.py exists on the remote server."""
-        from sqlalchemy import inspect as sa_inspect
+        assert {
+            "user",
+            "project",
+            "sheet",
+            "export_record",
+            "report",
+            "community_post",
+            "community_comment",
+            "community_like",
+            "community_favorite",
+            "audio_analysis",
+            "pitch_sequence",
+            "user_history",
+        }.issubset(table_names)
 
-        from backend.db.session import get_engine
+        report_columns = {column["name"] for column in inspector.get_columns("report")}
+        community_post_columns = {column["name"] for column in inspector.get_columns("community_post")}
+        audio_analysis_columns = {column["name"] for column in inspector.get_columns("audio_analysis")}
 
-        expected_tables = {
-            "user", "user_token", "project", "sheet", "export_record",
-            "report", "community_post", "community_comment",
-            "community_like", "community_favorite",
-            "audio_analysis", "pitch_sequence", "user_history",
-        }
-        actual_tables = set(sa_inspect(get_engine()).get_table_names())
-        missing = expected_tables - actual_tables
-        assert not missing, f"Missing tables on MySQL server: {missing}"
-
-
-# ---------------------------------------------------------------------------
-# 2. User system — register / login / token / logout
-# ---------------------------------------------------------------------------
-
-
-class TestMySQLUserSystem:
-    """Full user lifecycle against real MySQL."""
-
-    def test_register_login_token_logout(self, mysql_database: dict) -> None:
-        username = _unique("user")
-        password = "Test@12345"
-        email = f"{username}@ci.test"
-
-        # Register
-        reg = user_system.register_user(username, password, email)
-        assert reg["status"] == "success"
-        user_id = reg["user_id"]
-        assert isinstance(user_id, int) and user_id > 0
-
-        # Login
-        login = user_system.login_user(username, password)
-        assert login["status"] == "success"
-        token = login["token"]
-
-        # Lookup by token
-        lookup = user_system.get_user_by_token(token)
-        assert lookup["username"] == username
-
-        # Logout
-        out = user_system.logout_user(token)
-        assert out["status"] == "success"
-
-        # Token no longer valid
-        invalid = user_system.get_user_by_token(token)
-        assert invalid.get("status") == "error"
-
-        # ----- cleanup -----
-        self._cleanup_user(user_id)
-
-    def test_duplicate_username_rejected(self, mysql_database: dict) -> None:
-        username = _unique("dup")
-        user_system.register_user(username, "Pass1234")
-        dup = user_system.register_user(username, "Other5678")
-        assert dup["status"] == "error"
-
-        # cleanup
-        with session_scope() as s:
-            u = s.query(User).filter_by(username=username).first()
-            if u:
-                s.delete(u)
-
-    # ---- cleanup helper ----
-    @staticmethod
-    def _cleanup_user(user_id: int) -> None:
-        with session_scope() as s:
-            s.query(UserToken).filter_by(user_id=user_id).delete()
-            s.query(UserHistory).filter_by(user_id=user_id).delete()
-            s.query(User).filter_by(id=user_id).delete()
+        assert {"report_id", "analysis_id", "metadata"}.issubset(report_columns)
+        assert {
+            "community_score_id",
+            "score_id",
+            "author_name",
+            "subtitle",
+            "style",
+            "instrument",
+            "price",
+            "cover_url",
+            "source_file_name",
+            "favorite_count",
+            "download_count",
+        }.issubset(community_post_columns)
+        assert {"result"}.issubset(audio_analysis_columns)
 
 
-# ---------------------------------------------------------------------------
-# 3. History manager — save / list / delete
-# ---------------------------------------------------------------------------
+class TestMySQLScoreService:
+    def test_create_score_from_pitch_sequence_persists_project_and_sheet(
+        self,
+        mysql_database: dict[str, str],
+    ) -> None:
+        user_id = _create_user()
 
-
-class TestMySQLHistoryManager:
-
-    def test_save_list_delete_cycle(self, mysql_database: dict) -> None:
-        # Create a test user first
-        username = _unique("hist")
-        reg = user_system.register_user(username, "Pass1234")
-        uid = str(reg["user_id"])
-
-        # Save
-        payload = {"action": "analyse", "detail": "CI integration test"}
-        saved = history_manager.save_history(uid, payload)
-        assert saved["status"] == "success"
-
-        # List
-        listed = history_manager.list_history(uid)
-        assert listed["status"] == "success"
-        items = listed["history"]
-        assert any(h["action"] == "analyse" for h in items)
-
-        # Delete
-        target = next(h for h in items if h["action"] == "analyse")
-        deleted = history_manager.delete_history(uid, str(target["id"]))
-        assert deleted["status"] == "success"
-
-        # Verify gone
-        listed2 = history_manager.list_history(uid)
-        assert not any(h["id"] == target["id"] for h in listed2["history"])
-
-        # cleanup
-        with session_scope() as s:
-            s.query(UserHistory).filter_by(user_id=int(uid)).delete()
-            s.query(User).filter_by(id=int(uid)).delete()
-
-
-# ---------------------------------------------------------------------------
-# 4. Analysis service — persist audio analysis
-# ---------------------------------------------------------------------------
-
-
-class TestMySQLAnalysisService:
-
-    def test_persist_audio_analysis(self, mysql_database: dict) -> None:
-        analysis_id = _unique("ana")
-
-        analysis_service.save_analysis_result(
-            analysis_id=analysis_id,
-            file_name="ci_test.wav",
-            file_url="/uploads/ci_test.wav",
-            sample_rate=44100,
-            duration=3.5,
-            bpm=120.0,
-            status="completed",
-            params={"source": "ci"},
-            result_data={"notes": [{"pitch": 440, "onset": 0.0}]},
-            pitch_sequence=[
-                {"time": 0.0, "freq": 440.0, "note": "A4", "midi": 69},
-            ],
-            user_id=None,
-            is_reference=False,
+        result = create_score_from_pitch_sequence(
+            {
+                "user_id": user_id,
+                "title": "MySQL Integration Score",
+                "analysis_id": "an_mysql_score_001",
+                "tempo": 88,
+                "time_signature": "3/4",
+                "key_signature": "D",
+                "pitch_sequence": [
+                    {"time": 0.0, "frequency": 440.0, "duration": 0.25},
+                    {"time": 0.25, "frequency": 493.88, "duration": 0.25},
+                    {"time": 0.5, "frequency": 523.25, "duration": 0.25},
+                ],
+            }
         )
 
-        seq = analysis_service.get_saved_pitch_sequence(analysis_id)
-        assert len(seq) >= 1
-        assert seq[0]["freq"] == 440.0
+        with session_scope() as session:
+            project = session.scalar(select(Project).where(Project.id == result["project_id"]))
+            sheet = get_sheet_by_score_id(session, result["score_id"])
 
-        # cleanup
-        with session_scope() as s:
-            s.query(PitchSequence).filter_by(analysis_id=analysis_id).delete()
-            s.query(AudioAnalysis).filter_by(analysis_id=analysis_id).delete()
-
-
-# ---------------------------------------------------------------------------
-# 5. Report service — persist report
-# ---------------------------------------------------------------------------
-
-
-class TestMySQLReportService:
-
-    def test_persist_report(self, mysql_database: dict) -> None:
-        report_id = _unique("rpt")
-
-        result = report_service.export_report({
-            "report_id": report_id,
-            "title": "CI report",
-            "format": "pdf",
-            "content": {"summary": "CI integration test report"},
-        })
-        assert result["status"] == "success"
-
-        # verify in DB
-        with session_scope() as s:
-            row = s.query(Report).filter_by(report_id=report_id).first()
-            assert row is not None
-            assert row.title == "CI report"
-
-        # cleanup
-        with session_scope() as s:
-            s.query(Report).filter_by(report_id=report_id).delete()
+            assert project is not None
+            assert sheet is not None
+            assert int(project.user_id) == user_id
+            assert project.title == "MySQL Integration Score"
+            assert project.analysis_id == "an_mysql_score_001"
+            assert int(sheet.project_id) == int(project.id)
+            assert sheet.score_id == result["score_id"]
+            assert sheet.bpm == 88
+            assert sheet.key_sign == "D"
+            assert sheet.time_sign == "3/4"
+            assert isinstance(sheet.note_data, dict)
+            assert sheet.note_data["title"] == "MySQL Integration Score"
 
 
-# ---------------------------------------------------------------------------
-# 6. Community service — publish / comment / like / favorite
-# ---------------------------------------------------------------------------
+class TestMySQLDomainPersistence:
+    def test_report_audio_analysis_and_community_tables_round_trip(
+        self,
+        mysql_database: dict[str, str],
+    ) -> None:
+        user_id = _create_user(username="mysql_domain_user", email="mysql_domain_user@example.com")
 
+        with session_scope() as session:
+            project = Project(user_id=user_id, title="MySQL Domain Project", status=1, analysis_id="an_mysql_001")
+            session.add(project)
+            session.flush()
 
-class TestMySQLCommunityService:
+            sheet = Sheet(
+                project_id=int(project.id),
+                score_id="score_mysql_001",
+                note_data={"score_id": "score_mysql_001", "tempo": 120, "key_signature": "C", "time_signature": "4/4"},
+                bpm=120,
+                key_sign="C",
+                time_sign="4/4",
+            )
+            session.add(sheet)
+            session.flush()
 
-    def test_community_full_lifecycle(self, mysql_database: dict) -> None:
-        # Setup: register a user
-        username = _unique("comm")
-        reg = user_system.register_user(username, "Pass1234")
-        uid = reg["user_id"]
-        current_user = {"user_id": uid, "username": username}
+            analysis = AudioAnalysis(
+                user_id=user_id,
+                analysis_id="an_mysql_001",
+                file_name="demo.wav",
+                file_url="/storage/audio/demo.wav",
+                sample_rate=16000,
+                duration=1.5,
+                bpm=120,
+                status=1,
+                params={"mode": "integration"},
+                result={"segments": 3, "status": "ok"},
+            )
+            report = Report(
+                project_id=int(project.id),
+                report_id="r_mysql_001",
+                analysis_id="an_mysql_001",
+                pitch_score=95.5,
+                rhythm_score=97.0,
+                total_score=96.2,
+                error_points=[{"time": 0.5, "type": "pitch"}],
+                export_url="/storage/reports/r_mysql_001.pdf",
+                metadata_={"source": "integration-test"},
+            )
+            post = CommunityPost(
+                user_id=user_id,
+                sheet_id=int(sheet.id),
+                community_score_id="cmt_mysql_001",
+                score_id="score_mysql_001",
+                title="MySQL Community Score",
+                author_name="MySQL Tester",
+                subtitle="MySQL Tester · Piano",
+                content="Integration round-trip for MySQL.",
+                style="流行",
+                instrument="钢琴",
+                price=0.0,
+                cover_url="/storage/covers/mysql.png",
+                source_file_name="mysql-score.pdf",
+                tags=["流行", "钢琴"],
+                like_count=3,
+                favorite_count=2,
+                download_count=5,
+                view_count=8,
+            )
+            session.add_all([analysis, report, post])
+            session.flush()
 
-        # Publish
-        pub = community_service.publish_community_score(
-            {"title": "CI Song", "description": "Integration test", "tags": "ci,test"},
-            current_user=current_user,
-        )
-        assert pub["status"] == "success"
-        score_id = str(pub["score"]["id"])
+            comment = CommunityComment(
+                comment_id="comment_mysql_001",
+                post_id=int(post.id),
+                user_id=user_id,
+                username="MySQL Tester",
+                avatar_url="/storage/avatars/mysql.png",
+                content="Nice score!",
+            )
+            like = CommunityLike(post_id=int(post.id), actor_key=f"user:{user_id}", user_id=user_id)
+            favorite = CommunityFavorite(post_id=int(post.id), actor_key=f"user:{user_id}", user_id=user_id)
+            history = UserHistory(
+                user_id=user_id,
+                type="report",
+                resource_id="r_mysql_001",
+                title="MySQL integration history",
+                metadata_={"analysis_id": "an_mysql_001"},
+            )
+            session.add_all([comment, like, favorite, history])
 
-        # Comment
-        cmt = community_service.add_community_comment(
-            score_id,
-            {"content": "Looks good from CI!"},
-            current_user=current_user,
-        )
-        assert cmt["status"] == "success"
+        with session_scope() as session:
+            stored_report = session.scalar(select(Report).where(Report.report_id == "r_mysql_001"))
+            stored_analysis = session.scalar(select(AudioAnalysis).where(AudioAnalysis.analysis_id == "an_mysql_001"))
+            stored_post = session.scalar(select(CommunityPost).where(CommunityPost.community_score_id == "cmt_mysql_001"))
+            stored_comment = session.scalar(select(CommunityComment).where(CommunityComment.comment_id == "comment_mysql_001"))
+            stored_history = session.scalar(select(UserHistory).where(UserHistory.resource_id == "r_mysql_001"))
 
-        # Like
-        like = community_service.set_score_like(score_id, True, current_user=current_user)
-        assert like["status"] == "success"
+            assert stored_report is not None
+            assert stored_report.metadata_ == {"source": "integration-test"}
+            assert stored_report.analysis_id == "an_mysql_001"
 
-        # Favorite
-        fav = community_service.set_score_favorite(score_id, True, current_user=current_user)
-        assert fav["status"] == "success"
+            assert stored_analysis is not None
+            assert stored_analysis.result == {"segments": 3, "status": "ok"}
+            assert stored_analysis.params == {"mode": "integration"}
 
-        # Detail includes comment, like, favorite
-        detail = community_service.get_community_score_detail(score_id, current_user=current_user)
-        assert detail["status"] == "success"
-        assert detail["score"]["like_count"] >= 1
+            assert stored_post is not None
+            assert stored_post.tags == ["流行", "钢琴"]
+            assert stored_post.favorite_count == 2
+            assert stored_post.download_count == 5
+            assert stored_post.source_file_name == "mysql-score.pdf"
 
-        # ---- cleanup ----
-        with session_scope() as s:
-            s.query(CommunityFavorite).filter_by(user_id=uid).delete()
-            s.query(CommunityLike).filter_by(user_id=uid).delete()
-            s.query(CommunityComment).filter_by(user_id=uid).delete()
-            s.query(CommunityPost).filter_by(user_id=uid).delete()
-            s.query(UserToken).filter_by(user_id=uid).delete()
-            s.query(User).filter_by(id=uid).delete()
+            assert stored_comment is not None
+            assert stored_comment.username == "MySQL Tester"
+
+            assert stored_history is not None
+            assert stored_history.metadata_ == {"analysis_id": "an_mysql_001"}
+
+            like_count = session.scalar(
+                select(func.count()).select_from(CommunityLike).where(CommunityLike.post_id == int(stored_post.id))
+            )
+            favorite_count = session.scalar(
+                select(func.count()).select_from(CommunityFavorite).where(CommunityFavorite.post_id == int(stored_post.id))
+            )
+            assert like_count == 1
+            assert favorite_count == 1
+
+    def test_mysql_enforces_unique_business_ids(self, mysql_database: dict[str, str]) -> None:
+        user_id = _create_user(username="mysql_unique_user", email="mysql_unique_user@example.com")
+
+        with session_scope() as session:
+            project = Project(user_id=user_id, title="Unique Constraint Project", status=1)
+            session.add(project)
+            session.flush()
+
+            first_report = Report(
+                project_id=int(project.id),
+                report_id="r_mysql_unique",
+                analysis_id="an_mysql_unique_1",
+                metadata_={},
+            )
+            second_report = Report(
+                project_id=int(project.id),
+                report_id="r_mysql_unique",
+                analysis_id="an_mysql_unique_2",
+                metadata_={},
+            )
+            session.add(first_report)
+            session.flush()
+            session.add(second_report)
+
+            with pytest.raises(IntegrityError):
+                session.flush()
+            session.rollback()

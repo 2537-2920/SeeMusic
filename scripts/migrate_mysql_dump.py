@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import os
 import posixpath
+import re
 import shlex
 import shutil
 import subprocess
@@ -17,22 +19,8 @@ from prepare_mysql_dump import prepare_dump
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_ENV_FILE = ROOT_DIR / ".env"
-
-
-VERIFY_SQL_TEMPLATE = """USE `{db_name}`;
-
-SHOW TABLES;
-
-SELECT 'user' AS table_name, COUNT(*) AS row_count FROM `user`
-UNION ALL SELECT 'project', COUNT(*) FROM `project`
-UNION ALL SELECT 'sheet', COUNT(*) FROM `sheet`
-UNION ALL SELECT 'report', COUNT(*) FROM `report`
-UNION ALL SELECT 'community_post', COUNT(*) FROM `community_post`
-UNION ALL SELECT 'export_record', COUNT(*) FROM `export_record`
-UNION ALL SELECT 'audio_analysis', COUNT(*) FROM `audio_analysis`
-UNION ALL SELECT 'pitch_sequence', COUNT(*) FROM `pitch_sequence`
-UNION ALL SELECT 'user_history', COUNT(*) FROM `user_history`;
-"""
+VERIFY_SQL_FILE = ROOT_DIR / "scripts" / "verify_seemusic_import.sql"
+USE_STATEMENT_PATTERN = re.compile(r"^\s*USE\s+`[^`]+`;\s*$", re.MULTILINE)
 
 
 def parse_bool(value: str | None, default: bool = False) -> bool:
@@ -79,6 +67,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--db-name", help="Remote database name. Falls back to MYSQL_DB_NAME or SeeMusic.")
     parser.add_argument("--mysql-user", help="Remote MySQL username. Falls back to MYSQL_USER in .env.")
     parser.add_argument("--mysql-password", help="Remote MySQL password. Falls back to MYSQL_PASSWORD in .env.")
+    parser.add_argument(
+        "--allow-empty-password",
+        action="store_true",
+        help="Use an intentionally empty MySQL password instead of prompting.",
+    )
     parser.add_argument("--mysql-host", help="Remote MySQL host. Falls back to MYSQL_HOST or 127.0.0.1.")
     parser.add_argument("--mysql-port", type=int, help="Remote MySQL port. Falls back to MYSQL_PORT or 3306.")
     parser.add_argument(
@@ -112,7 +105,7 @@ def run_command(command: list[str], dry_run: bool) -> None:
     printable = " ".join(shlex.quote(part) for part in command)
     print(f"$ {printable}")
     if not dry_run:
-        subprocess.run(command, check=True)
+        subprocess.run(command, check=True, env=build_subprocess_env())
 
 
 def build_ssh_base(args: argparse.Namespace) -> list[str]:
@@ -147,6 +140,24 @@ def require_config(config: dict[str, object], key: str, hint: str) -> str:
     return str(value)
 
 
+def build_subprocess_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env.pop("LD_LIBRARY_PATH", None)
+    env.pop("LD_PRELOAD", None)
+    return env
+
+
+def render_verify_sql(db_name: str) -> str:
+    if not VERIFY_SQL_FILE.exists():
+        raise FileNotFoundError(f"Verification SQL template not found: {VERIFY_SQL_FILE}")
+
+    template = VERIFY_SQL_FILE.read_text(encoding="utf-8-sig")
+    rendered, replaced = USE_STATEMENT_PATTERN.subn(f"USE `{db_name}`;", template, count=1)
+    if replaced:
+        return rendered
+    return f"USE `{db_name}`;\n\n{template}"
+
+
 def main() -> int:
     args = parse_args()
     require_binary("ssh")
@@ -164,6 +175,7 @@ def main() -> int:
         "db_name": pick_value(args.db_name, env, "MYSQL_DB_NAME", "SeeMusic"),
         "mysql_user": pick_value(args.mysql_user, env, "MYSQL_USER"),
         "mysql_password": pick_value(args.mysql_password, env, "MYSQL_PASSWORD", ""),
+        "allow_empty_password": args.allow_empty_password or parse_bool(env.get("MYSQL_ALLOW_EMPTY_PASSWORD")),
         "mysql_host": pick_value(args.mysql_host, env, "MYSQL_HOST", "127.0.0.1"),
         "mysql_port": int(pick_value(args.mysql_port, env, "MYSQL_PORT", 3306)),
         "remote_dir": pick_value(args.remote_dir, env, "MYSQL_REMOTE_DIR", "/tmp/seemusic_migration"),
@@ -191,7 +203,7 @@ def main() -> int:
     )
 
     mysql_password = str(config["mysql_password"])
-    if not mysql_password and not args.dry_run:
+    if not mysql_password and not args.dry_run and not config["allow_empty_password"]:
         mysql_password = getpass.getpass(f"MySQL password for {mysql_user}@{config['mysql_host']}: ")
 
     runtime_args = argparse.Namespace(
@@ -215,7 +227,7 @@ def main() -> int:
         "  CHARACTER SET utf8mb4\n"
         "  COLLATE utf8mb4_0900_ai_ci;\n"
     )
-    verify_sql = VERIFY_SQL_TEMPLATE.format(db_name=db_name)
+    verify_sql = render_verify_sql(db_name)
     client_cnf = (
         "[client]\n"
         f"user={mysql_user}\n"

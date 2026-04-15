@@ -31,30 +31,32 @@ jobs:
       - name: Compile source files
         run: python -m compileall backend tests
 
-      - name: Run unit tests (no MySQL required)
-        run: pytest tests/ -q -m "not mysql"
+      - name: Run test suite
+        run: pytest tests/ -q -m "not mysql_integration"
 
   mysql-integration:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    services:
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_ROOT_PASSWORD: root
-          MYSQL_DATABASE: SeeMusic
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot --silent"
-          --health-interval=5s
-          --health-timeout=3s
-          --health-retries=20
     env:
       PYTHONPATH: .
       PYTHONDONTWRITEBYTECODE: "1"
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
-      DATABASE_URL: mysql+pymysql://root:root@127.0.0.1:3306/SeeMusic?charset=utf8mb4
+      DATABASE_URL: mysql+pymysql://seemusic_app:seemusic_pwd@127.0.0.1:3306/SeeMusic?charset=utf8mb4
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: SeeMusic
+          MYSQL_USER: seemusic_app
+          MYSQL_PASSWORD: seemusic_pwd
+          MYSQL_ROOT_PASSWORD: root_pwd
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -u root -proot_pwd"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -69,35 +71,38 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install cryptography
 
       - name: Wait for MySQL service
         run: |
           python - <<'PY'
-          import os
           import time
+          import pymysql
 
-          from sqlalchemy import create_engine, text
-
-          url = os.environ["DATABASE_URL"]
-          deadline = time.time() + 60
-          last_error = None
-
-          while time.time() < deadline:
+          for attempt in range(30):
               try:
-                  engine = create_engine(url, pool_pre_ping=True)
-                  with engine.connect() as conn:
-                      conn.execute(text("SELECT 1"))
-                  print("MySQL service is ready")
+                  connection = pymysql.connect(
+                      host="127.0.0.1",
+                      port=3306,
+                      user="seemusic_app",
+                      password="seemusic_pwd",
+                      database="SeeMusic",
+                  )
+                  with connection.cursor() as cursor:
+                      cursor.execute("SELECT 1")
+                      assert cursor.fetchone() == (1,)
+                  connection.close()
+                  print("MySQL service is ready.")
                   break
               except Exception as exc:
-                  last_error = exc
+                  if attempt == 29:
+                      raise
+                  print(f"MySQL not ready yet ({attempt + 1}/30): {exc}")
                   time.sleep(2)
-          else:
-              raise RuntimeError(f"MySQL service did not become ready in time: {last_error}")
           PY
 
       - name: Compile source files
         run: python -m compileall backend tests
 
       - name: Run MySQL integration tests
-        run: pytest tests/ -q -m mysql --tb=short
+        run: pytest tests/test_mysql_integration.py -q

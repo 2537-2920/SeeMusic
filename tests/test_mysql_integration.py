@@ -336,3 +336,4 @@ class TestMySQLDomainPersistence:
 
             with pytest.raises(IntegrityError):
                 session.flush()
+            session.rollback()

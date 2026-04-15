@@ -5,6 +5,8 @@ import numpy as np
 import pytest
 import soundfile as sf
 
+from backend.db.models import AudioAnalysis, PitchSequence, Report
+from backend.db.session import session_scope
 from backend.services.analysis_service import analyze_audio
 from backend.services.report_service import export_report
 from backend.services.score_service import (
@@ -62,6 +64,32 @@ def test_report_service_returns_requested_files():
     assert result["analysis_id"] == "an_001"
     assert len(result["files"]) == 2
     assert result["include_charts"] is False
+
+
+def test_analysis_service_persists_audio_analysis_when_db_enabled(user_database, temp_audio_bytes):
+    result = analyze_audio("demo.wav", temp_audio_bytes, sample_rate=16000)
+
+    with session_scope() as session:
+        analysis = session.query(AudioAnalysis).filter_by(analysis_id=result["analysis_id"]).one()
+        points = session.query(PitchSequence).filter_by(analysis_id=result["analysis_id"]).all()
+
+    assert analysis.file_name == "demo.wav"
+    assert analysis.sample_rate == 16000
+    assert analysis.status == 1
+    assert analysis.result_data["score_id"] == result["score"]["score_id"]
+    assert len(points) == len(result["pitch_sequence"])
+
+
+def test_report_service_persists_report_when_db_enabled(user_database):
+    result = export_report({"analysis_id": "an_001", "formats": ["pdf", "png"], "include_charts": False})
+
+    with session_scope() as session:
+        report = session.query(Report).filter_by(report_id=result["report_id"]).one()
+
+    assert report.analysis_id == "an_001"
+    assert report.project_id is None
+    assert report.metadata_["formats"] == ["pdf", "png"]
+    assert report.metadata_["include_charts"] is False
 
 
 

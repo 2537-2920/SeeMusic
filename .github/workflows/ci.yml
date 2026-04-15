@@ -13,6 +13,20 @@ jobs:
       PYTHONPATH: .
       PYTHONDONTWRITEBYTECODE: "1"
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PORT: ${{ secrets.SSH_PORT }}
+      SSH_KEY_FILE: /home/runner/.ssh/id_cloud_server
+      MYSQL_HOST: ${{ secrets.MYSQL_HOST }}
+      MYSQL_PORT: ${{ secrets.MYSQL_PORT }}
+      MYSQL_USER: ${{ secrets.MYSQL_USER }}
+      MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+      MYSQL_DB_NAME: ${{ secrets.MYSQL_DB_NAME }}
+      DB_HOST: 127.0.0.1
+      DB_PORT: "3307"
+      DB_USER: ${{ secrets.DB_USER }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      DB_NAME: ${{ secrets.DB_NAME }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -28,8 +42,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Prepare SSH key for MySQL tunnel
+        run: |
+          mkdir -p /home/runner/.ssh
+          printf "%s" "${{ secrets.SSH_PRIVATE_KEY }}" > /home/runner/.ssh/id_cloud_server
+          chmod 600 /home/runner/.ssh/id_cloud_server
+
       - name: Compile source files
         run: python -m compileall backend tests
 
-      - name: Run test suite
-        run: pytest tests/ -q
+      - name: Run unit tests (no MySQL required)
+        run: pytest tests/ -q -m "not mysql"
+
+      - name: Run MySQL integration tests
+        run: pytest tests/ -q -m mysql --tb=short

@@ -5,7 +5,19 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, BigInteger, DateTime, Float, ForeignKey, Integer, JSON, String, Text, func
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.db.base import Base
@@ -104,17 +116,20 @@ class Report(Base):
     __tablename__ = "report"
 
     id: Mapped[int] = mapped_column(BIGINT_COMPAT, primary_key=True, autoincrement=True)
-    project_id: Mapped[int] = mapped_column(
+    report_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    project_id: Mapped[int | None] = mapped_column(
         BIGINT_COMPAT,
         ForeignKey("project.id", ondelete="CASCADE"),
         index=True,
-        nullable=False,
+        nullable=True,
     )
+    analysis_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
     pitch_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     rhythm_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     total_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     error_points: Mapped[list[dict[str, Any]] | dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     export_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict, nullable=False)
     create_time: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)
     update_time: Mapped[datetime] = mapped_column(
         DateTime,
@@ -128,23 +143,34 @@ class CommunityPost(Base):
     __tablename__ = "community_post"
 
     id: Mapped[int] = mapped_column(BIGINT_COMPAT, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(
+    user_id: Mapped[int | None] = mapped_column(
         BIGINT_COMPAT,
         ForeignKey("user.id", ondelete="CASCADE"),
         index=True,
-        nullable=False,
+        nullable=True,
     )
-    sheet_id: Mapped[int] = mapped_column(
+    sheet_id: Mapped[int | None] = mapped_column(
         BIGINT_COMPAT,
         ForeignKey("sheet.id", ondelete="CASCADE"),
         index=True,
-        nullable=False,
+        nullable=True,
     )
+    community_score_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    score_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
+    author_name: Mapped[str] = mapped_column(String(100), nullable=False, default="社区用户")
+    subtitle: Mapped[str | None] = mapped_column(String(255), nullable=True)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    style: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    instrument: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    price: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    cover_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    source_file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     tags: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     is_public: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     like_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    favorite_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    download_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     view_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     create_time: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)
     update_time: Mapped[datetime] = mapped_column(
@@ -159,11 +185,11 @@ class AudioAnalysis(Base):
     __tablename__ = "audio_analysis"
 
     id: Mapped[int] = mapped_column(BIGINT_COMPAT, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(
+    user_id: Mapped[int | None] = mapped_column(
         BIGINT_COMPAT,
         ForeignKey("user.id", ondelete="CASCADE"),
         index=True,
-        nullable=False,
+        nullable=True,
     )
     analysis_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -173,6 +199,7 @@ class AudioAnalysis(Base):
     bpm: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     params: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    result_data: Mapped[dict[str, Any]] = mapped_column("result", JSON, default=dict, nullable=False)
     create_time: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)
     update_time: Mapped[datetime] = mapped_column(
         DateTime,
@@ -200,6 +227,71 @@ class PitchSequence(Base):
     is_reference: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
+class CommunityComment(Base):
+    __tablename__ = "community_comment"
+
+    id: Mapped[int] = mapped_column(BIGINT_COMPAT, primary_key=True, autoincrement=True)
+    comment_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    post_id: Mapped[int] = mapped_column(
+        BIGINT_COMPAT,
+        ForeignKey("community_post.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    user_id: Mapped[int | None] = mapped_column(
+        BIGINT_COMPAT,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    username: Mapped[str] = mapped_column(String(100), nullable=False)
+    avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    create_time: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)
+
+
+class CommunityLike(Base):
+    __tablename__ = "community_like"
+    __table_args__ = (UniqueConstraint("post_id", "actor_key", name="uq_community_like_post_actor"),)
+
+    id: Mapped[int] = mapped_column(BIGINT_COMPAT, primary_key=True, autoincrement=True)
+    post_id: Mapped[int] = mapped_column(
+        BIGINT_COMPAT,
+        ForeignKey("community_post.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    actor_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    user_id: Mapped[int | None] = mapped_column(
+        BIGINT_COMPAT,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    create_time: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)
+
+
+class CommunityFavorite(Base):
+    __tablename__ = "community_favorite"
+    __table_args__ = (UniqueConstraint("post_id", "actor_key", name="uq_community_favorite_post_actor"),)
+
+    id: Mapped[int] = mapped_column(BIGINT_COMPAT, primary_key=True, autoincrement=True)
+    post_id: Mapped[int] = mapped_column(
+        BIGINT_COMPAT,
+        ForeignKey("community_post.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    actor_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    user_id: Mapped[int | None] = mapped_column(
+        BIGINT_COMPAT,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    create_time: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)
+
+
 class UserHistory(Base):
     __tablename__ = "user_history"
 
@@ -215,3 +307,18 @@ class UserHistory(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict, nullable=False)
     create_time: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)
+
+
+class UserToken(Base):
+    __tablename__ = "user_token"
+
+    id: Mapped[int] = mapped_column(BIGINT_COMPAT, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        BIGINT_COMPAT,
+        ForeignKey("user.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    token: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
+    expired_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)

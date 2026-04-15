@@ -124,14 +124,7 @@ music-ai-system/
 * 音高识别（Pitch Detection）
 * 实时音准检测（Realtime Tuning）
 * 节奏分析（Beat Detection）
-* **多轨分离（Multi-track Separation）** ✨ **[完整实现]**
-  - 支持2、4、5、6轨分离
-  - 人声 + 伴奏分离
-  - 人声 + 鼓 + 贝司 + 其他
-  - 人声 + 鼓 + 贝司 + 吉他 + 钢琴 + 其他
-  - 单轨WAV文件输出
-  - API: `POST /api/v1/audio/separate-tracks`
-  - 详见: [多轨分离完整文档](./AUDIO_SEPARATION_IMPLEMENTATION.md)
+* 多轨分离（Multi- track Separation）
 
 ### 🎼 乐谱系统
 
@@ -285,124 +278,8 @@ curl -X POST http://localhost:8000/api/v1/audio/separate-tracks \
 * 节奏数据
 * 乐谱结构
 * 可视化分析结果
-* **分离的音频轨道** (多轨分离功能)
+* 分离的音频轨道 
 
----
-
-## 🎯 多轨分离快速入门
-
-已完整实现多轨音频分离功能，支持人声、鼓、贝司、吉他、钢琴等多种乐器分离。
-
-### 使用示例
-
-```python
-from backend.core.separation.multi_track_separation import separate_tracks
-
-# 读取音频
-with open("song.mp3", "rb") as f:
-    audio_bytes = f.read()
-
-# 执行4轨分离
-result = separate_tracks(
-    file_name="song.mp3",
-    model="demucs",
-    stems=4,
-    audio_bytes=audio_bytes
-)
-
-# 获取分离结果
-for track in result['tracks']:
-    print(f"轨道: {track['name']}")
-    print(f"文件: {track['file_path']}")
-    print(f"时长: {track['duration']}秒")
-
-print(result["backend_used"])   # "demucs" or "simple"
-print(result["fallback_used"])  # True when Demucs failed and simple separation was used
-print(result["warnings"])       # Failure reason when fallback happened
-```
-
-### 支持的分离模式
-
-| 轨道数 | 分离范围 | 适用场景 |
-|-------|--------|--------|
-| 2 | 人声 + 伴奏 | 快速分离 |
-| 4 | + 鼓 + 贝司 | 通用编辑 |
-| 5 | + 钢琴 | 详细编辑 |
-| 6 | + 吉他 | 完整分离 |
-
-### Demucs 权重缓存与离线预置
-
-项目里的 Demucs 默认按下面的顺序找权重：
-
-1. 本地离线 repo：`storage/demucs-repo/`
-2. Torch 缓存：`storage/.cache/torch/hub/checkpoints/`
-3. 在线下载
-
-可选环境变量：
-
-```bash
-export DEMUCS_REPO_DIR=/absolute/path/to/demucs-repo
-export DEMUCS_CACHE_DIR=/absolute/path/to/demucs-cache
-export DEMUCS_MODEL_NAME=htdemucs
-```
-
-默认模型 `htdemucs` 对应的官方权重文件名是：
-
-```text
-955717e8-8726e21a.th
-```
-
-离线运行有两种推荐方式。
-
-方式一：预置 Torch 缓存文件
-
-```bash
-mkdir -p storage/.cache/torch/hub/checkpoints
-cp 955717e8-8726e21a.th storage/.cache/torch/hub/checkpoints/
-```
-
-这种方式不需要改代码，Demucs 会直接命中本地缓存。
-
-方式二：预置本地离线 repo
-
-```bash
-mkdir -p storage/demucs-repo
-cp 955717e8-8726e21a.th storage/demucs-repo/
-```
-
-代码会自动从已安装的 `demucs` 包里补齐 `htdemucs.yaml`，然后以本地 repo 模式加载，不再依赖联网下载。
-
-如果你想手工完整准备 repo，目录应当像这样：
-
-```text
-storage/demucs-repo/
-├── htdemucs.yaml
-└── 955717e8-8726e21a.th
-```
-
-### Demucs 失败排查
-
-如果返回结果里出现：
-
-```json
-{
-  "backend_used": "simple",
-  "fallback_used": true
-}
-```
-
-说明请求虽然写的是 `model=demucs`，但实际并没有成功跑到 Demucs，而是回退到了简化分离逻辑。此时优先检查：
-
-1. `storage/.cache/torch/hub/checkpoints/955717e8-8726e21a.th` 是否存在
-2. `storage/demucs-repo/955717e8-8726e21a.th` 是否存在
-3. 当前运行环境是否能解析 `dl.fbaipublicfiles.com`
-4. 返回的 `warnings` 字段里是否有具体错误
-
-### 更多信息
-
-- 📖 [详细实现文档](./AUDIO_SEPARATION_IMPLEMENTATION.md)
-- 🚀 [快速使用指南](./AUDIO_SEPARATION_QUICKSTART.md)
-- ✅ [完成总结](./COMPLETION_SUMMARY.md)
 
 ---
 

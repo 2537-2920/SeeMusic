@@ -70,7 +70,7 @@ from backend.user.user_system import get_current_user, get_user_by_token, login_
 from backend.utils.audio_logger import record_audio_log, record_audio_processing_log, get_audio_logs, read_audio_logs_from_file
 
 # 引入节奏处理服务与项目配置项
-from backend.services.analysis_service import process_rhythm_scoring
+from backend.services.analysis_service import get_saved_pitch_sequence, process_rhythm_scoring, save_analysis_result
 from backend.config.settings import settings
 
 
@@ -130,6 +130,17 @@ def resolve_pitch_sequence_source(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
     if fallback_id:
+        saved_sequence = get_saved_pitch_sequence(fallback_id)
+        if saved_sequence:
+            return saved_sequence
+        if fallback_id.endswith("_reference"):
+            saved_sequence = get_saved_pitch_sequence(fallback_id[: -len("_reference")])
+            if saved_sequence:
+                return saved_sequence
+        if fallback_id.endswith("_user"):
+            saved_sequence = get_saved_pitch_sequence(fallback_id[: -len("_user")])
+            if saved_sequence:
+                return saved_sequence
         return detect_pitch_sequence(file_name=fallback_id, duration=duration)
     raise HTTPException(status_code=400, detail="missing pitch source")
 
@@ -162,6 +173,16 @@ async def pitch_detect(
         algorithm=algorithm,
         duration=metadata["duration"],
         audio_bytes=content,
+    )
+    save_analysis_result(
+        analysis_id=metadata["analysis_id"],
+        file_name=file.filename or "audio",
+        sample_rate=metadata["sample_rate"],
+        duration=metadata["duration"],
+        status=1,
+        params={"frame_ms": frame_ms, "hop_ms": hop_ms, "algorithm": algorithm, "source": "pitch_detect"},
+        result_data={"log_id": log_entry["log_id"]},
+        pitch_sequence=pitches,
     )
     return ok(
         {
@@ -360,15 +381,27 @@ async def rhythm_beat_detect(
     from backend.core.rhythm.beat_detection import detect_beats
 
     content = await file.read()
+    metadata = infer_audio_metadata(file.filename or "audio")
     log_entry = record_audio_processing_log(
         file_name=file.filename or "audio",
         audio_bytes=content,
+        analysis_id=metadata["analysis_id"],
         source="api",
         stage="rhythm_beat_detect",
         params={"bpm_hint": bpm_hint, "sensitivity": sensitivity},
     )
     result = detect_beats(file.filename or "audio", bpm_hint=bpm_hint, sensitivity=sensitivity, audio_bytes=content)
-    return ok({**result, "audio_log": log_entry})
+    save_analysis_result(
+        analysis_id=metadata["analysis_id"],
+        file_name=file.filename or "audio",
+        sample_rate=log_entry.get("sample_rate"),
+        duration=log_entry.get("duration"),
+        bpm=int(result.get("bpm", 0) or 0) or None,
+        status=1,
+        params={"bpm_hint": bpm_hint, "sensitivity": sensitivity, "source": "rhythm_beat_detect"},
+        result_data={"beat_result": result, "log_id": log_entry["log_id"]},
+    )
+    return ok({"analysis_id": metadata["analysis_id"], **result, "audio_log": log_entry})
 
 
 @router.post("/audio/separate-tracks")
@@ -378,15 +411,41 @@ async def audio_separate_tracks(
     stems: int = Form(2),
 ):
     content = await file.read()
+    metadata = infer_audio_metadata(file.filename or "audio")
     log_entry = record_audio_processing_log(
         file_name=file.filename or "audio",
         audio_bytes=content,
+        analysis_id=metadata["analysis_id"],
         source="api",
         stage="audio_separate_tracks",
         params={"model": model, "stems": stems},
     )
     result = separate_tracks(file.filename or "audio", model=model, stems=stems, audio_bytes=content)
-    return ok({**result, "audio_log": log_entry})
+    save_analysis_result(
+        analysis_id=metadata["analysis_id"],
+        file_name=file.filename or "audio",
+        sample_rate=result.get("sample_rate") or log_entry.get("sample_rate"),
+        duration=log_entry.get("duration"),
+        status=1,
+        params={"model": model, "stems": stems, "source": "audio_separate_tracks"},
+        result_data={"separation": result, "log_id": log_entry["log_id"]},
+    )
+    return ok({"analysis_id": metadata["analysis_id"], **result, "audio_log": log_entry})
+
+
+@router.get("/audio/download/{file_name}")
+def download_separated_audio(file_name: str):
+    storage_dir = getattr(settings, "storage_dir", "temp")
+    safe_name = os.path.basename(file_name)
+    file_path = os.path.join(storage_dir, "separated_tracks", safe_name)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="separated audio file not found")
+    return FileResponse(
+        path=file_path,
+        filename=safe_name,
+        media_type="audio/wav",
+        content_disposition_type="attachment",
+    )
 
 
 @router.post("/rhythm/score")
@@ -465,6 +524,7 @@ async def analyze_rhythm_api(
     file_ext = os.path.splitext(user_audio.filename)[1] if user_audio.filename else ".wav"
     temp_filename = f"rhythm_{uuid.uuid4().hex}{file_ext}"
     temp_user_path = os.path.join(storage_dir, temp_filename)
+    metadata = infer_audio_metadata(user_audio.filename or "audio")
 
     try:
         # Save uploaded file
@@ -474,6 +534,7 @@ async def analyze_rhythm_api(
         log_entry = record_audio_processing_log(
             file_name=user_audio.filename or "audio",
             audio_bytes=content,
+            analysis_id=metadata["analysis_id"],
             source="api",
             stage="analyze_rhythm_upload",
             params={"ref_id": ref_id, "language": language, "scoring_model": scoring_model, "threshold_ms": threshold_ms},
@@ -498,8 +559,18 @@ async def analyze_rhythm_api(
             scoring_model=scoring_model,
             threshold_ms=threshold_ms,
         )
-        
-        return ok({**report, "audio_log": log_entry})
+        save_analysis_result(
+            analysis_id=metadata["analysis_id"],
+            file_name=user_audio.filename or "audio",
+            sample_rate=log_entry.get("sample_rate"),
+            duration=report.get("user_duration") or log_entry.get("duration"),
+            bpm=int(report.get("user_bpm", 0) or 0) or None,
+            status=1,
+            params={"ref_id": ref_id, "language": language, "scoring_model": scoring_model, "threshold_ms": threshold_ms},
+            result_data={"rhythm_report": report, "log_id": log_entry["log_id"]},
+        )
+
+        return ok({"analysis_id": metadata["analysis_id"], **report, "audio_log": log_entry})
 
     except HTTPException:
         raise

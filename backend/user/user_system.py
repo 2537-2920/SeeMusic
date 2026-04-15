@@ -1,36 +1,60 @@
 from __future__ import annotations
-"""Simple in-memory auth/user system.
+"""Dual-mode auth/user system: in-memory (default) or database-backed.
 
-NOTE: This module uses in-memory dicts (USERS / TOKENS) so that the app
-can run and be tested without a database connection.  When you are ready to
-switch to a real database, replace the dict lookups with SQLAlchemy queries
-against `backend.db.models.User` (and a new UserToken model).
+Set ``USE_DB = True`` and call ``set_db_session_factory(factory)`` to switch
+to database mode.  When ``USE_DB`` is ``False`` the module falls back to
+plain Python dicts (``USERS`` / ``TOKENS``), which is ideal for unit tests
+that don't need a real database.
 """
 
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from fastapi import Header, HTTPException
 
 
 # ---------------------------------------------------------------------------
-# In-memory stores – cleared between tests by conftest.py
+# Mode toggle – flipped by conftest.py or application bootstrap
 # ---------------------------------------------------------------------------
-USERS: dict[str, dict] = {}   # keyed by user_id
-TOKENS: dict[str, dict] = {}  # keyed by token string
+USE_DB: bool = False
+_session_factory = None  # set via set_db_session_factory()
+
+
+def set_db_session_factory(factory) -> None:
+    """Inject a SQLAlchemy sessionmaker so the module can talk to the DB."""
+    global _session_factory
+    _session_factory = factory
+
+
+def _get_session():
+    if _session_factory is None:
+        raise RuntimeError("DB mode enabled but no session factory configured")
+    return _session_factory()
+
+
+# ---------------------------------------------------------------------------
+# In-memory stores – used when USE_DB is False
+# ---------------------------------------------------------------------------
+USERS: dict[str, dict] = {}
+TOKENS: dict[str, dict] = {}
 
 
 def _hash_password(password: str) -> str:
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
+# ===== register =====
 def register_user(username: str, password: str, email: str | None = None) -> dict:
-    """Register a new user (in-memory)."""
+    if USE_DB:
+        return _register_user_db(username, password, email)
+    return _register_user_mem(username, password, email)
+
+
+def _register_user_mem(username: str, password: str, email: str | None) -> dict:
     for u in USERS.values():
         if u["username"] == username:
             raise HTTPException(status_code=400, detail="username already exists")
-
     user_id = f"u_{uuid4().hex[:8]}"
     USERS[user_id] = {
         "user_id": user_id,
@@ -42,14 +66,38 @@ def register_user(username: str, password: str, email: str | None = None) -> dic
     return {"user_id": user_id}
 
 
+def _register_user_db(username: str, password: str, email: str | None) -> dict:
+    from backend.db.models import User
+    session = _get_session()
+    try:
+        if session.query(User).filter_by(username=username).first():
+            raise HTTPException(status_code=400, detail="username already exists")
+        new_user = User(username=username, password=_hash_password(password), email=email)
+        session.add(new_user)
+        session.commit()
+        return {"user_id": str(new_user.id)}
+    except HTTPException:
+        raise
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+# ===== login =====
 def login_user(username: str, password: str) -> dict:
-    """Authenticate and return a bearer token."""
+    if USE_DB:
+        return _login_user_db(username, password)
+    return _login_user_mem(username, password)
+
+
+def _login_user_mem(username: str, password: str) -> dict:
     matched = next((u for u in USERS.values() if u["username"] == username), None)
     if not matched:
         raise HTTPException(status_code=401, detail="invalid credentials")
     if matched["password"] != _hash_password(password):
         raise HTTPException(status_code=401, detail="invalid credentials")
-
     token = f"tok_{uuid4().hex}"
     TOKENS[token] = {"user_id": matched["user_id"], "username": matched["username"]}
     return {
@@ -59,8 +107,39 @@ def login_user(username: str, password: str) -> dict:
     }
 
 
+def _login_user_db(username: str, password: str) -> dict:
+    from backend.db.models import User, UserToken
+    session = _get_session()
+    try:
+        user = session.query(User).filter_by(username=username).first()
+        if not user or user.password != _hash_password(password):
+            raise HTTPException(status_code=401, detail="invalid credentials")
+        token = f"tok_{uuid4().hex}"
+        expired_time = datetime.now(timezone.utc) + timedelta(seconds=7200)
+        session.add(UserToken(user_id=user.id, token=token, expired_time=expired_time))
+        session.commit()
+        return {
+            "token": token,
+            "expires_in": 7200,
+            "user": {"user_id": str(user.id), "username": user.username},
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+# ===== token lookup =====
 def get_user_by_token(token: str) -> dict:
-    """Resolve a token to a user dict."""
+    if USE_DB:
+        return _get_user_by_token_db(token)
+    return _get_user_by_token_mem(token)
+
+
+def _get_user_by_token_mem(token: str) -> dict:
     record = TOKENS.get(token)
     if not record:
         raise HTTPException(status_code=401, detail="token invalid or expired")
@@ -70,17 +149,58 @@ def get_user_by_token(token: str) -> dict:
     return {"user_id": user["user_id"], "username": user["username"], "email": user.get("email")}
 
 
+def _get_user_by_token_db(token: str) -> dict:
+    from backend.db.models import User, UserToken
+    session = _get_session()
+    try:
+        now = datetime.now(timezone.utc)
+        tok = session.query(UserToken).filter(UserToken.token == token, UserToken.expired_time > now).first()
+        if not tok:
+            raise HTTPException(status_code=401, detail="token invalid or expired")
+        user = session.get(User, tok.user_id)
+        if not user:
+            raise HTTPException(status_code=401, detail="user not found")
+        return {"user_id": str(user.id), "username": user.username, "email": user.email}
+    finally:
+        session.close()
+
+
+# ===== current user from header =====
 def get_current_user(authorization: str = Header(default="")) -> dict:
-    """Extract and validate the Bearer token from the Authorization header."""
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="missing token")
     token = authorization.removeprefix("Bearer ").strip()
     return get_user_by_token(token)
 
 
+# ===== logout =====
 def logout_user(token: str) -> dict:
-    """Invalidate a token (in-memory)."""
+    if USE_DB:
+        return _logout_user_db(token)
+    return _logout_user_mem(token)
+
+
+def _logout_user_mem(token: str) -> dict:
     if token not in TOKENS:
         raise HTTPException(status_code=400, detail="token not exists")
     del TOKENS[token]
     return {"message": "logged out"}
+
+
+def _logout_user_db(token: str) -> dict:
+    from backend.db.models import UserToken
+    session = _get_session()
+    try:
+        tok = session.query(UserToken).filter_by(token=token).first()
+        if not tok:
+            raise HTTPException(status_code=400, detail="token not exists")
+        session.delete(tok)
+        session.commit()
+        return {"message": "logged out"}
+    except HTTPException:
+        raise
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()

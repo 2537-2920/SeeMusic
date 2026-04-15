@@ -24,7 +24,7 @@
 
     <div class="flex-1 max-w-xl mx-12 hidden lg:block">
         <div class="relative">
-            <input class="w-full bg-gray-100/80 border-none rounded-full py-2.5 px-12 text-sm focus:ring-2 focus:ring-[#a8dadc] transition-all outline-none" placeholder="搜索你想要的乐谱..." type="text"/>
+            <input class="w-full bg-gray-100/80 border-none rounded-full py-2.5 px-12 text-sm focus:ring-2 focus:ring-[#a8dadc] transition-all outline-none" id="search-input" placeholder="搜索你想要的乐谱..." type="text"/>
             <iconify-icon class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-lg" icon="solar:magnifer-linear"></iconify-icon>
         </div>
     </div>
@@ -35,101 +35,19 @@
             <span>上传乐谱</span>
         </button>
         <div class="w-10 h-10 rounded-full bg-gradient-to-tr from-[#a8dadc] to-[#457b9d] border-2 border-white shadow-sm overflow-hidden cursor-pointer">
-            <img alt="avatar" src="https://api.dicebear.com/7.x/avataaars/svg?seed=Felix"/>
+            <img alt="avatar" id="header-avatar" src="https://api.dicebear.com/7.x/avataaars/svg?seed=Felix"/>
         </div>
     </div>
 </header>
 
 <main class="w-full px-12 mx-auto flex gap-8 pt-8 pb-8">
     <div class="flex-1">
-        <div class="flex gap-4 mb-8 overflow-x-auto hide-scroll pb-2">
-            <button class="px-6 py-2 bg-[#1d3557] text-white rounded-full text-sm font-medium shadow-md">精选</button>
-            <button class="px-6 py-2 bg-white border border-gray-100 text-gray-500 rounded-full text-sm font-medium hover:border-[#a8dadc] transition-all">流行</button>
-            <button class="px-6 py-2 bg-white border border-gray-100 text-gray-500 rounded-full text-sm font-medium hover:border-[#a8dadc] transition-all">古典</button>
-            <button class="px-6 py-2 bg-white border border-gray-100 text-gray-500 rounded-full text-sm font-medium hover:border-[#a8dadc] transition-all">爵士</button>
-            <button class="px-6 py-2 bg-white border border-gray-100 text-gray-500 rounded-full text-sm font-medium hover:border-[#a8dadc] transition-all">ACG</button>
-            <button class="px-6 py-2 bg-white border border-gray-100 text-gray-500 rounded-full text-sm font-medium hover:border-[#a8dadc] transition-all">指弹吉他</button>
+        <div class="flex gap-4 mb-3 overflow-x-auto hide-scroll pb-2" id="tag-bar">
+            <button class="px-6 py-2 bg-[#1d3557] text-white rounded-full text-sm font-medium shadow-md" data-tag="">全部</button>
         </div>
+        <p class="text-sm text-gray-400 mb-6" id="community-status">正在加载社区乐谱...</p>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-8">
-            <div class="score-card bg-white p-4 rounded-[24px] shadow-sm border border-gray-50" onclick="showDetail('晴天', '周杰伦', '¥6.00', 'https://api.dicebear.com/7.x/initials/svg?seed=QT')">
-                <div class="aspect-[3/4] rounded-2xl bg-gray-50 mb-4 overflow-hidden relative group">
-                    <img alt="score" class="w-full h-full object-cover opacity-80" src="https://api.dicebear.com/7.x/initials/svg?seed=QT"/>
-                    <div class="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                        <iconify-icon class="text-white text-5xl" icon="solar:play-circle-bold"></iconify-icon>
-                    </div>
-                </div>
-                <h3 class="font-bold text-gray-800 text-lg">晴天</h3>
-                <p class="text-sm text-gray-400 mt-1">周杰伦 · 钢琴版</p>
-                <div class="flex items-center justify-between mt-4">
-                    <span class="text-[#457b9d] font-bold">¥6.00</span>
-                    <div class="flex items-center gap-1 text-xs text-gray-400">
-                        <iconify-icon icon="solar:download-linear"></iconify-icon>
-                        <span>1.2k</span>
-                    </div>
-                </div>
-            </div>
-
-            <div class="score-card bg-white p-4 rounded-[24px] shadow-sm border border-gray-50" onclick="showDetail('G线上的咏叹调', '巴赫', '免费', 'https://api.dicebear.com/7.x/initials/svg?seed=Bach')">
-                <div class="aspect-[3/4] rounded-2xl bg-gray-50 mb-4 overflow-hidden relative">
-                    <img alt="score" class="w-full h-full object-cover opacity-80" src="https://api.dicebear.com/7.x/initials/svg?seed=Bach"/>
-                </div>
-                <h3 class="font-bold text-gray-800 text-lg">G线上的咏叹调</h3>
-                <p class="text-sm text-gray-400 mt-1">巴赫 · 小提琴</p>
-                <div class="flex items-center justify-between mt-4">
-                    <span class="text-green-500 font-bold">免费</span>
-                    <div class="flex items-center gap-1 text-xs text-gray-400">
-                        <iconify-icon icon="solar:download-linear"></iconify-icon>
-                        <span>856</span>
-                    </div>
-                </div>
-            </div>
-
-            <div class="score-card bg-white p-4 rounded-[24px] shadow-sm border border-gray-50" onclick="showDetail('那些年', '胡夏', '¥5.00', 'https://api.dicebear.com/7.x/initials/svg?seed=TY')">
-                <div class="aspect-[3/4] rounded-2xl bg-gray-50 mb-4 overflow-hidden relative">
-                    <img alt="score" class="w-full h-full object-cover opacity-80" src="https://api.dicebear.com/7.x/initials/svg?seed=TY"/>
-                </div>
-                <h3 class="font-bold text-gray-800 text-lg">那些年</h3>
-                <p class="text-sm text-gray-400 mt-1">胡夏 · 简易钢琴</p>
-                <div class="flex items-center justify-between mt-4">
-                    <span class="text-[#457b9d] font-bold">¥5.00</span>
-                    <div class="flex items-center gap-1 text-xs text-gray-400">
-                        <iconify-icon icon="solar:download-linear"></iconify-icon>
-                        <span>2.3k</span>
-                    </div>
-                </div>
-            </div>
-
-            <div class="score-card bg-white p-4 rounded-[24px] shadow-sm border border-gray-50" onclick="showDetail('梦中的婚礼', '理查德', '¥8.00', 'https://api.dicebear.com/7.x/initials/svg?seed=Dream')">
-                <div class="aspect-[3/4] rounded-2xl bg-gray-50 mb-4 overflow-hidden relative">
-                    <img alt="score" class="w-full h-full object-cover opacity-80" src="https://api.dicebear.com/7.x/initials/svg?seed=Dream"/>
-                </div>
-                <h3 class="font-bold text-gray-800 text-lg">梦中的婚礼</h3>
-                <p class="text-sm text-gray-400 mt-1">理查德 · 钢琴经典</p>
-                <div class="flex items-center justify-between mt-4">
-                    <span class="text-[#457b9d] font-bold">¥8.00</span>
-                    <div class="flex items-center gap-1 text-xs text-gray-400">
-                        <iconify-icon icon="solar:download-linear"></iconify-icon>
-                        <span>4.1k</span>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="score-card bg-white p-4 rounded-[24px] shadow-sm border border-gray-50" onclick="showDetail('克罗地亚狂想曲', '理查德', '¥6.50', 'https://api.dicebear.com/7.x/initials/svg?seed=Croatia')">
-                <div class="aspect-[3/4] rounded-2xl bg-gray-50 mb-4 overflow-hidden relative">
-                    <img alt="score" class="w-full h-full object-cover opacity-80" src="https://api.dicebear.com/7.x/initials/svg?seed=Croatia"/>
-                </div>
-                <h3 class="font-bold text-gray-800 text-lg">克罗地亚狂想曲</h3>
-                <p class="text-sm text-gray-400 mt-1">理查德 · 钢琴经典</p>
-                <div class="flex items-center justify-between mt-4">
-                    <span class="text-[#457b9d] font-bold">¥6.50</span>
-                    <div class="flex items-center gap-1 text-xs text-gray-400">
-                        <iconify-icon icon="solar:download-linear"></iconify-icon>
-                        <span>3.8k</span>
-                    </div>
-                </div>
-            </div>
-        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-8" id="score-grid"></div>
     </div>
 
     <div class="w-[380px] hidden xl:block" id="detail-panel">
@@ -144,47 +62,48 @@
                         <h2 class="text-2xl font-bold text-gray-800" id="d-title">晴天</h2>
                         <p class="text-gray-400 text-sm mt-1" id="d-author">周杰伦</p>
                     </div>
-                    <button class="text-gray-300 hover:text-red-500 transition-colors">
+                    <button class="text-gray-300 hover:text-red-500 transition-colors" id="detail-like-btn" type="button">
                         <iconify-icon class="text-2xl" icon="solar:heart-bold"></iconify-icon>
                     </button>
                 </div>
                 <div class="aspect-[4/3] rounded-2xl bg-gray-50 mb-6 overflow-hidden">
                     <img alt="preview" class="w-full h-full object-cover" id="d-cover" src=""/>
                 </div>
+                <div class="grid grid-cols-4 gap-3 mb-6 text-center">
+                    <div class="rounded-2xl bg-gray-50 px-3 py-3">
+                        <div class="text-[10px] uppercase text-gray-400">价格</div>
+                        <div class="font-bold text-[#457b9d]" id="d-price">--</div>
+                    </div>
+                    <div class="rounded-2xl bg-gray-50 px-3 py-3">
+                        <div class="text-[10px] uppercase text-gray-400">下载</div>
+                        <div class="font-bold text-gray-700" id="d-downloads">--</div>
+                    </div>
+                    <div class="rounded-2xl bg-gray-50 px-3 py-3">
+                        <div class="text-[10px] uppercase text-gray-400">点赞</div>
+                        <div class="font-bold text-gray-700" id="d-likes">--</div>
+                    </div>
+                    <div class="rounded-2xl bg-gray-50 px-3 py-3">
+                        <div class="text-[10px] uppercase text-gray-400">收藏</div>
+                        <div class="font-bold text-gray-700" id="d-favorites">--</div>
+                    </div>
+                </div>
+                <p class="text-sm text-gray-500 leading-relaxed mb-6" id="d-description">暂无简介</p>
                 <div class="flex gap-4 mb-8">
-                    <button class="flex-1 bg-[#457b9d] text-white py-3 rounded-2xl font-bold shadow-lg shadow-blue-200 hover:scale-[1.02] transition-all">立即下载</button>
-                    <button class="w-14 h-14 bg-gray-50 text-gray-400 rounded-2xl flex items-center justify-center hover:bg-gray-100 transition-all">
+                    <button class="flex-1 bg-[#457b9d] text-white py-3 rounded-2xl font-bold shadow-lg shadow-blue-200 hover:scale-[1.02] transition-all" id="detail-download-btn" type="button">立即下载</button>
+                    <button class="w-14 h-14 bg-gray-50 text-gray-400 rounded-2xl flex items-center justify-center hover:bg-gray-100 transition-all" id="detail-favorite-btn" type="button">
+                        <iconify-icon class="text-xl" icon="solar:bookmark-bold"></iconify-icon>
+                    </button>
+                    <button class="w-14 h-14 bg-gray-50 text-gray-400 rounded-2xl flex items-center justify-center hover:bg-gray-100 transition-all" id="detail-share-btn" type="button">
                         <iconify-icon class="text-xl" icon="solar:share-bold"></iconify-icon>
                     </button>
                 </div>
                 
                 <div class="border-t border-gray-50 pt-6">
-                    <h4 class="font-bold text-sm mb-4">社区评论 (42)</h4>
-                    <div class="space-y-4 max-h-[300px] overflow-y-auto hide-scroll mb-4">
-                        <div class="flex gap-3">
-                            <div class="w-8 h-8 rounded-full bg-gray-200 flex-shrink-0"></div>
-                            <div>
-                                <div class="flex items-center gap-2">
-                                    <span class="text-xs font-bold">路德维希</span>
-                                    <span class="text-[10px] text-gray-300">2小时前</span>
-                                </div>
-                                <p class="text-xs text-gray-500 mt-1 leading-relaxed">这首谱子转调处理得非常巧妙，值得学习！</p>
-                            </div>
-                        </div>
-                        <div class="flex gap-3">
-                            <div class="w-8 h-8 rounded-full bg-gray-200 flex-shrink-0"></div>
-                            <div>
-                                <div class="flex items-center gap-2">
-                                    <span class="text-xs font-bold">琴心剑胆</span>
-                                    <span class="text-[10px] text-gray-300">昨天</span>
-                                </div>
-                                <p class="text-xs text-gray-500 mt-1 leading-relaxed">感谢分享，找了好久这个版本的钢琴谱。</p>
-                            </div>
-                        </div>
-                    </div>
+                    <h4 class="font-bold text-sm mb-4" id="comment-title">社区评论 (0)</h4>
+                    <div class="space-y-4 max-h-[300px] overflow-y-auto hide-scroll mb-4" id="detail-comments-list"></div>
                     <div class="relative">
-                        <input class="w-full bg-gray-50 border-none rounded-xl py-3 px-4 text-xs outline-none focus:ring-1 focus:ring-[#a8dadc]" placeholder="我也说两句..." type="text"/>
-                        <button class="absolute right-3 top-1/2 -translate-y-1/2 text-[#457b9d] font-bold text-xs">发送</button>
+                        <input class="w-full bg-gray-50 border-none rounded-xl py-3 px-4 text-xs outline-none focus:ring-1 focus:ring-[#a8dadc]" id="comment-input" placeholder="我也说两句..." type="text"/>
+                        <button class="absolute right-3 top-1/2 -translate-y-1/2 text-[#457b9d] font-bold text-xs" id="comment-send-btn" type="button">发送</button>
                     </div>
                 </div>
             </div>
@@ -201,22 +120,32 @@
             </button>
         </div>
         <div class="border-2 border-dashed border-gray-100 rounded-3xl p-12 text-center mb-8 hover:border-[#a8dadc] transition-colors cursor-pointer group">
+            <input hidden id="upload-file-input" type="file"/>
             <iconify-icon class="text-6xl text-gray-200 group-hover:text-[#a8dadc] transition-colors mb-4" icon="solar:cloud-upload-bold-duotone"></iconify-icon>
-            <p class="text-sm text-gray-400">拖拽文件到这里 或 <span class="text-[#457b9d] font-bold">点击上传</span></p>
+            <p class="text-sm text-gray-400" id="upload-dropzone">拖拽文件到这里 或 <span class="text-[#457b9d] font-bold">点击上传</span></p>
             <p class="text-[10px] text-gray-300 mt-2">支持 PDF, MIDI, MusicXML (Max 20MB)</p>
+            <p class="text-[10px] text-[#457b9d] mt-2" id="upload-file-name">尚未选择文件</p>
         </div>
         <div class="space-y-4 mb-8">
-            <input class="w-full bg-gray-50 border-none rounded-xl py-3 px-4 text-sm outline-none" placeholder="作品标题" type="text"/>
+            <input class="w-full bg-gray-50 border-none rounded-xl py-3 px-4 text-sm outline-none" id="upload-title-input" placeholder="作品标题" type="text"/>
+            <textarea class="w-full bg-gray-50 border-none rounded-xl py-3 px-4 text-sm outline-none min-h-[100px]" id="upload-description-input" placeholder="补充一点作品说明，方便社区用户理解你的版本"></textarea>
             <div class="flex gap-4">
-                <select class="flex-1 bg-gray-50 border-none rounded-xl py-3 px-4 text-sm outline-none text-gray-500">
+                <select class="flex-1 bg-gray-50 border-none rounded-xl py-3 px-4 text-sm outline-none text-gray-500" id="upload-style-input">
                     <option>选择风格</option>
                     <option>流行</option>
                     <option>古典</option>
+                    <option>爵士</option>
+                    <option>ACG</option>
                 </select>
-                <input class="w-1/3 bg-gray-50 border-none rounded-xl py-3 px-4 text-sm outline-none" placeholder="定价 (可选)" type="text"/>
+                <input class="w-1/3 bg-gray-50 border-none rounded-xl py-3 px-4 text-sm outline-none" id="upload-price-input" placeholder="定价" type="number"/>
+            </div>
+            <div class="flex gap-4">
+                <input class="flex-1 bg-gray-50 border-none rounded-xl py-3 px-4 text-sm outline-none" id="upload-instrument-input" placeholder="乐器 / 版本，例如 钢琴版" type="text"/>
+                <input class="flex-1 bg-gray-50 border-none rounded-xl py-3 px-4 text-sm outline-none" id="upload-tags-input" placeholder="标签，逗号分隔" type="text"/>
             </div>
         </div>
-        <button class="w-full bg-[#1d3557] text-white py-4 rounded-2xl font-bold shadow-lg shadow-blue-100 hover:opacity-90 transition-all" onclick="alert('上传功能开发中...'); toggleModal('upload-modal', false)">发布作品</button>
+        <p class="hidden text-xs rounded-xl px-4 py-3 mb-4" id="upload-status"></p>
+        <button class="w-full bg-[#1d3557] text-white py-4 rounded-2xl font-bold shadow-lg shadow-blue-100 hover:opacity-90 transition-all" id="upload-submit-btn" type="button">发布作品</button>
     </div>
 </div>
 
@@ -224,6 +153,7 @@
     <p class="text-gray-400 text-xs">© 2026 SeeMusic Studio · 乐谱社区 · 灵感之声，视界无限</p>
 </footer>
 
+<script src="app_common.js"></script>
 <script src="community.js"></script>
 </body>
 </html>

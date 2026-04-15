@@ -1,7 +1,7 @@
 from __future__ import annotations
 """Simple in-memory auth/user system."""
-from backend.database.models import user,usertoken
-from backend.database.db import db
+from backend.db.models import User,UserToken
+from backend.db.base import Base
 
 
 import hashlib
@@ -18,19 +18,19 @@ def _hash_password(password: str) -> str:
 
 #注册函数
 def register_user(username_in: str, password_in: str, email_in: str | None = None) -> dict:
-    if user.query.filter_by(username=username_in).first():
+    if User.query.filter_by(username=username_in).first():
         raise HTTPException(status_code=400,detial="username already exists")
     
     user_id=f"u_{uuid4().hex[:8]}"
-    new_user=user(
+    new_user=User(
         id=user_id,
         username=username_in,
         password=_hash_password(password_in),
         email=email_in,
         create_time=datetime.now(timezone.utc)
         )
-    db.session.add(new_user)
-    db.session.commit()
+    Base.session.add(new_user)
+    Base.session.commit()
     return {
         "code": 0,
         "message": "success",
@@ -43,7 +43,7 @@ def register_user(username_in: str, password_in: str, email_in: str | None = Non
 
 #登录函数
 def login_user(username_in: str, password: str) -> dict:
-    myuser=user.query.filter_by(username=username_in).first()
+    myuser=User.query.filter_by(username=username_in).first()
     if not myuser:
         raise HTTPException(status_code=400,detail="username not exists")
     if myuser.password!=_hash_password(password):
@@ -52,10 +52,10 @@ def login_user(username_in: str, password: str) -> dict:
     token=f"tok_{uuid4().hex}"
     expired_time = datetime.now(timezone.utc) + timedelta(seconds=7200)
 
-    myuser_token=usertoken(token=token,id=myuser.id,expired_time=expired_time)
+    myuser_token=UserToken(token=token,id=myuser.id,expired_time=expired_time)
 
-    db.seesion.add(myuser_token)
-    db.seesion.commit()
+    Base.seesion.add(myuser_token)
+    Base.seesion.commit()
 
     return  {
             "code": 0,
@@ -73,11 +73,11 @@ def login_user(username_in: str, password: str) -> dict:
 #通过token快速获取userid
 def get_user_by_token(token: str) -> dict:
     now_time=datetime.now(timezone.utc)
-    token_record=usertoken.query.filter(usertoken.token==token,usertoken.expired_time>now_time).first()
+    token_record=UserToken.query.filter(UserToken.token==token,UserToken.expired_time>now_time).first()
 
     if not token_record:
         raise HTTPException(status_code=401,detail="token invalid or expired")
-    myuser=user.query.get(token_record.id)
+    myuser=User.query.get(token_record.id)
     return  {
         "user_id":myuser.user_id,
         "username":myuser.username,
@@ -93,12 +93,12 @@ def get_current_user(authorization: str = Header(default="")) -> dict:
 
 # 退出登录函数：让token立即失效
 def logout_user(token: str):
-    token_record = usertoken.query.filter_by(token=token).first()
+    token_record = UserToken.query.filter_by(token=token).first()
     
     if not token_record:
         raise HTTPException(status_code=400, detail="token not exists")
     
-    db.session.delete(token_record)
-    db.session.commit()
+    Base.session.delete(token_record)
+    Base.session.commit()
     
     return {"message": "退出登录成功,token已失效"}

@@ -215,3 +215,17 @@ class UserHistory(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict, nullable=False)
     create_time: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)
+
+class UserToken(Base):
+    __tablename__ = "user_token"
+
+    id: Mapped[int] = mapped_column(BIGINT_COMPAT, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        BIGINT_COMPAT,
+        ForeignKey("user.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    token: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
+    expired_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    create_time: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)

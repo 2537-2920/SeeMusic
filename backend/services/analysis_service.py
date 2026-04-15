@@ -112,7 +112,7 @@ def save_analysis_result(
                 bpm=bpm,
                 status=status,
                 params=_json_ready(deepcopy(params or {})),
-                result_data=_json_ready(deepcopy(result_data or {})),
+                result=_json_ready(deepcopy(result_data or {})),
             )
             session.add(analysis)
             session.flush()
@@ -125,7 +125,7 @@ def save_analysis_result(
             analysis.bpm = bpm if bpm is not None else analysis.bpm
             analysis.status = status
             analysis.params = _json_ready(deepcopy(params or analysis.params or {}))
-            analysis.result_data = _json_ready(deepcopy(result_data or analysis.result_data or {}))
+            analysis.result = _json_ready(deepcopy(result_data or analysis.result or {}))
             session.add(analysis)
             session.flush()
 

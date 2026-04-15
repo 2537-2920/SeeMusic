@@ -205,6 +205,16 @@ class AudioAnalysis(Base):
     status: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     params: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     result: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+
+    # Backward-compatible alias for older service/tests that still use result_data.
+    @property
+    def result_data(self) -> dict[str, Any]:
+        return self.result
+
+    @result_data.setter
+    def result_data(self, value: dict[str, Any]) -> None:
+        self.result = value
+
     create_time: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)
     update_time: Mapped[datetime] = mapped_column(
         DateTime,

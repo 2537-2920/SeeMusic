@@ -11,7 +11,7 @@
 - `community_like`：新增，保存社区点赞记录。
 - `community_favorite`：新增，保存社区收藏记录。
 
-## 2. 通用约定
+## 通用约定
 
 - MySQL 下主键使用 `BIGINT` 自增；SQLite 下会自动兼容为 `INTEGER`。
 - `create_time` / `update_time` 统一由数据库时间戳自动维护。
@@ -70,7 +70,7 @@
 
 作用：记录用户的导出操作和导出文件。
 
-| 字段 | 类型 | 约束/说明 |
+| 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | id | BIGINT PK | 导出记录主键，自增。 |
 | project_id | BIGINT FK | 关联 `project.id`，非空，带索引。 |
@@ -83,7 +83,7 @@
 
 作用：存储音准、节奏打分结果，以及练习/分析中的错误点。
 
-| 字段 | 类型 | 约束/说明 |
+| 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | id | BIGINT PK | 报告主键，自增。 |
 | report_id | VARCHAR(64) | 报告业务 ID，唯一，非空。 |
@@ -190,34 +190,16 @@
 
 作用：存储音高时间点、频率、音符信息，用于对比和图表渲染。
 
-| 字段 | 类型 | 约束/说明 |
+| 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| id | BIGINT PK | 自增 |
-| user_id | BIGINT FK | 指向 `user.id`，可空，索引 |
-| analysis_id | VARCHAR(64) | 唯一，非空，索引 |
-| file_name | VARCHAR(255) | 可空 |
-| file_url | VARCHAR(500) | 可空 |
-| sample_rate | INT | 可空 |
-| duration | FLOAT | 可空 |
-| bpm | INT | 可空 |
-| status | INT | 非空，默认 `0` |
-| params | JSON | 非空，默认 `{}` |
-| result | JSON | 非空，默认 `{}` |
-| create_time | DATETIME | 自动生成 |
-| update_time | DATETIME | 自动更新 |
-
-### 3.12 pitch_sequence
-
-| 字段 | 类型 | 约束/说明 |
-| --- | --- | --- |
-| id | BIGINT PK | 自增 |
-| analysis_id | VARCHAR(64) FK | 指向 `audio_analysis.analysis_id`，非空，索引 |
-| time | FLOAT | 非空 |
-| frequency | FLOAT | 可空 |
-| note | VARCHAR(32) | 可空 |
-| confidence | FLOAT | 可空 |
-| cents_offset | FLOAT | 可空 |
-| is_reference | BOOLEAN | 非空，默认 `false` |
+| id | BIGINT PK | 序列点主键，自增。 |
+| analysis_id | VARCHAR(64) FK | 关联 `audio_analysis.analysis_id`，非空，带索引。 |
+| time | FLOAT | 时间点，单位秒，非空。 |
+| frequency | FLOAT | 音高频率，可空。 |
+| note | VARCHAR(32) | 音符名称，例如 `A4`，可空。 |
+| confidence | FLOAT | 置信度，可空。 |
+| cents_offset | FLOAT | 音分偏差值，可空。 |
+| is_reference | BOOLEAN | 是否为参考音轨，默认 `false`。 |
 
 > 该表只保存序列采样点，不包含 `create_time` / `update_time`。
 
@@ -225,7 +207,7 @@
 
 作用：记录用户的音频、乐谱和分析操作历史。
 
-| 字段 | 类型 | 约束/说明 |
+| 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | id | BIGINT PK | 历史记录主键，自增。 |
 | user_id | BIGINT FK | 关联 `user.id`，非空，带索引。 |
@@ -234,3 +216,17 @@
 | title | VARCHAR(255) | 历史记录标题，非空。 |
 | metadata | JSON | 附加信息 JSON，默认空对象。 |
 | create_time | DATETIME | 记录生成时间，自动生成。 |
+
+## 13. user_token（用户令牌表）
+
+作用：保存登录令牌与过期时间，用于会话鉴权与登出失效。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | BIGINT PK | 令牌记录主键，自增。 |
+| user_id | BIGINT FK | 关联 `user.id`，非空，带索引。 |
+| token | VARCHAR(128) | 登录令牌，唯一，非空，带索引。 |
+| expired_time | DATETIME | 令牌过期时间，非空。 |
+| created_at | DATETIME | 令牌创建时间，自动生成。 |
+
+

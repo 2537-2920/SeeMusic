@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.config.settings import Settings, settings
+from backend.config.settings import settings
 from backend.core.score.score_utils import reset_score_cache
 from backend.db.models import User
 from backend.db.session import init_database, reset_database_state, session_scope
@@ -112,17 +112,13 @@ def user_database(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str, 
 
 @pytest.fixture
 def mysql_database() -> dict[str, str]:
-    """Connect to the real MySQL database via SSH tunnel.
+    """Connect to MySQL for integration tests.
 
-    Requires environment variables: SSH_HOST, SSH_USER, SSH_KEY_FILE,
-    MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DB_NAME, etc.
+    Preferred in CI: set ``DATABASE_URL`` directly (for local MySQL service).
+    Optional fallback: settings-based URL + SSH tunnel (for remote DB setups).
     Tests using this fixture must be marked with ``@pytest.mark.mysql``.
     """
-    import os
-    from backend.db.session import get_session_factory
-
-    # Ensure no leftover DATABASE_URL override — let settings build the MySQL URL
-    os.environ.pop("DATABASE_URL", None)
+    from backend.db.session import get_session_factory, resolve_database_url
 
     reset_database_state()
     init_database()  # opens SSH tunnel as needed, creates missing tables
@@ -139,7 +135,7 @@ def mysql_database() -> dict[str, str]:
     community_service.set_db_session_factory(factory)
     community_service.USE_DB = True
 
-    yield {"database_url": Settings().database_url}
+    yield {"database_url": resolve_database_url()}
 
     user_system.USE_DB = False
     history_manager.USE_DB = False

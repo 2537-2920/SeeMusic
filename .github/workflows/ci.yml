@@ -13,20 +13,6 @@ jobs:
       PYTHONPATH: .
       PYTHONDONTWRITEBYTECODE: "1"
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
-      SSH_HOST: ${{ secrets.SSH_HOST }}
-      SSH_USER: ${{ secrets.SSH_USER }}
-      SSH_PORT: ${{ secrets.SSH_PORT }}
-      SSH_KEY_FILE: /home/runner/.ssh/id_cloud_server
-      MYSQL_HOST: ${{ secrets.MYSQL_HOST }}
-      MYSQL_PORT: ${{ secrets.MYSQL_PORT }}
-      MYSQL_USER: ${{ secrets.MYSQL_USER }}
-      MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
-      MYSQL_DB_NAME: ${{ secrets.MYSQL_DB_NAME }}
-      DB_HOST: 127.0.0.1
-      DB_PORT: "3307"
-      DB_USER: ${{ secrets.DB_USER }}
-      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-      DB_NAME: ${{ secrets.DB_NAME }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -42,17 +28,76 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Prepare SSH key for MySQL tunnel
-        run: |
-          mkdir -p /home/runner/.ssh
-          printf "%s" "${{ secrets.SSH_PRIVATE_KEY }}" > /home/runner/.ssh/id_cloud_server
-          chmod 600 /home/runner/.ssh/id_cloud_server
-
       - name: Compile source files
         run: python -m compileall backend tests
 
       - name: Run unit tests (no MySQL required)
         run: pytest tests/ -q -m "not mysql"
+
+  mysql-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: SeeMusic
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot --silent"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=20
+    env:
+      PYTHONPATH: .
+      PYTHONDONTWRITEBYTECODE: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      DATABASE_URL: mysql+pymysql://root:root@127.0.0.1:3306/SeeMusic?charset=utf8mb4
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Wait for MySQL service
+        run: |
+          python - <<'PY'
+          import os
+          import time
+
+          from sqlalchemy import create_engine, text
+
+          url = os.environ["DATABASE_URL"]
+          deadline = time.time() + 60
+          last_error = None
+
+          while time.time() < deadline:
+              try:
+                  engine = create_engine(url, pool_pre_ping=True)
+                  with engine.connect() as conn:
+                      conn.execute(text("SELECT 1"))
+                  print("MySQL service is ready")
+                  break
+              except Exception as exc:
+                  last_error = exc
+                  time.sleep(2)
+          else:
+              raise RuntimeError(f"MySQL service did not become ready in time: {last_error}")
+          PY
+
+      - name: Compile source files
+        run: python -m compileall backend tests
 
       - name: Run MySQL integration tests
         run: pytest tests/ -q -m mysql --tb=short

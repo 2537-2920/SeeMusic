@@ -1,14 +1,16 @@
-﻿"""Export utility helpers."""
+"""Export utility helpers."""
 
 from __future__ import annotations
 
 import io
+import re
 import struct
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Sequence
 
 from PIL import Image, ImageDraw, ImageFont
 
+from backend.config.settings import settings
 from backend.core.score.note_mapping import beats_per_measure, beats_to_seconds, parse_time_signature
 
 try:
@@ -31,17 +33,68 @@ PAPER_COLOR = "#fffdf8"
 INK_COLOR = "#1f2933"
 MUTED_COLOR = "#5b6472"
 ACCENT_COLOR = "#8a5a2f"
+SAFE_NAME_PATTERN = re.compile(r"[^A-Za-z0-9_.-]+")
+EXPORT_SUBDIR = "exports"
+
+
+class ExportPathError(ValueError):
+    """Raised when an export path cannot be safely placed in storage."""
+
+
+class ExportFileNotFoundError(FileNotFoundError):
+    """Raised when a requested export file is missing or outside storage."""
+
+
+def _safe_name(value: str, default: str) -> str:
+    cleaned = SAFE_NAME_PATTERN.sub("_", str(value or default)).strip("._")
+    return cleaned or default
+
+
+def _storage_root(storage_dir: Path | None = None) -> Path:
+    root = (storage_dir or settings.storage_dir).expanduser().resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _safe_export_path(resource_id: str, export_format: str, storage_dir: Path | None = None) -> Path:
+    root = _storage_root(storage_dir)
+    export_dir = (root / EXPORT_SUBDIR).resolve()
+    export_dir.mkdir(parents=True, exist_ok=True)
+
+    safe_resource_id = _safe_name(resource_id, "resource")
+    safe_format = _safe_name(export_format, "bin").lower()
+    candidate = (export_dir / f"{safe_resource_id}.{safe_format}").resolve()
+
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise ExportPathError("export file path is outside the storage directory") from exc
+    return candidate
+
+
+def _download_url_for(path: Path, storage_dir: Path | None = None) -> str:
+    root = _storage_root(storage_dir)
+    try:
+        relative_path = path.resolve().relative_to(root)
+    except ValueError as exc:
+        raise ExportFileNotFoundError("export file path is outside the storage directory") from exc
+    return "/storage/" + relative_path.as_posix()
 
 
 def build_export_files(resource_id: str, formats: list[str]) -> list[dict]:
-    return [
-        {
-            "format": fmt,
-            "download_url": f"https://example.com/download/{resource_id}.{fmt}",
-            "expires_in": 3600,
-        }
-        for fmt in formats
-    ]
+    files: list[dict] = []
+    for fmt in formats:
+        export_path = _safe_export_path(resource_id, fmt)
+        files.append(
+            {
+                "format": fmt,
+                "file_name": export_path.name,
+                "file_path": str(export_path),
+                "download_url": _download_url_for(export_path),
+                "expires_in": 3600,
+            }
+        )
+    return files
 
 
 
@@ -56,12 +109,14 @@ def build_score_export_payload(
         manifest = _build_midi_manifest(score)
     else:
         manifest = _build_visual_manifest(score, export_format, page_size, with_annotations)
-    stem = file_stem or score["score_id"]
+
+    export_path = _safe_export_path(file_stem or score["score_id"], export_format)
     return {
         "score_id": score["score_id"],
         "format": export_format,
-        "file_name": f"{stem}.{export_format}",
-        "download_url": None,
+        "file_name": export_path.name,
+        "file_path": str(export_path),
+        "download_url": _download_url_for(export_path),
         "manifest": manifest,
     }
 
@@ -82,9 +137,8 @@ def write_score_export(
         with_annotations=with_annotations,
         file_stem=file_stem,
     )
-    export_dir = storage_dir / "exports"
-    export_dir.mkdir(parents=True, exist_ok=True)
-    file_path = export_dir / payload["file_name"]
+    file_path = _safe_export_path(file_stem or score["score_id"], export_format, storage_dir)
+    payload["file_name"] = file_path.name
 
     if export_format == "midi":
         file_path.write_bytes(_build_midi_bytes(payload["manifest"]))
@@ -95,7 +149,7 @@ def write_score_export(
     else:
         raise ValueError(f"unsupported export format: {export_format}")
 
-    payload["download_url"] = f"/storage/exports/{payload['file_name']}"
+    payload["download_url"] = _download_url_for(file_path, storage_dir)
     payload["file_path"] = str(file_path)
     return payload
 

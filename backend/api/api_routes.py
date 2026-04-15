@@ -31,11 +31,10 @@ from backend.api.schemas import (
 )
 from backend.core.generation.chord_generation import generate_chord_sequence
 from backend.core.generation.variation_suggestions import generate_variation_suggestions
+from backend.core.pitch.audio_utils import estimate_duration_from_bytes, infer_audio_metadata
 from backend.core.pitch.pitch_comparison import build_pitch_comparison_payload, load_pitch_sequence_json
-from backend.core.pitch.audio_utils import infer_audio_metadata
 from backend.core.pitch.pitch_detection import detect_pitch_sequence
 from backend.core.pitch.realtime_tuning import analyze_audio_frame
-from backend.core.separation.multi_track_separation import separate_tracks
 from backend.services.report_service import export_report
 from backend.services.community_service import (
     add_community_comment,
@@ -154,7 +153,9 @@ async def pitch_detect(
     algorithm: str = Form("yin"),
 ):
     content = await file.read()
-    metadata = infer_audio_metadata(file.filename or "audio", sample_rate, None)
+    resolved_sample_rate = sample_rate or 16000
+    estimated_duration = estimate_duration_from_bytes(content, resolved_sample_rate)
+    metadata = infer_audio_metadata(file.filename or "audio", resolved_sample_rate, estimated_duration or None)
     log_entry = record_audio_processing_log(
         file_name=file.filename or "audio",
         audio_bytes=content,
@@ -188,6 +189,82 @@ async def pitch_detect(
         {
             "analysis_id": metadata["analysis_id"],
             "duration": metadata["duration"],
+            "sample_rate": metadata["sample_rate"],
+            "frame_ms": frame_ms,
+            "hop_ms": hop_ms,
+            "algorithm": algorithm,
+            "track_count": 1,
+            "tracks": [{"name": file.filename or "audio"}],
+            "pitch_sequence": pitches,
+            "audio_log": log_entry,
+        }
+    )
+
+
+@router.post("/pitch/detect-multitrack")
+async def pitch_detect_multitrack(
+    files: list[UploadFile] = File(...),
+    sample_rate: Optional[int] = Form(None),
+    frame_ms: int = Form(20),
+    hop_ms: int = Form(10),
+    algorithm: str = Form("yin"),
+):
+    if not files:
+        raise HTTPException(status_code=400, detail="at least one audio track is required")
+
+    resolved_sample_rate = sample_rate or 16000
+    tracks = []
+    durations = []
+    total_bytes = 0
+    for index, upload in enumerate(files):
+        content = await upload.read()
+        if not content:
+            continue
+        track_name = upload.filename or f"track_{index + 1}"
+        tracks.append({"name": track_name, "audio_bytes": content, "sample_rate": resolved_sample_rate})
+        durations.append(estimate_duration_from_bytes(content, resolved_sample_rate))
+        total_bytes += len(content)
+
+    if not tracks:
+        raise HTTPException(status_code=400, detail="uploaded tracks are empty")
+
+    duration = max(durations) if durations else None
+    metadata = infer_audio_metadata("multitrack", resolved_sample_rate, duration or None)
+    log_entry = record_audio_processing_log(
+        file_name="multitrack",
+        audio_bytes=b"\x00" * total_bytes,
+        sample_rate=metadata["sample_rate"],
+        duration=metadata["duration"],
+        analysis_id=metadata["analysis_id"],
+        source="api",
+        stage="pitch_detect_multitrack",
+        params={
+            "frame_ms": frame_ms,
+            "hop_ms": hop_ms,
+            "algorithm": algorithm,
+            "track_count": len(tracks),
+            "tracks": [track["name"] for track in tracks],
+        },
+    )
+    pitches = detect_pitch_sequence(
+        file_name="multitrack",
+        sample_rate=metadata["sample_rate"],
+        frame_ms=frame_ms,
+        hop_ms=hop_ms,
+        algorithm=algorithm,
+        duration=metadata["duration"],
+        audio_bytes={"sample_rate": metadata["sample_rate"], "tracks": tracks},
+    )
+    return ok(
+        {
+            "analysis_id": metadata["analysis_id"],
+            "duration": metadata["duration"],
+            "sample_rate": metadata["sample_rate"],
+            "frame_ms": frame_ms,
+            "hop_ms": hop_ms,
+            "algorithm": algorithm,
+            "track_count": len(tracks),
+            "tracks": [{"name": track["name"]} for track in tracks],
             "pitch_sequence": pitches,
             "audio_log": log_entry,
         }
@@ -199,16 +276,28 @@ async def realtime_pitch(websocket: WebSocket) -> None:
     await websocket.accept()
     try:
         while True:
-            message = await websocket.receive_text()
-            payload = json.loads(message)
+            message = await websocket.receive()
+            if message.get("type") == "websocket.disconnect":
+                break
+            if "bytes" in message and message["bytes"] is not None:
+                payload = {"type": "audio_frame", "pcm_bytes": message["bytes"], "sample_rate": 16000}
+            else:
+                payload = json.loads(message.get("text", "{}"))
             if payload.get("type") == "stop":
                 await websocket.send_json({"type": "stopped"})
                 break
             if payload.get("type") != "audio_frame":
                 await websocket.send_json({"type": "error", "message": "unsupported message type"})
                 continue
-            frame = payload.get("pcm", "").encode("utf-8")
-            result = analyze_audio_frame(frame, int(payload.get("sample_rate", 16000)))
+            frame = payload.get("pcm_bytes") or payload.get("pcm", "").encode("utf-8")
+            reference_frequency = payload.get("reference_frequency")
+            result = analyze_audio_frame(
+                frame,
+                int(payload.get("sample_rate", 16000)),
+                reference_frequency=float(reference_frequency) if reference_frequency is not None else None,
+                timestamp=float(payload.get("timestamp", payload.get("time", 0.0))),
+                algorithm=payload.get("algorithm", "yin"),
+            )
             await websocket.send_json({"type": "pitch_update", **result})
     except WebSocketDisconnect:
         return
@@ -410,6 +499,8 @@ async def audio_separate_tracks(
     model: str = Form("demucs"),
     stems: int = Form(2),
 ):
+    from backend.core.separation.multi_track_separation import separate_tracks
+
     content = await file.read()
     metadata = infer_audio_metadata(file.filename or "audio")
     log_entry = record_audio_processing_log(

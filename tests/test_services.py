@@ -13,6 +13,7 @@ from backend.services.score_service import (
     ExportRecordNotFoundError,
     ScoreNotFoundError,
     ScoreOperationError,
+    _resolve_export_path,
     create_score_from_pitch_sequence,
     delete_score_export,
     edit_score,
@@ -22,6 +23,7 @@ from backend.services.score_service import (
     list_score_exports,
     regenerate_score_export,
 )
+from backend.config.settings import settings
 
 
 @pytest.fixture

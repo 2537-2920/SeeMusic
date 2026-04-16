@@ -1,4 +1,5 @@
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 // 乐谱卡片点击交互：显示右侧面板
 function showDetail(title, author, price, cover) {
     document.getElementById('detail-empty').classList.add('hidden');
@@ -9,6 +10,9 @@ function showDetail(title, author, price, cover) {
     document.getElementById('d-cover').src = cover;
 =======
 const {
+=======
+﻿const {
+>>>>>>> Stashed changes
     requestJson,
     getCurrentUser,
     getAuthToken,
@@ -114,7 +118,11 @@ function setCoverSelection(file) {
     selectedCoverFile = file;
     if (!file) {
         uploadCoverInput.value = "";
+<<<<<<< Updated upstream
         uploadCoverName.textContent = "尚未选择封面";
+=======
+        uploadCoverName.textContent = "灏氭湭閫夋嫨灏侀潰";
+>>>>>>> Stashed changes
         uploadCoverPreview.src = "";
         uploadCoverPreviewFrame.classList.add("hidden");
         uploadCoverPlaceholderIcon.classList.remove("hidden");
@@ -393,17 +401,28 @@ function formatRelativeText(score) {
         return "";
     }
     if (score.updated_at && score.updated_at !== score.published_at) {
+<<<<<<< Updated upstream
         return `更新于 ${new Date(score.updated_at).toLocaleString("zh-CN")}`;
     }
     if (score.published_at) {
         return `发布于 ${new Date(score.published_at).toLocaleString("zh-CN")}`;
+=======
+        return `鏇存柊浜?${new Date(score.updated_at).toLocaleString("zh-CN")}`;
+    }
+    if (score.published_at) {
+        return `鍙戝竷浜?${new Date(score.published_at).toLocaleString("zh-CN")}`;
+>>>>>>> Stashed changes
     }
     return "";
 }
 
 function renderTags() {
     const buttons = [
+<<<<<<< Updated upstream
         `<button class="px-6 py-2 rounded-full text-sm font-medium shadow-md ${state.activeTag ? "bg-white text-gray-600" : "bg-[#1d3557] text-white"}" data-tag="">全部</button>`,
+=======
+        `<button class="px-6 py-2 rounded-full text-sm font-medium shadow-md ${state.activeTag ? "bg-white text-gray-600" : "bg-[#1d3557] text-white"}" data-tag="">鍏ㄩ儴</button>`,
+>>>>>>> Stashed changes
         ...state.tags.map((tag) => {
             const active = state.activeTag === tag.name;
             return `<button class="px-6 py-2 rounded-full text-sm font-medium shadow-md ${active ? "bg-[#1d3557] text-white" : "bg-white text-gray-600"}" data-tag="${escapeHtml(tag.name)}">${escapeHtml(tag.name)} <span class="opacity-60">(${tag.count})</span></button>`;
@@ -417,8 +436,13 @@ function renderGrid() {
         scoreGrid.innerHTML = `
             <div class="col-span-full bg-white rounded-[28px] border border-gray-100 shadow-sm p-10 text-center">
                 <iconify-icon class="text-5xl text-gray-200 mb-4" icon="solar:music-library-2-bold-duotone"></iconify-icon>
+<<<<<<< Updated upstream
                 <p class="text-gray-500 font-medium">没有匹配的社区乐谱</p>
                 <p class="text-xs text-gray-400 mt-2">可以尝试切换标签、清空搜索词，或直接上传新的版本。</p>
+=======
+                <p class="text-gray-500 font-medium">娌℃湁鍖归厤鐨勭ぞ鍖轰箰璋?/p>
+                <p class="text-xs text-gray-400 mt-2">鍙互灏濊瘯鍒囨崲鏍囩銆佹竻绌烘悳绱㈣瘝锛屾垨鐩存帴涓婁紶鏂扮殑鐗堟湰銆?/p>
+>>>>>>> Stashed changes
             </div>
         `;
         return;
@@ -442,18 +466,30 @@ function renderGrid() {
                 <div class="flex items-start justify-between gap-3">
                     <div class="min-w-0">
                         <h3 class="font-bold text-gray-800 truncate">${escapeHtml(item.title)}</h3>
+<<<<<<< Updated upstream
                         <p class="text-xs text-gray-400 mt-1 truncate">${escapeHtml(item.subtitle || item.author || "社区用户")}</p>
                     </div>
                     <span class="text-xs font-bold ${item.price > 0 ? "text-[#457b9d]" : "text-green-600"}">${escapeHtml(item.price_label || "免费")}</span>
+=======
+                        <p class="text-xs text-gray-400 mt-1 truncate">${escapeHtml(item.subtitle || item.author || "绀惧尯鐢ㄦ埛")}</p>
+                    </div>
+                    <span class="text-xs font-bold ${item.price > 0 ? "text-[#457b9d]" : "text-green-600"}">${escapeHtml(item.price_label || "鍏嶈垂")}</span>
+>>>>>>> Stashed changes
                 </div>
                 <p class="text-xs text-gray-500 mt-3 line-clamp-2 min-h-[2.5rem]">${escapeHtml(item.description || "暂无简介")}</p>
                 <div class="flex flex-wrap gap-2 mt-4">
                     ${(item.tags || []).slice(0, 3).map((tag) => `<span class="px-2.5 py-1 rounded-full bg-gray-50 text-[11px] text-gray-500">${escapeHtml(tag)}</span>`).join("")}
                 </div>
                 <div class="flex items-center justify-between text-[11px] text-gray-400 mt-4">
+<<<<<<< Updated upstream
                     <span>下载 ${escapeHtml(item.download_count_display || String(item.downloads || 0))}</span>
                     <span>点赞 ${escapeHtml(String(item.likes || 0))}</span>
                     <span>评论 ${escapeHtml(String(item.comments_count || 0))}</span>
+=======
+                    <span>涓嬭浇 ${escapeHtml(item.download_count_display || String(item.downloads || 0))}</span>
+                    <span>鐐硅禐 ${escapeHtml(String(item.likes || 0))}</span>
+                    <span>璇勮 ${escapeHtml(String(item.comments_count || 0))}</span>
+>>>>>>> Stashed changes
                 </div>
             </article>
         `;
@@ -473,14 +509,24 @@ function renderDetail() {
     detailContent.classList.remove("hidden");
 
     document.getElementById("d-title").textContent = score.title || "未命名乐谱";
+<<<<<<< Updated upstream
     document.getElementById("d-author").textContent = score.subtitle || score.author || "社区用户";
     document.getElementById("d-cover").src = score.cover_url || avatarUrl(score.title || score.score_id);
     document.getElementById("d-price").textContent = score.price_label || "免费";
+=======
+    document.getElementById("d-author").textContent = score.subtitle || score.author || "绀惧尯鐢ㄦ埛";
+    document.getElementById("d-cover").src = score.cover_url || avatarUrl(score.title || score.score_id);
+    document.getElementById("d-price").textContent = score.price_label || "鍏嶈垂";
+>>>>>>> Stashed changes
     document.getElementById("d-downloads").textContent = String(score.downloads || 0);
     document.getElementById("d-likes").textContent = String(score.likes || 0);
     document.getElementById("d-favorites").textContent = String(score.favorites || 0);
     document.getElementById("d-description").textContent = score.description || "暂无简介";
+<<<<<<< Updated upstream
     document.getElementById("comment-title").textContent = `社区评论 (${state.selectedComments.length})`;
+=======
+    document.getElementById("comment-title").textContent = `绀惧尯璇勮 (${state.selectedComments.length})`;
+>>>>>>> Stashed changes
 
     detailLikeBtn.className = `transition-colors ${score.liked ? "text-red-500" : "text-gray-300 hover:text-red-500"}`;
     detailLikeBtn.innerHTML = `<iconify-icon class="text-2xl" icon="${score.liked ? "solar:heart-bold" : "solar:heart-outline"}"></iconify-icon>`;
@@ -493,10 +539,17 @@ function renderDetail() {
     } else {
         commentsList.innerHTML = state.selectedComments.map((comment) => `
             <div class="flex gap-3">
+<<<<<<< Updated upstream
                 <img alt="${escapeHtml(comment.username || "社区用户")}" class="w-9 h-9 rounded-full bg-gray-100" src="${escapeHtml(comment.avatar_url || avatarUrl(comment.username || "SeeMusic"))}"/>
                 <div class="min-w-0 flex-1">
                     <div class="flex items-center justify-between gap-3">
                         <span class="text-sm font-medium text-gray-700 truncate">${escapeHtml(comment.username || "社区用户")}</span>
+=======
+                <img alt="${escapeHtml(comment.username || "绀惧尯鐢ㄦ埛")}" class="w-9 h-9 rounded-full bg-gray-100" src="${escapeHtml(comment.avatar_url || avatarUrl(comment.username || "SeeMusic"))}"/>
+                <div class="min-w-0 flex-1">
+                    <div class="flex items-center justify-between gap-3">
+                        <span class="text-sm font-medium text-gray-700 truncate">${escapeHtml(comment.username || "绀惧尯鐢ㄦ埛")}</span>
+>>>>>>> Stashed changes
                         <span class="text-[10px] text-gray-400 whitespace-nowrap">${escapeHtml(comment.relative_time || "")}</span>
                     </div>
                     <p class="text-xs text-gray-500 leading-relaxed mt-1 break-words">${escapeHtml(comment.content || "")}</p>
@@ -530,7 +583,11 @@ async function loadScores(preferredScoreId = "") {
         query.set("tag", state.activeTag);
     }
 
+<<<<<<< Updated upstream
     setStatus("正在同步社区乐谱...");
+=======
+    setStatus("姝ｅ湪鍚屾绀惧尯涔愯氨...");
+>>>>>>> Stashed changes
     const data = await requestJson(`/community/scores?${query.toString()}`);
     state.items = data.items || [];
     renderGrid();
@@ -725,7 +782,11 @@ async function handleUploadSubmit() {
         setUploadStatus("请填写作品标题。", true);
         return;
     }
+<<<<<<< Updated upstream
     if (!style || style === "选择风格") {
+=======
+    if (!style || style === "閫夋嫨椋庢牸") {
+>>>>>>> Stashed changes
         setUploadStatus("请选择作品风格。", true);
         return;
     }
@@ -748,7 +809,11 @@ async function handleUploadSubmit() {
 
     uploadSubmitBtn.disabled = true;
     uploadSubmitBtn.textContent = "发布中...";
+<<<<<<< Updated upstream
     setUploadStatus("正在上传并同步数据库...");
+=======
+    setUploadStatus("姝ｅ湪涓婁紶骞跺悓姝ユ暟鎹簱...");
+>>>>>>> Stashed changes
 
     try {
         const payload = await requestJson("/community/scores/upload", {
@@ -775,17 +840,32 @@ async function handleUploadSubmit() {
         setUploadStatus(error.message || "上传失败，请稍后重试。", true);
     } finally {
         uploadSubmitBtn.disabled = false;
+<<<<<<< Updated upstream
         uploadSubmitBtn.textContent = "发布作品";
+=======
+        uploadSubmitBtn.textContent = "鍙戝竷浣滃搧";
+>>>>>>> Stashed changes
     }
 }
 
 function resetUploadForm() {
     uploadFileInput.value = "";
+<<<<<<< Updated upstream
     uploadFileName.textContent = "尚未选择文件";
     setCoverSelection(null);
     uploadTitleInput.value = "";
     uploadDescriptionInput.value = "";
     uploadStyleInput.value = "选择风格";
+    uploadPriceInput.value = "";
+    uploadInstrumentInput.value = "";
+    uploadTagsInput.value = "";
+>>>>>>> Stashed changes
+=======
+    uploadFileName.textContent = "灏氭湭閫夋嫨鏂囦欢";
+    setCoverSelection(null);
+    uploadTitleInput.value = "";
+    uploadDescriptionInput.value = "";
+    uploadStyleInput.value = "閫夋嫨椋庢牸";
     uploadPriceInput.value = "";
     uploadInstrumentInput.value = "";
     uploadTagsInput.value = "";
@@ -801,8 +881,11 @@ function toggleModal(id, show) {
         modal.classList.remove('modal-active');
     }
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 }
 =======
+=======
+>>>>>>> Stashed changes
 }
 
 function updateHeader() {
@@ -877,7 +960,11 @@ function bindEvents() {
             if (navigator.clipboard && navigator.clipboard.writeText) {
                 await navigator.clipboard.writeText(shareUrl);
             }
+<<<<<<< Updated upstream
             setStatus(`分享链接已复制：${formatRelativeText(score) || score.title}`);
+=======
+            setStatus(`鍒嗕韩閾炬帴宸插鍒讹細${formatRelativeText(score) || score.title}`);
+>>>>>>> Stashed changes
         } catch {
             setStatus("浏览器未授权剪贴板，无法自动复制。", true);
         }
@@ -893,7 +980,11 @@ function bindEvents() {
 
     uploadFileInput.addEventListener("change", () => {
         const file = uploadFileInput.files && uploadFileInput.files[0];
+<<<<<<< Updated upstream
         uploadFileName.textContent = file ? formatFileSize(file) : "尚未选择文件";
+=======
+        uploadFileName.textContent = file ? formatFileSize(file) : "灏氭湭閫夋嫨鏂囦欢";
+>>>>>>> Stashed changes
     });
 
     uploadCoverInput.addEventListener("change", () => {
@@ -988,4 +1079,10 @@ async function bootstrap() {
 
 window.toggleModal = toggleModal;
 window.addEventListener("load", bootstrap);
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
+
+
+
 >>>>>>> Stashed changes

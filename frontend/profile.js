@@ -9,6 +9,64 @@ const profileState = {
     historyItems: [],
 };
 
+function applyPreferencesToUI(prefs) {
+    const engineSelect = document.getElementById("pref-audio-engine");
+    if (engineSelect && prefs.audio_engine) {
+        engineSelect.value = prefs.audio_engine;
+    }
+    const formatsContainer = document.getElementById("pref-export-formats");
+    if (formatsContainer && Array.isArray(prefs.export_formats)) {
+        formatsContainer.querySelectorAll("input[type=checkbox]").forEach((cb) => {
+            cb.checked = prefs.export_formats.includes(cb.value);
+        });
+    }
+}
+
+function collectPreferencesFromUI() {
+    const engineSelect = document.getElementById("pref-audio-engine");
+    const formatsContainer = document.getElementById("pref-export-formats");
+    const exportFormats = [];
+    if (formatsContainer) {
+        formatsContainer.querySelectorAll("input[type=checkbox]:checked").forEach((cb) => {
+            exportFormats.push(cb.value);
+        });
+    }
+    return {
+        audio_engine: engineSelect ? engineSelect.value : "default",
+        export_formats: exportFormats,
+    };
+}
+
+async function loadPreferences() {
+    if (!getCurrentUser()) {
+        return;
+    }
+    try {
+        const prefs = await requestJson("/users/me/preferences");
+        applyPreferencesToUI(prefs);
+    } catch {
+        // Preferences not critical — keep defaults
+    }
+}
+
+async function savePreferences() {
+    if (!getCurrentUser()) {
+        setStatus("请先登录后再保存偏好设置。", true);
+        return;
+    }
+    try {
+        const prefs = collectPreferencesFromUI();
+        const saved = await requestJson("/users/me/preferences", {
+            method: "PUT",
+            body: prefs,
+        });
+        applyPreferencesToUI(saved);
+        setStatus("偏好设置已保存。");
+    } catch (error) {
+        setStatus(error.message || "保存偏好设置失败。", true);
+    }
+}
+
 function setStatus(message, isError = false) {
     const status = document.getElementById("profile-status");
     if (!message) {
@@ -253,10 +311,16 @@ function bindEvents() {
         loadProfile();
     });
 
-    document.getElementById("session-action-btn").addEventListener("click", () => {
+    document.getElementById("session-action-btn").addEventListener("click", async () => {
         if (getCurrentUser()) {
-            clearAuthSession();
-            window.location.href = "login.html";
+            try {
+                await requestJson("/auth/logout", { method: "POST" });
+            } catch (error) {
+                setStatus(error.message || "退出登录请求失败，将仅清理本地登录态。", true);
+            } finally {
+                clearAuthSession();
+                window.location.href = "login.html";
+            }
             return;
         }
         window.location.href = "login.html";
@@ -264,6 +328,10 @@ function bindEvents() {
 
     document.getElementById("clear-cache-btn").addEventListener("click", function handleCacheClear() {
         clearCache(this);
+    });
+
+    document.getElementById("save-prefs-btn").addEventListener("click", () => {
+        savePreferences();
     });
 
     document.getElementById("history-list").addEventListener("click", (event) => {
@@ -276,4 +344,7 @@ function bindEvents() {
 }
 
 bindEvents();
-window.addEventListener("load", loadProfile);
+window.addEventListener("load", () => {
+    loadProfile();
+    loadPreferences();
+});

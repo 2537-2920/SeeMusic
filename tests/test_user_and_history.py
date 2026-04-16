@@ -2,7 +2,7 @@ import pytest
 from fastapi import HTTPException
 
 from backend.user.history_manager import delete_history, list_history, save_history
-from backend.user.user_system import get_current_user, get_user_by_token, login_user, register_user
+from backend.user.user_system import get_current_user, get_user_by_token, login_user, register_user, get_preferences, update_preferences
 
 
 # =========================================================================
@@ -103,3 +103,27 @@ def test_db_history_manager_delete_respects_user_ownership(user_database):
     owner_items = list_history(owner["user_id"])["items"]
     assert len(owner_items) == 1
     assert owner_items[0]["history_id"] == item["history_id"]
+
+
+# =========================================================================
+# Preferences tests (in-memory)
+# =========================================================================
+
+def test_preferences_default_values():
+    prefs = get_preferences("u_new_user")
+    assert prefs["audio_engine"] == "default"
+    assert "MIDI" in prefs["export_formats"]
+
+
+def test_preferences_update_and_retrieve():
+    update_preferences("u_pref_user", {"audio_engine": "asio", "export_formats": ["MIDI"]})
+    prefs = get_preferences("u_pref_user")
+    assert prefs["audio_engine"] == "asio"
+    assert prefs["export_formats"] == ["MIDI"]
+
+
+def test_preferences_partial_update():
+    update_preferences("u_partial", {"audio_engine": "directsound"})
+    prefs = get_preferences("u_partial")
+    assert prefs["audio_engine"] == "directsound"
+    assert prefs["export_formats"] == ["MIDI", "PNG", "PDF"]  # default preserved

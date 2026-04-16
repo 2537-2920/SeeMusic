@@ -204,3 +204,68 @@ def _logout_user_db(token: str) -> dict:
         raise
     finally:
         session.close()
+
+
+# ===== preferences =====
+PREFERENCES: dict[str, dict] = {}
+
+_DEFAULT_PREFERENCES = {
+    "audio_engine": "default",
+    "export_formats": ["MIDI", "PNG", "PDF"],
+}
+
+
+def get_preferences(user_id: str) -> dict:
+    if USE_DB:
+        return _get_preferences_db(user_id)
+    return _get_preferences_mem(user_id)
+
+
+def _get_preferences_mem(user_id: str) -> dict:
+    return {**_DEFAULT_PREFERENCES, **PREFERENCES.get(user_id, {})}
+
+
+def _get_preferences_db(user_id: str) -> dict:
+    from backend.db.models import UserPreference
+    session = _get_session()
+    try:
+        row = session.query(UserPreference).filter_by(user_id=int(user_id)).first()
+        if not row:
+            return {**_DEFAULT_PREFERENCES}
+        return {**_DEFAULT_PREFERENCES, **(row.preferences or {})}
+    finally:
+        session.close()
+
+
+def update_preferences(user_id: str, prefs: dict) -> dict:
+    if USE_DB:
+        return _update_preferences_db(user_id, prefs)
+    return _update_preferences_mem(user_id, prefs)
+
+
+def _update_preferences_mem(user_id: str, prefs: dict) -> dict:
+    current = PREFERENCES.get(user_id, {})
+    current.update(prefs)
+    PREFERENCES[user_id] = current
+    return {**_DEFAULT_PREFERENCES, **current}
+
+
+def _update_preferences_db(user_id: str, prefs: dict) -> dict:
+    from backend.db.models import UserPreference
+    session = _get_session()
+    try:
+        row = session.query(UserPreference).filter_by(user_id=int(user_id)).first()
+        if row:
+            merged = {**(row.preferences or {}), **prefs}
+            row.preferences = merged
+        else:
+            merged = {**_DEFAULT_PREFERENCES, **prefs}
+            row = UserPreference(user_id=int(user_id), preferences=merged)
+            session.add(row)
+        session.commit()
+        return {**_DEFAULT_PREFERENCES, **merged}
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()

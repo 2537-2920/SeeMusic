@@ -8,6 +8,7 @@ from backend.api.api_routes import (
     generation_chords,
     generation_variations,
     get_history,
+    get_user_preferences,
     like_score,
     list_community_scores,
     me,
@@ -19,6 +20,7 @@ from backend.api.api_routes import (
     reports_export,
     unfavorite_score,
     unlike_score,
+    update_user_preferences,
 )
 from backend.api.schemas import (
     AudioLogRequest,
@@ -27,6 +29,7 @@ from backend.api.schemas import (
     HistoryCreateRequest,
     LoginRequest,
     PitchCompareRequest,
+    PreferencesUpdateRequest,
     RegisterRequest,
     ReportExportRequest,
     VariationSuggestionRequest,
@@ -118,3 +121,24 @@ def test_auth_history_log_and_report_routes_work_together():
     assert log_result["data"]["source"] == "api"
     assert log_result["data"]["stage"] == "manual"
     assert len(report_result["data"]["files"]) == 2
+
+
+def test_preferences_api_get_and_update():
+    auth_register(RegisterRequest(username="prefs_user", password="password123"))
+    login_result = auth_login(LoginRequest(username="prefs_user", password="password123"))
+    token = login_result["data"]["token"]
+    current_user = get_current_user(f"Bearer {token}")
+
+    defaults = get_user_preferences(current_user=current_user)
+    assert defaults["data"]["audio_engine"] == "default"
+    assert "MIDI" in defaults["data"]["export_formats"]
+
+    updated = update_user_preferences(
+        PreferencesUpdateRequest(audio_engine="asio", export_formats=["PNG"]),
+        current_user=current_user,
+    )
+    assert updated["data"]["audio_engine"] == "asio"
+    assert updated["data"]["export_formats"] == ["PNG"]
+
+    reloaded = get_user_preferences(current_user=current_user)
+    assert reloaded["data"]["audio_engine"] == "asio"

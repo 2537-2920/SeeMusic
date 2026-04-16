@@ -21,6 +21,7 @@ from backend.api.schemas import (
     LoginRequest,
     PitchCompareRequest,
     PitchToScoreRequest,
+    PreferencesUpdateRequest,
     RegisterRequest,
     ReportExportRequest,
     RhythmScoreRequest,
@@ -65,7 +66,7 @@ from backend.services.score_service import (
     undo_score,
 )
 from backend.user.history_manager import delete_history, list_history, save_history
-from backend.user.user_system import get_current_user, get_user_by_token, login_user, register_user
+from backend.user.user_system import get_current_user, get_user_by_token, login_user, logout_user, register_user, get_preferences, update_preferences
 from backend.utils.audio_logger import record_audio_log, record_audio_processing_log, get_audio_logs, read_audio_logs_from_file
 
 # 引入节奏处理服务与项目配置项
@@ -927,6 +928,16 @@ def auth_login(payload: LoginRequest):
     return ok(login_user(payload.username, payload.password))
 
 
+@router.post("/auth/logout")
+def auth_logout(authorization: str = Header(default="")):
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="missing token")
+    token = authorization.removeprefix("Bearer ").strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="missing token")
+    return ok(logout_user(token))
+
+
 @router.get("/users/me")
 def me(current_user: Dict[str, Any] = Depends(get_current_user)):
     return ok(current_user)
@@ -945,6 +956,17 @@ def post_history(payload: HistoryCreateRequest, current_user: Dict[str, Any] = D
 @router.delete("/users/me/history/{history_id}")
 def remove_history(history_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
     return ok(delete_history(current_user["user_id"], history_id))
+
+
+@router.get("/users/me/preferences")
+def get_user_preferences(current_user: Dict[str, Any] = Depends(get_current_user)):
+    return ok(get_preferences(current_user["user_id"]))
+
+
+@router.put("/users/me/preferences")
+def update_user_preferences(payload: PreferencesUpdateRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    return ok(update_preferences(current_user["user_id"], updates))
 
 
 @router.post("/reports/export")

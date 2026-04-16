@@ -99,6 +99,10 @@ function cacheElements() {
         "rhythm-threshold-input",
         "reference-beats-input",
         "user-beats-input",
+        "pitch-detect-file-input",
+        "pitch-detect-btn",
+        "pitch-detect-and-score-btn",
+        "pitch-detect-status",
         "beat-detect-btn",
         "separate-tracks-btn",
         "generate-chords-btn",
@@ -202,6 +206,8 @@ function bindEvents() {
     els.loadSampleBtn.addEventListener("click", loadSampleSequence);
     els.clearSequenceBtn.addEventListener("click", handleClearSequence);
     els.createScoreBtn.addEventListener("click", handleCreateScore);
+    els.pitchDetectBtn.addEventListener("click", handlePitchDetect);
+    els.pitchDetectAndScoreBtn.addEventListener("click", handlePitchDetectAndScore);
     els.beatDetectBtn.addEventListener("click", handleBeatDetect);
     els.separateTracksBtn.addEventListener("click", handleSeparateTracks);
     els.generateChordsBtn.addEventListener("click", handleGenerateChords);
@@ -296,6 +302,16 @@ function setApiBase(value, persist = true) {
 
 async function requestJson(path, options = {}) {
     const requestOptions = { method: "GET", headers: {}, ...options };
+
+    // Inject auth header from app_common if available
+    const appCommon = window.SeeMusicApp;
+    if (appCommon && typeof appCommon.getAuthToken === "function") {
+        const token = appCommon.getAuthToken();
+        if (token) {
+            requestOptions.headers.Authorization = `Bearer ${token}`;
+        }
+    }
+
     if (requestOptions.body !== undefined && !(requestOptions.body instanceof FormData)) {
         requestOptions.headers = { "Content-Type": "application/json", ...requestOptions.headers };
         requestOptions.body = JSON.stringify(requestOptions.body);
@@ -468,6 +484,100 @@ function ensureAnalysisFile() {
         throw new Error("请先选择音频文件");
     }
     return file;
+}
+
+function setPitchDetectStatus(message, isError = false) {
+    if (els.pitchDetectStatus) {
+        els.pitchDetectStatus.textContent = message;
+        els.pitchDetectStatus.style.color = isError ? "var(--danger, #e74c3c)" : "var(--accent-strong, #2563eb)";
+    }
+}
+
+function ensurePitchDetectFile() {
+    const file = els.pitchDetectFileInput.files?.[0];
+    if (!file) {
+        throw new Error("请先在上方选择音频文件");
+    }
+    return file;
+}
+
+async function handlePitchDetect() {
+    if (isBusy("pitch-detect")) {
+        return;
+    }
+    setBusy("pitch-detect", true);
+    setPitchDetectStatus("");
+    try {
+        const file = ensurePitchDetectFile();
+        const formData = new FormData();
+        formData.append("file", file);
+        setPitchDetectStatus("正在检测音高序列，请稍候…");
+        setAppStatus("正在检测音高序列，请稍候…");
+        const result = await requestJson("/pitch/detect", { method: "POST", body: formData });
+        const sequence = result.pitch_sequence || [];
+        els.pitchSequenceInput.value = JSON.stringify(sequence, null, 2);
+        localStorage.setItem(STORAGE_KEYS.pitchSequence, els.pitchSequenceInput.value);
+        els.analysisIdInput.value = result.analysis_id || "";
+        localStorage.setItem(STORAGE_KEYS.analysisId, els.analysisIdInput.value);
+        const msg = `音高检测完成：识别到 ${sequence.length} 个音高点`;
+        setPitchDetectStatus(msg);
+        setAppStatus(`${msg}，analysis_id=${result.analysis_id}`);
+    } catch (error) {
+        setPitchDetectStatus(`检测失败：${error.message}`, true);
+        setAppStatus(`音高检测失败：${error.message}`, true);
+    } finally {
+        setBusy("pitch-detect", false);
+    }
+}
+
+async function handlePitchDetectAndScore() {
+    if (isBusy("pitch-detect-score")) {
+        return;
+    }
+    setBusy("pitch-detect-score", true);
+    setPitchDetectStatus("");
+    try {
+        const file = ensurePitchDetectFile();
+        const formData = new FormData();
+        formData.append("file", file);
+        setPitchDetectStatus("正在检测音高序列…");
+        setAppStatus("正在检测音高序列…");
+        const detectResult = await requestJson("/pitch/detect", { method: "POST", body: formData });
+        const sequence = detectResult.pitch_sequence || [];
+        if (!sequence.length) {
+            throw new Error("未能从音频中检测到有效的音高序列");
+        }
+        els.pitchSequenceInput.value = JSON.stringify(sequence, null, 2);
+        localStorage.setItem(STORAGE_KEYS.pitchSequence, els.pitchSequenceInput.value);
+        els.analysisIdInput.value = detectResult.analysis_id || "";
+        localStorage.setItem(STORAGE_KEYS.analysisId, els.analysisIdInput.value);
+        setPitchDetectStatus(`检测到 ${sequence.length} 个音高点，正在生成乐谱…`);
+        setAppStatus(`检测到 ${sequence.length} 个音高点，正在生成乐谱…`);
+
+        const payload = {
+            user_id: parsePositiveInteger(els.userIdInput.value, "用户 ID"),
+            title: (els.projectTitleInput.value || "").trim() || null,
+            analysis_id: detectResult.analysis_id || null,
+            tempo: parsePositiveInteger(els.tempoInput.value, "速度"),
+            time_signature: (els.timeSignatureInput.value || "").trim() || "4/4",
+            key_signature: (els.keySignatureInput.value || "").trim() || "C",
+            pitch_sequence: sequence,
+        };
+        const created = await requestJson("/score/from-pitch-sequence", { method: "POST", body: payload });
+        state.exportList = [];
+        state.selectedExportRecordId = null;
+        state.selectedExportDetail = null;
+        applyScoreResult(created, firstNoteId(created));
+        await loadExportList();
+        const msg = `音频识谱完成：乐谱 ${created.score_id} 已生成`;
+        setPitchDetectStatus(msg);
+        setAppStatus(`${msg}，analysis_id=${detectResult.analysis_id}`);
+    } catch (error) {
+        setPitchDetectStatus(`识谱失败：${error.message}`, true);
+        setAppStatus(`音频识谱失败：${error.message}`, true);
+    } finally {
+        setBusy("pitch-detect-score", false);
+    }
 }
 
 async function handleCreateScore() {
@@ -1738,6 +1848,8 @@ function renderControlState() {
     els.regenerateSelectedExportBtn.disabled = !hasExport || isBusy("regenerate-export");
     els.downloadSelectedExportBtn.disabled = !hasExport || !state.selectedExportDetail?.exists;
     els.deleteSelectedExportBtn.disabled = !hasExport || isBusy("delete-export");
+    els.pitchDetectBtn.disabled = isBusy("pitch-detect") || isBusy("pitch-detect-score");
+    els.pitchDetectAndScoreBtn.disabled = isBusy("pitch-detect") || isBusy("pitch-detect-score");
 }
 
 function quantizeBeat(value) {

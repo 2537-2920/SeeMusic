@@ -337,3 +337,23 @@ class UserToken(Base):
     token: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
     expired_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)
+
+
+class UserPreference(Base):
+    __tablename__ = "user_preference"
+
+    id: Mapped[int] = mapped_column(BIGINT_COMPAT, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        BIGINT_COMPAT,
+        ForeignKey("user.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+        nullable=False,
+    )
+    preferences: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    update_time: Mapped[datetime] = mapped_column(
+        DateTime,
+        server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        nullable=False,
+    )

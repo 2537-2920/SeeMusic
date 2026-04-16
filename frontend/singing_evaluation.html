@@ -131,6 +131,13 @@
                         </div>
                         <div class="space-y-3 mb-6">
                             <div class="flex justify-between text-sm">
+                                <span class="text-gray-500">音高准确度</span>
+                                <span class="font-bold text-gray-700" id="metric-pitch-accuracy">--</span>
+                            </div>
+                            <div class="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden">
+                                <div class="bg-purple-400 h-full" id="bar-pitch-accuracy" style="width: 0%"></div>
+                            </div>
+                            <div class="flex justify-between text-sm">
                                 <span class="text-gray-500">节奏准确度</span>
                                 <span class="font-bold text-gray-700" id="metric-accuracy">--</span>
                             </div>
@@ -161,6 +168,38 @@
                         </button>
                         <p class="hidden text-xs rounded-xl px-4 py-3 mt-4" id="report-export-status"></p>
                     </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="bg-white rounded-3xl p-8 card-shadow border border-gray-100">
+            <h3 class="font-bold text-gray-700 mb-6 flex items-center gap-2">
+                <iconify-icon class="text-blue-500" icon="solar:graph-up-bold"></iconify-icon> 音高对比分析
+            </h3>
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                <div class="border border-gray-100 rounded-xl p-4 bg-gray-50/50 text-center">
+                    <div class="text-xs text-gray-400 uppercase tracking-wider font-bold mb-1">音高准确度</div>
+                    <div class="text-2xl font-bold text-[#457b9d]" id="pitch-accuracy">--</div>
+                </div>
+                <div class="border border-gray-100 rounded-xl p-4 bg-gray-50/50 text-center">
+                    <div class="text-xs text-gray-400 uppercase tracking-wider font-bold mb-1">平均偏差 (cents)</div>
+                    <div class="text-2xl font-bold text-[#457b9d]" id="pitch-avg-cents">--</div>
+                </div>
+                <div class="border border-gray-100 rounded-xl p-4 bg-gray-50/50 text-center">
+                    <div class="text-xs text-gray-400 uppercase tracking-wider font-bold mb-1">±25cents 命中率</div>
+                    <div class="text-2xl font-bold text-[#457b9d]" id="pitch-within-25">--</div>
+                </div>
+                <div class="border border-gray-100 rounded-xl p-4 bg-gray-50/50 text-center">
+                    <div class="text-xs text-gray-400 uppercase tracking-wider font-bold mb-1">±50cents 命中率</div>
+                    <div class="text-2xl font-bold text-[#457b9d]" id="pitch-within-50">--</div>
+                </div>
+            </div>
+            <div class="rounded-2xl border border-gray-100 bg-gray-50/50 p-4" style="min-height:220px">
+                <canvas id="pitch-curve-canvas" width="800" height="200" style="width:100%;height:200px;display:block;"></canvas>
+                <div class="flex gap-6 justify-center mt-3">
+                    <span class="flex items-center gap-1 text-xs text-gray-500"><span style="display:inline-block;width:16px;height:3px;background:#457b9d;border-radius:2px"></span> 参考音高</span>
+                    <span class="flex items-center gap-1 text-xs text-gray-500"><span style="display:inline-block;width:16px;height:3px;background:#e76f51;border-radius:2px"></span> 用户音高</span>
+                    <span class="flex items-center gap-1 text-xs text-gray-500"><span style="display:inline-block;width:16px;height:3px;background:#2a9d8f;border-radius:2px;opacity:0.5"></span> 偏差 (cents)</span>
                 </div>
             </div>
         </section>

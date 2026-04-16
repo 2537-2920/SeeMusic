@@ -8,6 +8,7 @@ const {
 const evaluationState = {
     file: null,
     analysis: null,
+    pitchComparison: null,
     report: null,
 };
 
@@ -101,6 +102,7 @@ function renderAnalysis() {
                 完成一次评估后，这里会展示后端返回的节奏误差分类与说明。
             </div>
         `;
+        renderPitchComparison();
         return;
     }
 
@@ -110,6 +112,16 @@ function renderAnalysis() {
     const coverageValue = analysis.coverage_ratio ?? 0;
     const errorSummary = `${analysis.missing_beats || 0} / ${analysis.extra_beats || 0}`;
 
+    // Compute combined score if pitch comparison is available
+    const pitchSummary = evaluationState.pitchComparison?.summary;
+    let displayScore = totalScore;
+    if (pitchSummary && typeof pitchSummary.accuracy === "number") {
+        const rhythmScore = totalScore;
+        const pitchScore = Math.round(pitchSummary.accuracy);
+        displayScore = Math.round(rhythmScore * 0.5 + pitchScore * 0.5);
+    }
+    const displayLabel = scoreLabel(displayScore);
+
     document.getElementById("analysis-id-display").textContent = analysis.analysis_id || "--";
     document.getElementById("analysis-ref-display").textContent = document.getElementById("reference-id-input").value.trim() || "--";
     document.getElementById("analysis-user-bpm").textContent = analysis.user_bpm ? String(Math.round(Number(analysis.user_bpm))) : "--";
@@ -117,9 +129,9 @@ function renderAnalysis() {
     document.getElementById("analysis-beat-summary").textContent = errorSummary;
     document.getElementById("evaluation-feedback").textContent = summarizeFeedback(analysis);
 
-    document.getElementById("report-score").textContent = String(totalScore);
-    document.getElementById("report-grade").textContent = label.text;
-    document.getElementById("report-grade").className = `ml-auto px-3 py-1 rounded-full text-xs font-bold ${label.className}`;
+    document.getElementById("report-score").textContent = String(displayScore);
+    document.getElementById("report-grade").textContent = displayLabel.text;
+    document.getElementById("report-grade").className = `ml-auto px-3 py-1 rounded-full text-xs font-bold ${displayLabel.className}`;
     document.getElementById("metric-accuracy").textContent = percentText(analysis.timing_accuracy);
     document.getElementById("metric-coverage").textContent = percentText(coverageValue);
     document.getElementById("metric-consistency").textContent = percentText(consistencyValue);
@@ -130,6 +142,7 @@ function renderAnalysis() {
     document.getElementById("last-analysis-time").textContent = new Date().toLocaleString("zh-CN");
 
     renderErrorList(analysis.error_classification);
+    renderPitchComparison();
 }
 
 function renderErrorList(errorClassification) {
@@ -161,6 +174,164 @@ function stringifyValue(value) {
         return Object.entries(value).map(([key, item]) => `${key}: ${stringifyValue(item)}`).join("；");
     }
     return String(value);
+}
+
+function renderPitchComparison() {
+    const comparison = evaluationState.pitchComparison;
+    if (!comparison) {
+        document.getElementById("pitch-accuracy").textContent = "--";
+        document.getElementById("pitch-avg-cents").textContent = "--";
+        document.getElementById("pitch-within-25").textContent = "--";
+        document.getElementById("pitch-within-50").textContent = "--";
+        document.getElementById("metric-pitch-accuracy").textContent = "--";
+        document.getElementById("bar-pitch-accuracy").style.width = "0%";
+        clearPitchCanvas();
+        return;
+    }
+
+    const summary = comparison.summary || {};
+    const accuracy = Math.round(Number(summary.accuracy || 0));
+    document.getElementById("pitch-accuracy").textContent = `${accuracy}%`;
+    document.getElementById("pitch-avg-cents").textContent = String(Math.round(Number(summary.average_deviation_cents || 0)));
+    document.getElementById("pitch-within-25").textContent = percentText(summary.within_25_cents_ratio || 0);
+    document.getElementById("pitch-within-50").textContent = percentText(summary.within_50_cents_ratio || 0);
+    document.getElementById("metric-pitch-accuracy").textContent = `${accuracy}%`;
+    document.getElementById("bar-pitch-accuracy").style.width = `${Math.min(accuracy, 100)}%`;
+
+    drawPitchCurve(comparison);
+}
+
+function clearPitchCanvas() {
+    const canvas = document.getElementById("pitch-curve-canvas");
+    if (!canvas) {
+        return;
+    }
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#9ca3af";
+    ctx.font = "13px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("完成一次评估后，这里将展示音高对比曲线。", canvas.width / 2, canvas.height / 2);
+}
+
+function drawPitchCurve(comparison) {
+    const canvas = document.getElementById("pitch-curve-canvas");
+    if (!canvas) {
+        return;
+    }
+    const ctx = canvas.getContext("2d");
+    const xAxis = comparison.x_axis || [];
+    const refCurve = comparison.reference_curve || [];
+    const userCurve = comparison.user_curve || [];
+    const devCurve = comparison.deviation_cents_curve || [];
+
+    if (!xAxis.length) {
+        clearPitchCanvas();
+        return;
+    }
+
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+    const W = rect.width;
+    const H = rect.height;
+
+    ctx.clearRect(0, 0, W, H);
+
+    const PAD_LEFT = 50;
+    const PAD_RIGHT = 16;
+    const PAD_TOP = 12;
+    const PAD_BOTTOM = 24;
+    const plotW = W - PAD_LEFT - PAD_RIGHT;
+    const plotH = H - PAD_TOP - PAD_BOTTOM;
+
+    const allFreqs = [...refCurve, ...userCurve].filter((v) => v > 0);
+    if (!allFreqs.length) {
+        clearPitchCanvas();
+        return;
+    }
+    const freqMin = Math.max(Math.min(...allFreqs) - 20, 0);
+    const freqMax = Math.max(...allFreqs) + 20;
+    const tMin = xAxis[0];
+    const tMax = xAxis[xAxis.length - 1];
+    const tRange = tMax - tMin || 1;
+    const fRange = freqMax - freqMin || 1;
+
+    function tx(t) {
+        return PAD_LEFT + ((t - tMin) / tRange) * plotW;
+    }
+    function ty(f) {
+        return PAD_TOP + plotH - ((f - freqMin) / fRange) * plotH;
+    }
+
+    // grid lines
+    ctx.strokeStyle = "#e5e7eb";
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i <= 4; i++) {
+        const y = PAD_TOP + (plotH / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(PAD_LEFT, y);
+        ctx.lineTo(PAD_LEFT + plotW, y);
+        ctx.stroke();
+        ctx.fillStyle = "#9ca3af";
+        ctx.font = "10px sans-serif";
+        ctx.textAlign = "right";
+        const freqLabel = Math.round(freqMax - (fRange / 4) * i);
+        ctx.fillText(`${freqLabel}`, PAD_LEFT - 4, y + 3);
+    }
+
+    // time labels
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#9ca3af";
+    const timeSteps = Math.min(6, xAxis.length);
+    for (let i = 0; i <= timeSteps; i++) {
+        const t = tMin + (tRange / timeSteps) * i;
+        ctx.fillText(`${t.toFixed(1)}s`, tx(t), H - 4);
+    }
+
+    function drawCurve(curve, color, lineWidth) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lineWidth;
+        ctx.beginPath();
+        let started = false;
+        for (let i = 0; i < xAxis.length; i++) {
+            const freq = curve[i];
+            if (!freq || freq <= 0) {
+                started = false;
+                continue;
+            }
+            const x = tx(xAxis[i]);
+            const y = ty(freq);
+            if (!started) {
+                ctx.moveTo(x, y);
+                started = true;
+            } else {
+                ctx.lineTo(x, y);
+            }
+        }
+        ctx.stroke();
+    }
+
+    drawCurve(refCurve, "#457b9d", 2);
+    drawCurve(userCurve, "#e76f51", 1.5);
+
+    // deviation area
+    if (devCurve.length) {
+        const maxDev = Math.max(...devCurve.map((v) => Math.abs(v || 0)), 1);
+        ctx.fillStyle = "rgba(42, 157, 143, 0.12)";
+        ctx.beginPath();
+        const midY = PAD_TOP + plotH / 2;
+        ctx.moveTo(tx(xAxis[0]), midY);
+        for (let i = 0; i < xAxis.length; i++) {
+            const devH = ((devCurve[i] || 0) / maxDev) * (plotH / 4);
+            ctx.lineTo(tx(xAxis[i]), midY - devH);
+        }
+        ctx.lineTo(tx(xAxis[xAxis.length - 1]), midY);
+        ctx.closePath();
+        ctx.fill();
+    }
 }
 
 function escapeHtml(value) {
@@ -228,8 +399,42 @@ async function runEvaluation() {
         });
         evaluationState.analysis = payload;
         evaluationState.report = null;
+
+        // Pitch detection + comparison (parallel with rhythm, non-blocking)
+        evaluationState.pitchComparison = null;
+        try {
+            setBanner("evaluation-status", "节奏分析完成，正在检测音高并对比…");
+            const pitchFormData = new FormData();
+            pitchFormData.append("file", file);
+            const pitchResult = await requestJson("/pitch/detect", {
+                method: "POST",
+                body: pitchFormData,
+            });
+
+            if (pitchResult.pitch_sequence && pitchResult.pitch_sequence.length) {
+                const comparisonPayload = {
+                    reference_id: refId,
+                    user_pitch_sequence: pitchResult.pitch_sequence.map((p) => ({
+                        time: p.time,
+                        frequency: p.frequency,
+                        duration: p.duration || null,
+                        confidence: p.confidence || null,
+                    })),
+                };
+                const comparison = await requestJson("/pitch/compare", {
+                    method: "POST",
+                    body: comparisonPayload,
+                });
+                evaluationState.pitchComparison = comparison;
+            }
+        } catch (pitchError) {
+            console.warn("pitch comparison skipped:", pitchError.message);
+        }
+
         renderAnalysis();
-        setBanner("evaluation-status", `分析完成，analysis_id=${payload.analysis_id}`);
+        const analysisId = payload.analysis_id;
+        const pitchDone = evaluationState.pitchComparison ? "音高对比完成" : "音高对比跳过（参考源不可用）";
+        setBanner("evaluation-status", `分析完成，analysis_id=${analysisId}。${pitchDone}`);
         await saveHistory({
             type: "audio",
             resource_id: payload.analysis_id,
@@ -262,13 +467,22 @@ async function exportReport() {
     setBanner("report-export-status", "正在生成报告并写入报告表...");
 
     try {
+        const exportBody = {
+            analysis_id: analysis.analysis_id,
+            formats: ["pdf"],
+            include_charts: true,
+        };
+        const rhythmScore = typeof analysis.score === "number" ? analysis.score : null;
+        const pitchSummary = evaluationState.pitchComparison?.summary;
+        const pitchScore = pitchSummary ? Math.round(pitchSummary.accuracy * 100) : null;
+        if (rhythmScore != null) exportBody.rhythm_score = rhythmScore;
+        if (pitchScore != null) exportBody.pitch_score = pitchScore;
+        if (rhythmScore != null && pitchScore != null) {
+            exportBody.total_score = Math.round(rhythmScore * 0.5 + pitchScore * 0.5);
+        }
         const payload = await requestJson("/reports/export", {
             method: "POST",
-            body: {
-                analysis_id: analysis.analysis_id,
-                formats: ["pdf"],
-                include_charts: true,
-            },
+            body: exportBody,
         });
         evaluationState.report = payload;
         setBanner("report-export-status", `报告已生成并持久化，report_id=${payload.report_id}`);
@@ -397,4 +611,5 @@ function bindEvents() {
 
 renderHeader();
 renderAnalysis();
+clearPitchCanvas();
 bindEvents();

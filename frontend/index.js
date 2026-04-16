@@ -1,6 +1,7 @@
 const container = document.getElementById('decoration-container');
 const notes = ['solar:music-note-bold', 'solar:music-note-2-bold', 'solar:music-note-3-bold', 'solar:music-notes-bold'];
 const markings = ['p', 'f', 'ff', 'mf', 'pp', 'mf'];
+const appCommon = window.SeeMusicApp || null;
 
 function createDecorations() {
     for (let i = 0; i < 12; i++) {
@@ -38,22 +39,30 @@ function createDecorations() {
     }
 }
 
+async function resolveServerLoginState() {
+    if (!appCommon || !appCommon.getAuthToken || !appCommon.requestJson || !appCommon.clearAuthSession) {
+        return false;
+    }
+    if (!appCommon.getAuthToken()) {
+        return false;
+    }
+    try {
+        await appCommon.requestJson('/users/me');
+        return true;
+    } catch {
+        appCommon.clearAuthSession();
+        return false;
+    }
+}
+
 // 核心改动：从空白状态平滑入场
-function setupInitialView() {
+async function setupInitialView() {
     const outView = document.getElementById('logged-out-view');
     const inView = document.getElementById('logged-in-view');
     const btnIn = document.getElementById('btn-mock-in');
     const btnOut = document.getElementById('btn-mock-out');
 
-    const urlParams = new URLSearchParams(window.location.search);
-    let isLoggedIn = localStorage.getItem('seeMusic_isLoggedIn') === 'true';
-
-    if (urlParams.get('logged_in') === 'true') {
-        isLoggedIn = true;
-        localStorage.setItem('seeMusic_isLoggedIn', 'true');
-        // 清理网址栏多余参数
-        window.history.replaceState({}, document.title, window.location.pathname);
-    }
+    const isLoggedIn = await resolveServerLoginState();
 
     // 给浏览器 50 毫秒的时间确认当前是"空白隐藏"状态，然后再触发动画显示
     setTimeout(() => {
@@ -70,6 +79,16 @@ function setupInitialView() {
 }
 
 function toggleLogin(isLoggedIn) {
+    if (appCommon && appCommon.clearAuthSession && appCommon.setAuthSession) {
+        if (isLoggedIn) {
+            appCommon.setAuthSession({
+                token: 'demo-token',
+                user: { user_id: 'demo', username: 'Demo User' },
+            });
+        } else {
+            appCommon.clearAuthSession();
+        }
+    }
     const outView = document.getElementById('logged-out-view');
     const inView = document.getElementById('logged-in-view');
     const btnIn = document.getElementById('btn-mock-in');

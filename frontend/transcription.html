@@ -72,6 +72,17 @@
                 <textarea id="pitch-sequence-input" rows="14"></textarea>
                 <p class="helper-text">请填写标准的音高序列 JSON，也可以直接使用上方示例快速开始。</p>
 
+                <div class="divider" style="margin:12px 0"></div>
+                <label class="field-label" for="pitch-detect-file-input">从音频自动识别音高</label>
+                <input accept=".wav,.mp3,.ogg,.m4a,audio/*" id="pitch-detect-file-input" type="file"/>
+                <p class="helper-text">选择音频后点击「识别音高」，系统将自动检测音高序列并回填到上方文本框。</p>
+                <div class="button-row">
+                    <button class="secondary-button" id="pitch-detect-btn" type="button">识别音高</button>
+                    <button class="secondary-button" id="pitch-detect-and-score-btn" type="button">识别并直接生成乐谱</button>
+                </div>
+                <p id="pitch-detect-status" class="helper-text" style="min-height:1.4em"></p>
+
+                <div class="divider" style="margin:12px 0"></div>
                 <div class="button-row">
                     <button class="secondary-button" id="clear-sequence-btn" type="button">清空</button>
                     <button class="primary-button" id="create-score-btn" type="button">生成乐谱</button>
@@ -403,6 +414,7 @@
         </footer>
     </div>
 
+    <script src="app_common.js"></script>
     <script src="transcription.js"></script>
 </body>
 </html>

@@ -170,3 +170,8 @@ class ReportExportRequest(BaseModel):
     analysis_id: str
     formats: List[Literal["pdf", "midi", "png"]]
     include_charts: bool = True
+
+
+class PreferencesUpdateRequest(BaseModel):
+    audio_engine: Optional[str] = None
+    export_formats: Optional[List[str]] = None

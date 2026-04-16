@@ -9,6 +9,31 @@ from uuid import uuid4
 from fastapi import Header, HTTPException
 
 
+<<<<<<< Updated upstream
+=======
+# ---------------------------------------------------------------------------
+# Mode toggle – flipped by conftest.py or application bootstrap
+# ---------------------------------------------------------------------------
+USE_DB: bool = True
+_session_factory = None  # set via set_db_session_factory()
+
+
+def set_db_session_factory(factory) -> None:
+    """Inject a SQLAlchemy sessionmaker so the module can talk to the DB."""
+    global _session_factory
+    _session_factory = factory
+
+
+def _get_session():
+    if _session_factory is None:
+        raise RuntimeError("DB mode enabled but no session factory configured")
+    return _session_factory()
+
+
+# ---------------------------------------------------------------------------
+# In-memory stores – used when USE_DB is False
+# ---------------------------------------------------------------------------
+>>>>>>> Stashed changes
 USERS: dict[str, dict] = {}
 TOKENS: dict[str, str] = {}
 

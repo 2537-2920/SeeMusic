@@ -40,23 +40,35 @@
             <div class="flex justify-between items-center mb-6">
                 <h2 class="text-xl font-bold flex items-center gap-2">
                     <iconify-icon class="text-blue-500" icon="solar:microphone-large-bold"></iconify-icon>
-                    上传演唱音频进行评估
+                    上传标准音频与用户音频进行歌唱评估
                 </h2>
-                <span class="text-xs text-gray-400">后端接口：`/api/v1/analyze/rhythm`</span>
+                <span class="text-xs text-gray-400">后端接口：`/api/v1/singing/evaluate`</span>
             </div>
 
-            <input accept=".wav,.mp3,.ogg,.m4a,audio/*" hidden id="evaluation-file-input" type="file"/>
-            <div class="border-2 border-dashed border-gray-200 rounded-2xl h-48 flex flex-col items-center justify-center bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer group mb-6" id="evaluation-dropzone">
-                <iconify-icon class="text-4xl text-gray-300 group-hover:text-blue-400 transition-colors" icon="solar:upload-minimalistic-bold"></iconify-icon>
-                <p class="mt-2 text-sm text-gray-500">点击或拖拽音频文件到此处</p>
-                <p class="text-xs text-gray-400 mt-1">当前后端评估接口读取音频文件并与参考音频 ID 做节奏比对</p>
-                <p class="text-xs text-[#457b9d] mt-3" id="evaluation-file-name">尚未选择文件</p>
+            <input accept=".wav,audio/wav,audio/x-wav" hidden id="reference-file-input" type="file"/>
+            <input accept=".wav,audio/wav,audio/x-wav" hidden id="user-file-input" type="file"/>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div class="border-2 border-dashed border-gray-200 rounded-2xl h-48 flex flex-col items-center justify-center bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer group" id="reference-dropzone">
+                    <iconify-icon class="text-4xl text-gray-300 group-hover:text-blue-400 transition-colors" icon="solar:music-library-2-bold"></iconify-icon>
+                    <p class="mt-2 text-sm text-gray-500">上传标准 WAV 音频</p>
+                    <p class="text-xs text-gray-400 mt-1">允许带伴奏，后端会先分离人声</p>
+                    <p class="text-xs text-[#457b9d] mt-3" id="reference-file-name">尚未选择标准音频</p>
+                </div>
+                <div class="border-2 border-dashed border-gray-200 rounded-2xl h-48 flex flex-col items-center justify-center bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer group" id="user-dropzone">
+                    <iconify-icon class="text-4xl text-gray-300 group-hover:text-blue-400 transition-colors" icon="solar:microphone-3-bold"></iconify-icon>
+                    <p class="mt-2 text-sm text-gray-500">上传用户 WAV 音频</p>
+                    <p class="text-xs text-gray-400 mt-1">可选择清唱或带伴奏版本</p>
+                    <p class="text-xs text-[#457b9d] mt-3" id="user-file-name">尚未选择用户音频</p>
+                </div>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                 <div>
-                    <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">参考音频 ID</label>
-                    <input class="w-full bg-gray-50 border-none rounded-xl py-3 px-4 text-sm outline-none" id="reference-id-input" placeholder="default_ref" type="text" value="default_ref"/>
+                    <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">用户音频类型</label>
+                    <select class="w-full bg-gray-50 border-none rounded-xl py-3 px-4 text-sm outline-none" id="user-audio-mode">
+                        <option value="a_cappella">清唱版本</option>
+                        <option value="with_accompaniment">带伴奏版本</option>
+                    </select>
                 </div>
                 <div>
                     <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">反馈语言</label>

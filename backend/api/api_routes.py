@@ -70,7 +70,7 @@ from backend.user.user_system import get_current_user, get_user_by_token, login_
 from backend.utils.audio_logger import record_audio_log, record_audio_processing_log, get_audio_logs, read_audio_logs_from_file
 
 # 引入节奏处理服务与项目配置项
-from backend.services.analysis_service import get_saved_pitch_sequence, process_rhythm_scoring, save_analysis_result
+from backend.services.analysis_service import evaluate_singing, get_saved_pitch_sequence, process_rhythm_scoring, save_analysis_result
 from backend.config.settings import settings
 
 
@@ -523,6 +523,38 @@ async def audio_separate_tracks(
         result_data={"separation": result, "log_id": log_entry["log_id"]},
     )
     return ok({"analysis_id": metadata["analysis_id"], **result, "audio_log": log_entry})
+
+
+@router.post("/singing/evaluate")
+async def singing_evaluate(
+    reference_audio: UploadFile = File(...),
+    user_audio: UploadFile = File(...),
+    user_audio_mode: str = Form("a_cappella"),
+    language: str = Form("zh"),
+    scoring_model: str = Form("balanced"),
+    threshold_ms: float = Form(50.0),
+    separation_model: str = Form("demucs"),
+):
+    reference_content = await reference_audio.read()
+    user_content = await user_audio.read()
+    try:
+        result = evaluate_singing(
+            reference_file_name=reference_audio.filename or "reference.wav",
+            reference_audio_bytes=reference_content,
+            user_file_name=user_audio.filename or "user.wav",
+            user_audio_bytes=user_content,
+            user_audio_mode=user_audio_mode,
+            language=language,
+            scoring_model=scoring_model,
+            threshold_ms=threshold_ms,
+            separation_model=separation_model,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logging.error("Singing evaluation failed: %s: %s", type(exc).__name__, exc)
+        raise HTTPException(status_code=500, detail=f"Singing evaluation failed: {exc}") from exc
+    return ok(result)
 
 
 @router.get("/audio/download/{file_name}")

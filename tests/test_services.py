@@ -7,7 +7,8 @@ import soundfile as sf
 
 from backend.db.models import AudioAnalysis, PitchSequence, Report
 from backend.db.session import session_scope
-from backend.services.analysis_service import analyze_audio
+from backend.services import analysis_service
+from backend.services.analysis_service import analyze_audio, evaluate_singing
 from backend.services.report_service import export_report
 from backend.services.score_service import (
     ExportRecordNotFoundError,
@@ -58,6 +59,147 @@ def test_analysis_service_returns_end_to_end_payload(temp_audio_bytes):
     assert result["log"]["sample_rate"] == 16000
     assert result["log"]["duration"] == 2.0  # 2 seconds as defined in fixture
     assert result["log"]["stage"] == "analyze_audio"
+
+
+def test_evaluate_singing_separates_reference_only_for_a_cappella_user(temp_audio_bytes, tmp_path, monkeypatch):
+    calls = []
+
+    def fake_separate_tracks(file_name, model="demucs", stems=2, audio_bytes=None, sample_rate=44100):
+        calls.append(file_name)
+        vocal_path = tmp_path / f"{Path(file_name).stem}_vocal.wav"
+        vocal_path.write_bytes(temp_audio_bytes)
+        return {
+            "task_id": f"sep_{Path(file_name).stem}",
+            "status": "completed",
+            "model": model,
+            "backend_used": "fake",
+            "fallback_used": False,
+            "warnings": [],
+            "tracks": [
+                {
+                    "name": "vocal",
+                    "file_name": vocal_path.name,
+                    "download_url": f"/api/v1/audio/download/{vocal_path.name}",
+                    "file_path": str(vocal_path),
+                    "duration": 2.0,
+                }
+            ],
+        }
+
+    monkeypatch.setattr("backend.core.separation.multi_track_separation.separate_tracks", fake_separate_tracks)
+    monkeypatch.setattr(
+        analysis_service,
+        "process_rhythm_scoring_sync",
+        lambda *args, **kwargs: {
+            "score": 80,
+            "timing_accuracy": 0.8,
+            "coverage_ratio": 0.9,
+            "consistency_ratio": 0.85,
+            "mean_deviation_ms": 12,
+            "missing_beats": 0,
+            "extra_beats": 0,
+            "error_classification": {},
+            "reference_duration": 2.0,
+            "user_duration": 2.0,
+            "reference_bpm": 120,
+            "user_bpm": 118,
+        },
+    )
+    monkeypatch.setattr(
+        analysis_service,
+        "detect_pitch_sequence",
+        lambda **kwargs: [
+            {"time": 0.0, "frequency": 440.0, "confidence": 0.9},
+            {"time": 0.1, "frequency": 441.0, "confidence": 0.9},
+        ],
+    )
+
+    result = evaluate_singing(
+        reference_file_name="standard.wav",
+        reference_audio_bytes=temp_audio_bytes,
+        user_file_name="user.wav",
+        user_audio_bytes=temp_audio_bytes,
+        user_audio_mode="a_cappella",
+    )
+
+    assert calls == ["standard.wav"]
+    assert result["analysis_id"].startswith("an_")
+    assert result["user_audio_mode"] == "a_cappella"
+    assert result["reference_separation"]["vocal_track"]["name"] == "vocal"
+    assert result["user_separation"] is None
+    assert result["rhythm"]["score"] == 80
+    assert result["pitch_comparison"]["summary"]["matched_points"] > 0
+    assert result["overall_score"] >= 80
+
+
+def test_evaluate_singing_separates_user_when_accompanied(temp_audio_bytes, tmp_path, monkeypatch):
+    calls = []
+
+    def fake_separate_tracks(file_name, model="demucs", stems=2, audio_bytes=None, sample_rate=44100):
+        calls.append(file_name)
+        vocal_path = tmp_path / f"{len(calls)}_{Path(file_name).stem}_vocal.wav"
+        vocal_path.write_bytes(temp_audio_bytes)
+        return {
+            "task_id": f"sep_{len(calls)}",
+            "status": "completed",
+            "model": model,
+            "tracks": [
+                {
+                    "name": "vocal",
+                    "file_name": vocal_path.name,
+                    "download_url": f"/api/v1/audio/download/{vocal_path.name}",
+                    "file_path": str(vocal_path),
+                    "duration": 2.0,
+                }
+            ],
+        }
+
+    monkeypatch.setattr("backend.core.separation.multi_track_separation.separate_tracks", fake_separate_tracks)
+    monkeypatch.setattr(
+        analysis_service,
+        "process_rhythm_scoring_sync",
+        lambda *args, **kwargs: {
+            "score": 90,
+            "timing_accuracy": 0.9,
+            "coverage_ratio": 1.0,
+            "consistency_ratio": 0.95,
+            "mean_deviation_ms": 8,
+            "missing_beats": 0,
+            "extra_beats": 0,
+            "error_classification": {},
+            "reference_duration": 2.0,
+            "user_duration": 2.0,
+            "reference_bpm": 120,
+            "user_bpm": 120,
+        },
+    )
+    monkeypatch.setattr(
+        analysis_service,
+        "detect_pitch_sequence",
+        lambda **kwargs: [{"time": 0.0, "frequency": 440.0, "confidence": 0.9}],
+    )
+
+    result = evaluate_singing(
+        reference_file_name="standard.wav",
+        reference_audio_bytes=temp_audio_bytes,
+        user_file_name="user.wav",
+        user_audio_bytes=temp_audio_bytes,
+        user_audio_mode="with_accompaniment",
+    )
+
+    assert calls == ["standard.wav", "user.wav"]
+    assert result["user_audio_mode"] == "with_accompaniment"
+    assert result["user_separation"]["vocal_track"]["name"] == "vocal"
+
+
+def test_evaluate_singing_rejects_non_wav_upload(temp_audio_bytes):
+    with pytest.raises(ValueError, match="WAV"):
+        evaluate_singing(
+            reference_file_name="standard.mp3",
+            reference_audio_bytes=temp_audio_bytes,
+            user_file_name="user.wav",
+            user_audio_bytes=temp_audio_bytes,
+        )
 
 
 

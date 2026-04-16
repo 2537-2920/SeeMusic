@@ -252,6 +252,9 @@ POST /analyze
 
 # 多轨分离（新增功能）
 POST /api/v1/audio/separate-tracks
+
+# 歌唱评估：标准音频先分离人声，再与用户音频对比
+POST /api/v1/singing/evaluate
 ```
 
 上传音频文件示例：
@@ -270,6 +273,18 @@ curl -X POST http://localhost:8000/api/v1/audio/separate-tracks \
 curl -X POST http://localhost:8000/api/v1/audio/separate-tracks \
   -F "file=@song.mp3" \
   -F "stems=6"
+
+# 歌唱评估 - 用户清唱版本
+curl -X POST http://localhost:8000/api/v1/singing/evaluate \
+  -F "reference_audio=@standard_with_accompaniment.wav" \
+  -F "user_audio=@user_a_cappella.wav" \
+  -F "user_audio_mode=a_cappella"
+
+# 歌唱评估 - 用户带伴奏版本（用户音频也会先分离人声）
+curl -X POST http://localhost:8000/api/v1/singing/evaluate \
+  -F "reference_audio=@standard_with_accompaniment.wav" \
+  -F "user_audio=@user_with_accompaniment.wav" \
+  -F "user_audio_mode=with_accompaniment"
 ```
 
 返回数据示例：
@@ -279,6 +294,7 @@ curl -X POST http://localhost:8000/api/v1/audio/separate-tracks \
 * 乐谱结构
 * 可视化分析结果
 * 分离的音频轨道 
+* 歌唱评估的节奏得分、音高对比结果、综合分数
 
 
 ---

@@ -6,7 +6,8 @@ const {
 } = window.SeeMusicApp;
 
 const evaluationState = {
-    file: null,
+    referenceFile: null,
+    userFile: null,
     analysis: null,
     pitchComparison: null,
     report: null,
@@ -114,7 +115,7 @@ function renderAnalysis() {
 
     // Compute combined score if pitch comparison is available
     const pitchSummary = evaluationState.pitchComparison?.summary;
-    let displayScore = totalScore;
+    let displayScore = Math.round(Number(analysis.overall_score ?? totalScore));
     if (pitchSummary && typeof pitchSummary.accuracy === "number") {
         const rhythmScore = totalScore;
         const pitchScore = Math.round(pitchSummary.accuracy);
@@ -123,7 +124,7 @@ function renderAnalysis() {
     const displayLabel = scoreLabel(displayScore);
 
     document.getElementById("analysis-id-display").textContent = analysis.analysis_id || "--";
-    document.getElementById("analysis-ref-display").textContent = document.getElementById("reference-id-input").value.trim() || "--";
+    document.getElementById("analysis-ref-display").textContent = evaluationState.referenceFile?.name || "--";
     document.getElementById("analysis-user-bpm").textContent = analysis.user_bpm ? String(Math.round(Number(analysis.user_bpm))) : "--";
     document.getElementById("analysis-reference-bpm").textContent = analysis.reference_bpm ? String(Math.round(Number(analysis.reference_bpm))) : "--";
     document.getElementById("analysis-beat-summary").textContent = errorSummary;
@@ -357,97 +358,85 @@ async function saveHistory(payload) {
     }
 }
 
-function setSelectedFile(file) {
-    evaluationState.file = file || null;
-    document.getElementById("evaluation-file-name").textContent = file
+function setSelectedFile(kind, file) {
+    const stateKey = kind === "reference" ? "referenceFile" : "userFile";
+    const labelId = kind === "reference" ? "reference-file-name" : "user-file-name";
+    evaluationState[stateKey] = file || null;
+    document.getElementById(labelId).textContent = file
         ? `${file.name} (${Math.round(file.size / 1024)} KB)`
-        : "尚未选择文件";
+        : (kind === "reference" ? "尚未选择标准音频" : "尚未选择用户音频");
 }
 
 async function runEvaluation() {
-    const file = evaluationState.file;
-    const refId = document.getElementById("reference-id-input").value.trim();
+    const referenceFile = evaluationState.referenceFile;
+    const userFile = evaluationState.userFile;
+    const userAudioMode = document.getElementById("user-audio-mode").value;
     const language = document.getElementById("evaluation-language").value;
     const scoringModel = document.getElementById("evaluation-model").value;
     const threshold = document.getElementById("evaluation-threshold").value;
     const submitBtn = document.getElementById("evaluation-submit-btn");
 
-    if (!file) {
-        setBanner("evaluation-status", "请先选择要评估的音频文件。", true);
+    if (!referenceFile) {
+        setBanner("evaluation-status", "请先选择标准 WAV 音频。", true);
         return;
     }
-    if (!refId) {
-        setBanner("evaluation-status", "请填写后端可识别的参考音频 ID。", true);
+    if (!userFile) {
+        setBanner("evaluation-status", "请先选择用户 WAV 音频。", true);
+        return;
+    }
+    if (!referenceFile.name.toLowerCase().endsWith(".wav") || !userFile.name.toLowerCase().endsWith(".wav")) {
+        setBanner("evaluation-status", "当前歌唱评估流程只接受 WAV 文件。", true);
         return;
     }
 
     const formData = new FormData();
-    formData.append("user_audio", file);
-    formData.append("ref_id", refId);
+    formData.append("reference_audio", referenceFile);
+    formData.append("user_audio", userFile);
+    formData.append("user_audio_mode", userAudioMode);
     formData.append("language", language);
     formData.append("scoring_model", scoringModel);
     formData.append("threshold_ms", threshold || "50");
+    formData.append("separation_model", "demucs");
 
     submitBtn.disabled = true;
     submitBtn.style.opacity = "0.7";
-    setBanner("evaluation-status", "正在调用后端分析接口并写入数据库...");
+    setBanner("evaluation-status", "正在分离标准音频人声并准备歌唱评估，请稍候...");
 
     try {
-        const payload = await requestJson("/analyze/rhythm", {
+        const payload = await requestJson("/singing/evaluate", {
             method: "POST",
             body: formData,
         });
-        evaluationState.analysis = payload;
+        evaluationState.analysis = {
+            ...(payload.rhythm || {}),
+            analysis_id: payload.analysis_id,
+            overall_score: payload.overall_score,
+            score: payload.score,
+            user_audio_mode: payload.user_audio_mode,
+            reference_separation: payload.reference_separation,
+            user_separation: payload.user_separation,
+        };
+        evaluationState.pitchComparison = payload.pitch_comparison || null;
         evaluationState.report = null;
-
-        // Pitch detection + comparison (parallel with rhythm, non-blocking)
-        evaluationState.pitchComparison = null;
-        try {
-            setBanner("evaluation-status", "节奏分析完成，正在检测音高并对比…");
-            const pitchFormData = new FormData();
-            pitchFormData.append("file", file);
-            const pitchResult = await requestJson("/pitch/detect", {
-                method: "POST",
-                body: pitchFormData,
-            });
-
-            if (pitchResult.pitch_sequence && pitchResult.pitch_sequence.length) {
-                const comparisonPayload = {
-                    reference_id: refId,
-                    user_pitch_sequence: pitchResult.pitch_sequence.map((p) => ({
-                        time: p.time,
-                        frequency: p.frequency,
-                        duration: p.duration || null,
-                        confidence: p.confidence || null,
-                    })),
-                };
-                const comparison = await requestJson("/pitch/compare", {
-                    method: "POST",
-                    body: comparisonPayload,
-                });
-                evaluationState.pitchComparison = comparison;
-            }
-        } catch (pitchError) {
-            console.warn("pitch comparison skipped:", pitchError.message);
-        }
 
         renderAnalysis();
         const analysisId = payload.analysis_id;
-        const pitchDone = evaluationState.pitchComparison ? "音高对比完成" : "音高对比跳过（参考源不可用）";
-        setBanner("evaluation-status", `分析完成，analysis_id=${analysisId}。${pitchDone}`);
+        const userModeText = userAudioMode === "with_accompaniment" ? "用户音频已分离人声" : "用户清唱直接评估";
+        setBanner("evaluation-status", `分析完成，analysis_id=${analysisId}。标准音频已分离人声，${userModeText}，音高与节奏评估已完成。`);
         await saveHistory({
             type: "audio",
             resource_id: payload.analysis_id,
-            title: `节奏评估：${file.name}`,
+            title: `歌唱评估：${userFile.name}`,
             metadata: {
-                ref_id: refId,
-                score: Math.round(Number(payload.score || 0)),
+                reference_file: referenceFile.name,
+                user_audio_mode: userAudioMode,
+                score: Math.round(Number(payload.overall_score || payload.score || 0)),
                 language,
                 scoring_model: scoringModel,
             },
         });
     } catch (error) {
-        setBanner("evaluation-status", error.message || "分析失败，请检查参考音频配置。", true);
+        setBanner("evaluation-status", error.message || "歌唱评估失败，请检查 WAV 文件或后端分离配置。", true);
     } finally {
         submitBtn.disabled = false;
         submitBtn.style.opacity = "1";
@@ -474,7 +463,7 @@ async function exportReport() {
         };
         const rhythmScore = typeof analysis.score === "number" ? analysis.score : null;
         const pitchSummary = evaluationState.pitchComparison?.summary;
-        const pitchScore = pitchSummary ? Math.round(pitchSummary.accuracy * 100) : null;
+        const pitchScore = pitchSummary ? Math.round(Number(pitchSummary.accuracy || 0)) : null;
         if (rhythmScore != null) exportBody.rhythm_score = rhythmScore;
         if (pitchScore != null) exportBody.pitch_score = pitchScore;
         if (rhythmScore != null && pitchScore != null) {
@@ -572,13 +561,17 @@ function renderVariations(items) {
 }
 
 function bindFileUpload() {
-    const input = document.getElementById("evaluation-file-input");
-    const dropzone = document.getElementById("evaluation-dropzone");
+    bindSingleFileUpload("reference", "reference-file-input", "reference-dropzone");
+    bindSingleFileUpload("user", "user-file-input", "user-dropzone");
+}
 
+function bindSingleFileUpload(kind, inputId, dropzoneId) {
+    const input = document.getElementById(inputId);
+    const dropzone = document.getElementById(dropzoneId);
     dropzone.addEventListener("click", () => input.click());
     input.addEventListener("change", () => {
         const file = input.files && input.files[0];
-        setSelectedFile(file || null);
+        setSelectedFile(kind, file || null);
     });
 
     dropzone.addEventListener("dragover", (event) => {
@@ -598,7 +591,7 @@ function bindFileUpload() {
         const transfer = new DataTransfer();
         transfer.items.add(file);
         input.files = transfer.files;
-        setSelectedFile(file);
+        setSelectedFile(kind, file);
     });
 }
 

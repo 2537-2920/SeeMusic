@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
 from contextlib import contextmanager
 from copy import deepcopy
+from pathlib import Path
 from typing import Any, Iterator
 
 import soundfile as sf
 from sqlalchemy import select
 
+from backend.config.settings import settings
+from backend.core.pitch.pitch_comparison import build_pitch_comparison_payload
 from backend.core.pitch.audio_utils import infer_audio_metadata, estimate_duration_from_bytes
 from backend.core.pitch.pitch_detection import detect_pitch_sequence
 from backend.core.score.sheet_extraction import build_score_from_pitch_sequence
@@ -224,7 +229,231 @@ def analyze_audio(file_name: str, audio_bytes: bytes, sample_rate: int | None = 
     }
 
 
-async def process_rhythm_scoring(
+def _ensure_wav_upload(file_name: str, audio_bytes: bytes, label: str) -> None:
+    if not audio_bytes:
+        raise ValueError(f"{label} audio is empty")
+    if not file_name.lower().endswith(".wav"):
+        raise ValueError(f"{label} audio must be a WAV file")
+    if not (audio_bytes[:4] == b"RIFF" and audio_bytes[8:12] == b"WAVE"):
+        raise ValueError(f"{label} audio is not a valid WAV file")
+
+
+def _write_uploaded_wav(file_name: str, audio_bytes: bytes, prefix: str) -> str:
+    storage_dir = Path(getattr(settings, "storage_dir", "temp")) / "singing_evaluation"
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    suffix = Path(file_name or "audio.wav").suffix or ".wav"
+    with tempfile.NamedTemporaryFile(prefix=prefix, suffix=suffix, dir=storage_dir, delete=False) as handle:
+        handle.write(audio_bytes)
+        return handle.name
+
+
+def _public_track_metadata(separation: dict[str, Any], vocal_track: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "task_id": separation.get("task_id"),
+        "model": separation.get("model"),
+        "backend_used": separation.get("backend_used"),
+        "fallback_used": separation.get("fallback_used", False),
+        "warnings": separation.get("warnings", []),
+        "vocal_track": {
+            "name": vocal_track.get("name"),
+            "file_name": vocal_track.get("file_name"),
+            "download_url": vocal_track.get("download_url"),
+            "duration": vocal_track.get("duration"),
+        },
+    }
+
+
+def _separate_vocal_track(
+    *,
+    file_name: str,
+    audio_bytes: bytes,
+    model: str,
+    sample_rate: int,
+) -> tuple[str, bytes, dict[str, Any]]:
+    from backend.core.separation.multi_track_separation import separate_tracks
+
+    separation = separate_tracks(
+        file_name=file_name,
+        model=model,
+        stems=2,
+        audio_bytes=audio_bytes,
+        sample_rate=sample_rate,
+    )
+    if separation.get("status") != "completed":
+        raise RuntimeError(f"vocal separation failed for {file_name}: {separation.get('error', 'unknown error')}")
+
+    vocal_track = next((track for track in separation.get("tracks", []) if track.get("name") == "vocal"), None)
+    if not vocal_track or not vocal_track.get("file_path"):
+        raise RuntimeError(f"vocal separation did not return a vocal track for {file_name}")
+
+    vocal_path = str(vocal_track["file_path"])
+    with open(vocal_path, "rb") as handle:
+        vocal_bytes = handle.read()
+
+    return vocal_path, vocal_bytes, _public_track_metadata(separation, vocal_track)
+
+
+def _normalize_user_audio_mode(user_audio_mode: str) -> str:
+    normalized_mode = (user_audio_mode or "a_cappella").strip().lower()
+    if normalized_mode in {"clear", "clean", "vocal", "acapella", "a-cappella", "清唱版本", "清唱"}:
+        return "a_cappella"
+    if normalized_mode in {"with_accompaniment", "accompanied", "mixed", "伴奏", "带伴奏版本", "带伴奏"}:
+        return "with_accompaniment"
+    if normalized_mode in {"a_cappella", "with_accompaniment"}:
+        return normalized_mode
+    raise ValueError("user_audio_mode must be either 'a_cappella' or 'with_accompaniment'")
+
+
+def evaluate_singing(
+    *,
+    reference_file_name: str,
+    reference_audio_bytes: bytes,
+    user_file_name: str,
+    user_audio_bytes: bytes,
+    user_audio_mode: str = "a_cappella",
+    language: str = "zh",
+    scoring_model: str = "balanced",
+    threshold_ms: float = 50.0,
+    separation_model: str = "demucs",
+    sample_rate: int = 44100,
+    pitch_sample_rate: int = 16000,
+) -> dict[str, Any]:
+    """Evaluate singing using separated reference vocals and optional user vocal separation."""
+
+    normalized_mode = _normalize_user_audio_mode(user_audio_mode)
+    _ensure_wav_upload(reference_file_name, reference_audio_bytes, "reference")
+    _ensure_wav_upload(user_file_name, user_audio_bytes, "user")
+
+    metadata = infer_audio_metadata(user_file_name, sample_rate=pitch_sample_rate)
+    reference_log = record_audio_processing_log(
+        file_name=reference_file_name,
+        audio_bytes=reference_audio_bytes,
+        sample_rate=sample_rate,
+        analysis_id=metadata["analysis_id"],
+        source="api",
+        stage="singing_reference_upload",
+        params={"separation_model": separation_model},
+    )
+    user_log = record_audio_processing_log(
+        file_name=user_file_name,
+        audio_bytes=user_audio_bytes,
+        sample_rate=sample_rate,
+        analysis_id=metadata["analysis_id"],
+        source="api",
+        stage="singing_user_upload",
+        params={"user_audio_mode": normalized_mode, "separation_model": separation_model},
+    )
+
+    reference_vocal_path, reference_vocal_bytes, reference_separation = _separate_vocal_track(
+        file_name=reference_file_name,
+        audio_bytes=reference_audio_bytes,
+        model=separation_model,
+        sample_rate=sample_rate,
+    )
+
+    cleanup_paths: list[str] = []
+    user_separation: dict[str, Any] | None = None
+    if normalized_mode == "with_accompaniment":
+        user_vocal_path, user_vocal_bytes, user_separation = _separate_vocal_track(
+            file_name=user_file_name,
+            audio_bytes=user_audio_bytes,
+            model=separation_model,
+            sample_rate=sample_rate,
+        )
+    else:
+        user_vocal_path = _write_uploaded_wav(user_file_name, user_audio_bytes, "user_a_cappella_")
+        cleanup_paths.append(user_vocal_path)
+        user_vocal_bytes = user_audio_bytes
+
+    try:
+        rhythm_report = _json_ready(
+            process_rhythm_scoring_sync(
+                user_vocal_path,
+                reference_vocal_path,
+                language=language,
+                scoring_model=scoring_model,
+                threshold_ms=threshold_ms,
+            )
+        )
+        reference_pitch_sequence = detect_pitch_sequence(
+            file_name=f"{reference_file_name}:vocal",
+            sample_rate=pitch_sample_rate,
+            duration=rhythm_report.get("reference_duration"),
+            audio_bytes=reference_vocal_bytes,
+        )
+        user_pitch_sequence = detect_pitch_sequence(
+            file_name=f"{user_file_name}:vocal",
+            sample_rate=pitch_sample_rate,
+            duration=rhythm_report.get("user_duration"),
+            audio_bytes=user_vocal_bytes,
+        )
+        pitch_comparison = build_pitch_comparison_payload(
+            reference_pitch_sequence,
+            user_pitch_sequence,
+            mode="singing_evaluation",
+        )
+
+        rhythm_score = float(rhythm_report.get("score", 0.0) or 0.0)
+        pitch_score = float(pitch_comparison["summary"].get("accuracy", 0.0) or 0.0)
+        overall_score = round(rhythm_score * 0.5 + pitch_score * 0.5, 2)
+        result_data = {
+            "analysis_type": "singing_evaluation",
+            "rhythm_report": rhythm_report,
+            "pitch_comparison": pitch_comparison,
+            "overall_score": overall_score,
+            "user_audio_mode": normalized_mode,
+            "reference_separation": reference_separation,
+            "user_separation": user_separation,
+            "logs": {
+                "reference_log_id": reference_log["log_id"],
+                "user_log_id": user_log["log_id"],
+            },
+        }
+
+        save_analysis_result(
+            analysis_id=metadata["analysis_id"],
+            file_name=user_file_name,
+            sample_rate=pitch_sample_rate,
+            duration=rhythm_report.get("user_duration"),
+            bpm=int(rhythm_report.get("user_bpm", 0) or 0) or None,
+            status=1,
+            params={
+                "pipeline": "singing_evaluation",
+                "user_audio_mode": normalized_mode,
+                "language": language,
+                "scoring_model": scoring_model,
+                "threshold_ms": threshold_ms,
+                "separation_model": separation_model,
+            },
+            result_data=result_data,
+            pitch_sequence=user_pitch_sequence,
+        )
+
+        return {
+            "analysis_id": metadata["analysis_id"],
+            "overall_score": overall_score,
+            "score": rhythm_report.get("score", 0.0),
+            "user_audio_mode": normalized_mode,
+            "rhythm": rhythm_report,
+            "pitch_comparison": pitch_comparison,
+            "reference_pitch_sequence": reference_pitch_sequence,
+            "user_pitch_sequence": user_pitch_sequence,
+            "reference_separation": reference_separation,
+            "user_separation": user_separation,
+            "audio_logs": {
+                "reference": reference_log,
+                "user": user_log,
+            },
+        }
+    finally:
+        for path in cleanup_paths:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+
+def process_rhythm_scoring_sync(
     user_audio_path: str,
     ref_audio_path: str,
     language: str = "en",
@@ -235,7 +464,6 @@ async def process_rhythm_scoring(
     from backend.core.rhythm.i18n import FeedbackFormatter
     from backend.core.rhythm.rhythm_analysis import AdvancedRhythmAnalyzer
 
-    beat_detector = AdvancedBeatDetector()
     rhythm_analyzer = AdvancedRhythmAnalyzer(threshold_ms=threshold_ms)
 
     try:
@@ -251,9 +479,42 @@ async def process_rhythm_scoring(
     if len(ref_audio.shape) > 1:
         ref_audio = ref_audio.mean(axis=1)
 
+    def coerce_float(value: Any) -> float:
+        item = getattr(value, "item", None)
+        if callable(item):
+            try:
+                value = item()
+            except Exception:
+                pass
+        if isinstance(value, (list, tuple)) and value:
+            value = value[0]
+        return float(value or 0.0)
+
+    def detect_audio_beats(audio: Any, sample_rate: int) -> dict[str, Any]:
+        detector = AdvancedBeatDetector(sr=int(sample_rate))
+        raw_result = detector.get_beats(audio)
+        if isinstance(raw_result, tuple):
+            if len(raw_result) >= 3:
+                tempo, beat_times, info = raw_result[:3]
+            elif len(raw_result) == 2:
+                tempo, beat_times = raw_result
+                info = {}
+            else:
+                raise ValueError("beat detector returned an empty tuple")
+            return {
+                "bpm": coerce_float(tempo),
+                "beats": list(beat_times or []),
+                "info": info or {},
+            }
+        if isinstance(raw_result, dict):
+            beats = raw_result.get("beats", raw_result.get("beat_times", []))
+            bpm = raw_result.get("bpm", raw_result.get("tempo", raw_result.get("primary_bpm", 0.0)))
+            return {"bpm": coerce_float(bpm), "beats": list(beats or []), "info": raw_result}
+        raise TypeError(f"unsupported beat detector result: {type(raw_result).__name__}")
+
     try:
-        user_beat_result = beat_detector.get_beats(user_audio, user_sr)
-        ref_beat_result = beat_detector.get_beats(ref_audio, ref_sr)
+        user_beat_result = detect_audio_beats(user_audio, user_sr)
+        ref_beat_result = detect_audio_beats(ref_audio, ref_sr)
         user_beats = user_beat_result["beats"]
         ref_beats = ref_beat_result["beats"]
     except Exception as exc:
@@ -297,3 +558,19 @@ async def process_rhythm_scoring(
         "user_bpm": user_beat_result.get("bpm", 0),
         "formatter_language": formatter.language,
     }
+
+
+async def process_rhythm_scoring(
+    user_audio_path: str,
+    ref_audio_path: str,
+    language: str = "en",
+    scoring_model: str = "balanced",
+    threshold_ms: float = 50.0,
+) -> dict[str, Any]:
+    return process_rhythm_scoring_sync(
+        user_audio_path,
+        ref_audio_path,
+        language=language,
+        scoring_model=scoring_model,
+        threshold_ms=threshold_ms,
+    )

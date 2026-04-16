@@ -3,24 +3,34 @@
 <head>
     <meta charset="utf-8"/>
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-    <title>SeeMusic B Workspace</title>
+    <title>智能识谱 - SeeMusic</title>
+    <script src="https://modao.cc/agent-py/static/source/js/iconify-icon.min.1.0.7.js"></script>
     <link href="transcription.css" rel="stylesheet"/>
 </head>
 <body>
     <div class="page-shell">
         <header class="topbar">
-            <div>
-                <a class="brand" href="index.html">SeeMusic</a>
-                <p class="brand-subtitle">B Module Workspace for score creation, editing, export, and preview.</p>
+            <div class="brand-block">
+                <a class="brand-link" href="index.html">
+                    <div class="brand-icon">
+                        <iconify-icon icon="solar:music-note-bold"></iconify-icon>
+                    </div>
+                    <span class="brand">SeeMusic</span>
+                </a>
+                <div class="brand-divider"></div>
+                <div>
+                    <h1 class="page-title">智能识谱</h1>
+                    <p class="brand-subtitle">在工作台中完成识谱、编辑、分析、导出和结果预览。</p>
+                </div>
             </div>
             <div class="topbar-meta">
                 <div class="status-chip" id="backend-status-chip">
                     <span class="status-dot" id="backend-status-dot"></span>
-                    <span id="backend-status-text">Waiting for backend</span>
+                    <span id="backend-status-text">服务检查中</span>
                 </div>
                 <div class="status-chip">
-                    <span>Current score</span>
-                    <strong id="score-linkage-status">Not linked</strong>
+                    <span>当前乐谱</span>
+                    <strong id="score-linkage-status">未连接</strong>
                 </div>
             </div>
         </header>
@@ -29,61 +39,133 @@
             <section class="panel left-panel">
                 <div class="panel-header">
                     <div>
-                        <p class="eyebrow">Connection</p>
-                        <h2>Backend Bridge</h2>
+                        <p class="eyebrow">识谱准备</p>
+                        <h2>基础信息</h2>
                     </div>
-                    <button class="ghost-button" id="ping-backend-btn" type="button">Check backend</button>
+                    <button class="ghost-button" id="load-sample-btn" type="button">载入示例</button>
                 </div>
 
-                <label class="field-label" for="api-base-input">API base</label>
-                <div class="inline-field">
-                    <input id="api-base-input" placeholder="http://127.0.0.1:8000/api/v1" type="text"/>
-                    <button class="secondary-button" id="save-api-base-btn" type="button">Save</button>
+                <input id="user-id-input" min="1" step="1" type="hidden"/>
+                <input id="analysis-id-input" type="hidden"/>
+
+                <label class="field-label" for="project-title-input">项目标题</label>
+                <div class="field-grid">
+                    <input id="project-title-input" placeholder="我的智能识谱项目" type="text"/>
                 </div>
+
+                <div class="meta-row">
+                    <label>
+                        <span class="field-label">速度</span>
+                        <input id="tempo-input" min="40" step="1" type="number"/>
+                    </label>
+                    <label>
+                        <span class="field-label">拍号</span>
+                        <input id="time-signature-input" placeholder="4/4" type="text"/>
+                    </label>
+                    <label>
+                        <span class="field-label">调号</span>
+                        <input id="key-signature-input" placeholder="C" type="text"/>
+                    </label>
+                </div>
+
+                <label class="field-label" for="pitch-sequence-input">音高序列 JSON</label>
+                <textarea id="pitch-sequence-input" rows="14"></textarea>
+                <p class="helper-text">请填写标准的音高序列 JSON，也可以直接使用上方示例快速开始。</p>
+
+                <div class="button-row">
+                    <button class="secondary-button" id="clear-sequence-btn" type="button">清空</button>
+                    <button class="primary-button" id="create-score-btn" type="button">生成乐谱</button>
+                </div>
+
+                <details class="advanced-panel">
+                    <summary>高级设置</summary>
+                    <div class="advanced-body">
+                        <p class="helper-text">普通使用通常无需改动。这里收纳服务连接、分析微调以及手动节奏评分参数。</p>
+
+                        <div class="advanced-section">
+                            <h3>服务与调试</h3>
+                            <label class="field-label" for="api-base-input">服务地址</label>
+                            <div class="inline-field">
+                                <input id="api-base-input" placeholder="http://127.0.0.1:8000/api/v1" type="text"/>
+                                <button class="secondary-button" id="save-api-base-btn" type="button">保存</button>
+                            </div>
+                            <div class="button-row">
+                                <button class="ghost-button" id="ping-backend-btn" type="button">检查服务</button>
+                            </div>
+                        </div>
+
+                        <div class="advanced-section">
+                            <h3>分析微调</h3>
+                            <div class="field-grid">
+                                <label class="field-label" for="beat-bpm-hint-input">BPM 预估提示</label>
+                                <input id="beat-bpm-hint-input" min="0" placeholder="可选，帮助系统更快估计 BPM" step="1" type="number"/>
+
+                                <label class="field-label" for="beat-sensitivity-input">节拍检测灵敏度</label>
+                                <input id="beat-sensitivity-input" max="1" min="0" step="0.1" type="number" value="0.5"/>
+                            </div>
+
+                            <div class="field-grid">
+                                <label class="field-label" for="separation-model-input">分离模型</label>
+                                <input id="separation-model-input" placeholder="demucs" type="text" value="demucs"/>
+
+                                <label class="field-label" for="separation-stems-input">目标分轨数</label>
+                                <input id="separation-stems-input" min="2" step="1" type="number" value="2"/>
+                            </div>
+
+                            <div class="field-grid">
+                                <label class="field-label" for="rhythm-language-input">反馈语言</label>
+                                <select id="rhythm-language-input">
+                                    <option value="zh">中文</option>
+                                    <option value="en">英文</option>
+                                </select>
+
+                                <label class="field-label" for="rhythm-model-input">评分方式</label>
+                                <select id="rhythm-model-input">
+                                    <option value="balanced">平衡</option>
+                                    <option value="strict">严格</option>
+                                    <option value="lenient">宽松</option>
+                                </select>
+
+                                <label class="field-label" for="rhythm-threshold-input">判定阈值（毫秒）</label>
+                                <input id="rhythm-threshold-input" min="1" step="1" type="number" value="50"/>
+                            </div>
+                        </div>
+
+                        <div class="advanced-section">
+                            <h3>手动节奏评分</h3>
+                            <label class="field-label" for="reference-beats-input">参考拍点 JSON</label>
+                            <textarea id="reference-beats-input" rows="4">[0,1,2,3]</textarea>
+
+                            <label class="field-label" for="user-beats-input">用户拍点 JSON</label>
+                            <textarea id="user-beats-input" rows="4">[0,1.02,2.04,3.01]</textarea>
+                        </div>
+                    </div>
+                </details>
 
                 <div class="divider"></div>
 
                 <div class="panel-header compact">
                     <div>
-                        <p class="eyebrow">Create</p>
-                        <h2>Generate Score</h2>
+                        <p class="eyebrow">分析工具</p>
+                        <h2>音频分析工作台</h2>
                     </div>
-                    <button class="ghost-button" id="load-sample-btn" type="button">Load sample</button>
                 </div>
+
+                <label class="field-label" for="analysis-file-input">音频文件</label>
+                <input accept=".wav,.mp3,.ogg,.m4a,audio/*" id="analysis-file-input" type="file"/>
 
                 <div class="field-grid">
-                    <label class="field-label" for="user-id-input">User ID</label>
-                    <input id="user-id-input" min="1" step="1" type="number"/>
-
-                    <label class="field-label" for="project-title-input">Project title</label>
-                    <input id="project-title-input" placeholder="B module live demo" type="text"/>
-
-                    <label class="field-label" for="analysis-id-input">Analysis ID</label>
-                    <input id="analysis-id-input" placeholder="Optional analysis link" type="text"/>
+                    <label class="field-label" for="chord-style-input">和弦风格</label>
+                    <input id="chord-style-input" placeholder="例如：流行 / 爵士 / 民谣" type="text" value="pop"/>
                 </div>
-
-                <div class="meta-row">
-                    <label>
-                        <span class="field-label">Tempo</span>
-                        <input id="tempo-input" min="40" step="1" type="number"/>
-                    </label>
-                    <label>
-                        <span class="field-label">Time</span>
-                        <input id="time-signature-input" placeholder="4/4" type="text"/>
-                    </label>
-                    <label>
-                        <span class="field-label">Key</span>
-                        <input id="key-signature-input" placeholder="C" type="text"/>
-                    </label>
-                </div>
-
-                <label class="field-label" for="pitch-sequence-input">Pitch sequence JSON</label>
-                <textarea id="pitch-sequence-input" rows="14"></textarea>
-                <p class="helper-text">Use backend-compatible JSON. The sample loader gives you a ready-to-run payload.</p>
+                <p class="helper-text">常用操作已保留在当前面板，更细的检测参数可以在上方高级设置中调整。</p>
 
                 <div class="button-row">
-                    <button class="secondary-button" id="clear-sequence-btn" type="button">Clear</button>
-                    <button class="primary-button" id="create-score-btn" type="button">Create score</button>
+                    <button class="secondary-button" id="beat-detect-btn" type="button">节拍检测</button>
+                    <button class="secondary-button" id="separate-tracks-btn" type="button">音轨分离</button>
+                    <button class="secondary-button" id="generate-chords-btn" type="button">生成和弦</button>
+                    <button class="secondary-button" id="rhythm-score-btn" type="button">节奏评分</button>
+                    <button class="ghost-button" id="refresh-audio-logs-btn" type="button">刷新日志</button>
                 </div>
             </section>
 
@@ -91,22 +173,22 @@
                 <div class="panel summary-panel">
                     <div class="summary-head">
                         <div>
-                            <p class="eyebrow">Linked Score</p>
-                            <h2 id="score-title-display">No score loaded</h2>
+                            <p class="eyebrow">当前关联</p>
+                            <h2 id="score-title-display">尚未载入乐谱</h2>
                         </div>
                         <div class="summary-badges">
-                            <span class="pill"><span>Score</span><strong id="score-id-badge">--</strong></span>
-                            <span class="pill"><span>Project</span><strong id="project-id-badge">--</strong></span>
-                            <span class="pill"><span>Version</span><strong id="score-version-badge">--</strong></span>
+                            <span class="pill"><span>乐谱</span><strong id="score-id-badge">--</strong></span>
+                            <span class="pill"><span>项目</span><strong id="project-id-badge">--</strong></span>
+                            <span class="pill"><span>版本</span><strong id="score-version-badge">--</strong></span>
                         </div>
                     </div>
                     <div class="toolbar">
-                        <button class="tool-button" id="apply-score-settings-btn" type="button">Apply tempo/time/key</button>
-                        <button class="tool-button" id="undo-btn" type="button">Undo</button>
-                        <button class="tool-button" id="redo-btn" type="button">Redo</button>
-                        <button class="tool-button" id="pitch-up-btn" type="button">Pitch +1</button>
-                        <button class="tool-button" id="pitch-down-btn" type="button">Pitch -1</button>
-                        <button class="tool-button danger" id="delete-note-btn" type="button">Delete note</button>
+                        <button class="tool-button" id="apply-score-settings-btn" type="button">同步速度 / 拍号 / 调号</button>
+                        <button class="tool-button" id="undo-btn" type="button">撤销</button>
+                        <button class="tool-button" id="redo-btn" type="button">重做</button>
+                        <button class="tool-button" id="pitch-up-btn" type="button">升高半音</button>
+                        <button class="tool-button" id="pitch-down-btn" type="button">降低半音</button>
+                        <button class="tool-button danger" id="delete-note-btn" type="button">删除音符</button>
                     </div>
                 </div>
 
@@ -114,94 +196,129 @@
                     <div class="panel note-panel">
                         <div class="panel-header compact">
                             <div>
-                                <p class="eyebrow">Edit</p>
-                                <h2>Selected Note</h2>
+                                <p class="eyebrow">编辑音符</p>
+                                <h2>当前音符</h2>
                             </div>
-                            <button class="ghost-button" id="clear-note-selection-btn" type="button">Clear selection</button>
+                            <button class="ghost-button" id="clear-note-selection-btn" type="button">清除选中</button>
                         </div>
-                        <p class="helper-text" id="selected-note-summary">Select a note from the staff or add a new one.</p>
+                        <p class="helper-text" id="selected-note-summary">请先在谱面中选择一个音符，或直接新增音符。</p>
                         <div class="note-form-grid">
                             <label>
-                                <span class="field-label">Measure</span>
+                                <span class="field-label">小节</span>
                                 <input id="note-measure-input" min="1" step="1" type="number"/>
                             </label>
                             <label>
-                                <span class="field-label">Beat</span>
+                                <span class="field-label">拍点</span>
                                 <input id="note-beat-input" min="1" step="0.25" type="number"/>
                             </label>
                             <label>
-                                <span class="field-label">Pitch</span>
-                                <input id="note-pitch-input" placeholder="C4 or Rest" type="text"/>
+                                <span class="field-label">音高</span>
+                                <input id="note-pitch-input" placeholder="例如 C4，休止符可写 Rest" type="text"/>
                             </label>
                             <label>
-                                <span class="field-label">Beats</span>
+                                <span class="field-label">时值</span>
                                 <input id="note-beats-input" min="0.25" step="0.25" type="number"/>
                             </label>
                         </div>
                         <div class="button-row">
-                            <button class="secondary-button" id="add-note-btn" type="button">Add note</button>
-                            <button class="primary-button" id="update-note-btn" type="button">Update selected</button>
+                            <button class="secondary-button" id="add-note-btn" type="button">新增音符</button>
+                            <button class="primary-button" id="update-note-btn" type="button">更新选中音符</button>
                         </div>
-                        <p class="helper-text">Click inside a measure to prefill measure and beat. Pitch snapping uses the current input for accidentals and can be adjusted after selection.</p>
+                        <p class="helper-text">点击谱面中的某个小节可以自动带入小节与拍点，再结合音高与时值完成编辑。</p>
                     </div>
 
                     <div class="panel note-panel">
                         <div class="panel-header compact">
                             <div>
-                                <p class="eyebrow">Status</p>
-                                <h2>Current Score Data</h2>
+                                <p class="eyebrow">当前状态</p>
+                                <h2>乐谱概览</h2>
                             </div>
                         </div>
                         <div class="score-stat-grid">
                             <div class="stat-card">
-                                <span class="stat-label">Tempo</span>
+                                <span class="stat-label">速度</span>
                                 <strong class="stat-value" id="tempo-display">--</strong>
                             </div>
                             <div class="stat-card">
-                                <span class="stat-label">Time signature</span>
+                                <span class="stat-label">拍号</span>
                                 <strong class="stat-value" id="time-display">--</strong>
                             </div>
                             <div class="stat-card">
-                                <span class="stat-label">Key signature</span>
+                                <span class="stat-label">调号</span>
                                 <strong class="stat-value" id="key-display">--</strong>
                             </div>
                             <div class="stat-card">
-                                <span class="stat-label">Measures</span>
+                                <span class="stat-label">小节数</span>
                                 <strong class="stat-value" id="measure-count-display">--</strong>
                             </div>
                         </div>
-                        <p class="helper-text">Tempo, time signature, and key signature inputs at the left are reused both for creation and live score updates.</p>
+                        <p class="helper-text">左侧的速度、拍号和调号既能用于创建乐谱，也能用于当前乐谱的实时更新。</p>
                     </div>
                 </div>
 
                 <div class="panel score-panel">
                     <div class="panel-header">
                         <div>
-                            <p class="eyebrow">Score Surface</p>
-                            <h2>Interactive Staff</h2>
+                            <p class="eyebrow">识谱结果</p>
+                            <h2>交互谱面</h2>
                         </div>
-                        <button class="ghost-button" id="refresh-score-view-btn" type="button">Refresh view</button>
+                        <button class="ghost-button" id="refresh-score-view-btn" type="button">刷新视图</button>
                     </div>
                     <div class="score-empty" id="score-empty">
-                        <h3>No linked score yet</h3>
-                        <p>Create a score first, then edit notes directly from this staff and sync every action to the backend.</p>
+                        <h3>当前还没有关联乐谱</h3>
+                        <p>请先生成一份乐谱，随后就可以直接在谱面中编辑音符并实时保存。</p>
                     </div>
                     <div class="score-canvas" id="score-canvas"></div>
+                </div>
+
+                <div class="panel score-panel">
+                    <div class="panel-header">
+                        <div>
+                            <p class="eyebrow">分析结果</p>
+                            <h2>音频分析面板</h2>
+                        </div>
+                    </div>
+                    <div class="analysis-grid">
+                        <div class="analysis-card">
+                            <h3>节拍检测</h3>
+                            <div class="analysis-output" id="beat-detect-output">
+                                <p class="analysis-placeholder">暂时还没有结果。</p>
+                            </div>
+                        </div>
+                        <div class="analysis-card">
+                            <h3>音轨分离</h3>
+                            <div class="analysis-output" id="separate-tracks-output">
+                                <p class="analysis-placeholder">暂时还没有结果。</p>
+                            </div>
+                        </div>
+                        <div class="analysis-card">
+                            <h3>和弦生成</h3>
+                            <div class="analysis-output" id="generate-chords-output">
+                                <p class="analysis-placeholder">暂时还没有结果。</p>
+                            </div>
+                        </div>
+                        <div class="analysis-card">
+                            <h3>节奏评分</h3>
+                            <div class="analysis-output" id="rhythm-score-output">
+                                <p class="analysis-placeholder">暂时还没有结果。</p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </section>
 
             <aside class="panel right-panel">
                 <div class="panel-header">
                     <div>
-                        <p class="eyebrow">Export</p>
-                        <h2>Export Studio</h2>
+                        <p class="eyebrow">导出工作台</p>
+                        <h2>导出中心</h2>
                     </div>
-                    <button class="ghost-button" id="refresh-exports-btn" type="button">Refresh history</button>
+                    <button class="ghost-button" id="refresh-exports-btn" type="button">刷新记录</button>
                 </div>
 
                 <div class="export-controls">
                     <label>
-                        <span class="field-label">Format</span>
+                        <span class="field-label">格式</span>
                         <select id="export-format-select">
                             <option value="pdf">PDF</option>
                             <option value="png">PNG</option>
@@ -209,39 +326,53 @@
                         </select>
                     </label>
                     <label>
-                        <span class="field-label">Page size</span>
+                        <span class="field-label">纸张大小</span>
                         <select id="export-page-size-select">
                             <option value="A4">A4</option>
                             <option value="LETTER">LETTER</option>
                         </select>
                     </label>
                     <label class="toggle-row" for="export-annotations-input">
-                        <span class="field-label">Annotations</span>
+                        <span class="field-label">导出标注</span>
                         <input checked id="export-annotations-input" type="checkbox"/>
                     </label>
                 </div>
 
                 <div class="button-row">
-                    <button class="primary-button" id="create-export-btn" type="button">Create export</button>
-                    <button class="secondary-button" id="regenerate-selected-export-btn" type="button">Regenerate selected</button>
+                    <button class="primary-button" id="create-export-btn" type="button">创建导出</button>
+                    <button class="secondary-button" id="regenerate-selected-export-btn" type="button">重新生成当前导出</button>
                 </div>
 
                 <div class="export-actions">
-                    <button class="tool-button" id="download-selected-export-btn" type="button">Download</button>
-                    <button class="tool-button danger" id="delete-selected-export-btn" type="button">Delete</button>
+                    <button class="tool-button" id="download-selected-export-btn" type="button">下载</button>
+                    <button class="tool-button danger" id="delete-selected-export-btn" type="button">删除</button>
                 </div>
 
                 <div class="divider"></div>
 
                 <div class="panel-header compact">
                     <div>
-                        <p class="eyebrow">History</p>
-                        <h2>Export Records</h2>
+                        <p class="eyebrow">处理日志</p>
+                        <h2>音频日志</h2>
                     </div>
-                    <span class="count-pill" id="export-count-badge">0 records</span>
+                    <span class="count-pill" id="audio-log-count-badge">0 条日志</span>
+                </div>
+                <div class="export-empty" id="audio-log-empty">
+                    <p>当前还没有音频日志。先执行节拍检测或音轨分离后，这里会出现处理记录。</p>
+                </div>
+                <div class="export-list" id="audio-log-list"></div>
+
+                <div class="divider"></div>
+
+                <div class="panel-header compact">
+                    <div>
+                        <p class="eyebrow">导出历史</p>
+                        <h2>导出记录</h2>
+                    </div>
+                    <span class="count-pill" id="export-count-badge">0 条记录</span>
                 </div>
                 <div class="export-empty" id="export-empty">
-                    <p>No export history yet. Generate a PDF, PNG, or MIDI file to populate this panel.</p>
+                    <p>当前还没有导出记录。创建 PDF、PNG 或 MIDI 导出后，这里会自动显示。</p>
                 </div>
                 <div class="export-list" id="export-list"></div>
 
@@ -249,26 +380,26 @@
 
                 <div class="panel-header compact">
                     <div>
-                        <p class="eyebrow">Preview</p>
-                        <h2 id="preview-title">Nothing selected</h2>
+                        <p class="eyebrow">结果预览</p>
+                        <h2 id="preview-title">尚未选择导出项</h2>
                     </div>
                 </div>
                 <div class="detail-grid">
-                    <div class="detail-line"><span>Format</span><strong id="detail-format">--</strong></div>
-                    <div class="detail-line"><span>Size</span><strong id="detail-size">--</strong></div>
-                    <div class="detail-line"><span>Updated</span><strong id="detail-updated">--</strong></div>
-                    <div class="detail-line"><span>Status</span><strong id="detail-status">--</strong></div>
+                    <div class="detail-line"><span>格式</span><strong id="detail-format">--</strong></div>
+                    <div class="detail-line"><span>大小</span><strong id="detail-size">--</strong></div>
+                    <div class="detail-line"><span>更新时间</span><strong id="detail-updated">--</strong></div>
+                    <div class="detail-line"><span>状态</span><strong id="detail-status">--</strong></div>
                 </div>
                 <div class="preview-stage" id="preview-stage">
                     <div class="preview-empty" id="preview-empty">
-                        <p>Select an export record to preview PDF or image output here.</p>
+                        <p>选择一条导出记录后，这里会展示 PDF 或图片的预览内容。</p>
                     </div>
                 </div>
             </aside>
         </main>
 
         <footer class="statusbar">
-            <span id="app-status">Ready. Connect the backend, create a score, then everything else will chain from the returned score ID.</span>
+            <span id="app-status">已就绪。先生成乐谱或上传音频，后续的编辑、分析与导出都会围绕当前内容继续进行。</span>
         </footer>
     </div>
 

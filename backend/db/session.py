@@ -45,7 +45,12 @@ def get_engine() -> Engine:
 def get_session_factory() -> sessionmaker[Session]:
     database_url = resolve_database_url()
     if database_url not in _SESSION_FACTORIES:
-        _SESSION_FACTORIES[database_url] = sessionmaker(bind=get_engine(), autoflush=False, autocommit=False)
+        _SESSION_FACTORIES[database_url] = sessionmaker(
+            bind=get_engine(),
+            autoflush=False,
+            autocommit=False,
+            expire_on_commit=False,
+        )
     return _SESSION_FACTORIES[database_url]
 
 

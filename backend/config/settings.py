@@ -5,7 +5,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import quote_plus
+
+from sqlalchemy.engine import URL
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -79,7 +80,15 @@ class Settings:
         user = _nonempty_env(self.mysql_user, self.db_user) or self.db_user
         password = _nonempty_env(self.mysql_password, self.db_password) or self.db_password
         db_name = _nonempty_env(self.mysql_db_name, self.db_name) or self.db_name
-        return f"mysql+pymysql://{quote_plus(user)}:{quote_plus(password)}@{self.db_host}:{self.db_port}/{db_name}?charset=utf8mb4"
+        return URL.create(
+            drivername="mysql+pymysql",
+            username=user,
+            password=password,
+            host=self.db_host,
+            port=self.db_port,
+            database=db_name,
+            query={"charset": "utf8mb4"},
+        ).render_as_string(hide_password=False)
 
 
 settings = Settings()

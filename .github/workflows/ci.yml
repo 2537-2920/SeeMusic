@@ -32,4 +32,77 @@ jobs:
         run: python -m compileall backend tests
 
       - name: Run test suite
-        run: pytest tests/ -q
+        run: pytest tests/ -q -m "not mysql_integration"
+
+  mysql-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: .
+      PYTHONDONTWRITEBYTECODE: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      DATABASE_URL: mysql+pymysql://seemusic_app:seemusic_pwd@127.0.0.1:3306/SeeMusic?charset=utf8mb4
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: SeeMusic
+          MYSQL_USER: seemusic_app
+          MYSQL_PASSWORD: seemusic_pwd
+          MYSQL_ROOT_PASSWORD: root_pwd
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -u root -proot_pwd"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install cryptography
+
+      - name: Wait for MySQL service
+        run: |
+          python - <<'PY'
+          import time
+          import pymysql
+
+          for attempt in range(30):
+              try:
+                  connection = pymysql.connect(
+                      host="127.0.0.1",
+                      port=3306,
+                      user="seemusic_app",
+                      password="seemusic_pwd",
+                      database="SeeMusic",
+                  )
+                  with connection.cursor() as cursor:
+                      cursor.execute("SELECT 1")
+                      assert cursor.fetchone() == (1,)
+                  connection.close()
+                  print("MySQL service is ready.")
+                  break
+              except Exception as exc:
+                  if attempt == 29:
+                      raise
+                  print(f"MySQL not ready yet ({attempt + 1}/30): {exc}")
+                  time.sleep(2)
+          PY
+
+      - name: Compile source files
+        run: python -m compileall backend tests
+
+      - name: Run MySQL integration tests
+        run: pytest tests/test_mysql_integration.py -q

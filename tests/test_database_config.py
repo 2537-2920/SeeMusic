@@ -81,10 +81,34 @@ def test_init_database_creates_all_declared_tables(monkeypatch, tmp_path) -> Non
         "export_record",
         "report",
         "community_post",
+        "community_comment",
+        "community_like",
+        "community_favorite",
         "audio_analysis",
         "pitch_sequence",
         "user_history",
     }.issubset(table_names)
+
+    inspector = inspect(get_engine())
+    report_columns = {column["name"] for column in inspector.get_columns("report")}
+    community_post_columns = {column["name"] for column in inspector.get_columns("community_post")}
+    audio_analysis_columns = {column["name"] for column in inspector.get_columns("audio_analysis")}
+
+    assert {"report_id", "analysis_id", "metadata"}.issubset(report_columns)
+    assert {
+        "community_score_id",
+        "score_id",
+        "author_name",
+        "subtitle",
+        "style",
+        "instrument",
+        "price",
+        "cover_url",
+        "source_file_name",
+        "favorite_count",
+        "download_count",
+    }.issubset(community_post_columns)
+    assert {"result"}.issubset(audio_analysis_columns)
 
     reset_database_state()
 

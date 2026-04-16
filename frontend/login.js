@@ -37,21 +37,57 @@ function initMode() {
     }
 }
 
-document.getElementById('auth-form').addEventListener('submit', function(e) {
+document.getElementById('auth-form').addEventListener('submit', async function(e) {
     e.preventDefault();
     const submitBtn = document.getElementById('submit-btn');
     const submitText = document.getElementById('submit-text');
     
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value.trim();
+    const confirmPassword = document.getElementById('confirm-password')?.value?.trim();
+
     submitText.innerText = '验证中...';
-    submitBtn.style.opacity = '0.7';
     submitBtn.disabled = true;
-    
-    setTimeout(() => {
-        // 成功登录后，给浏览器打上“已登录”标签
-        localStorage.setItem('seeMusic_isLoggedIn', 'true');
-        // 跳转时就不再需要带 ?logged_in=true 参数了
-        window.location.href = 'index.html'; 
-    }, 1000);
+
+    try {
+        const isLogin = submitText.innerText.includes('登录');
+        let response;
+
+        if (isLogin) {
+            // ✅ 调用后端登录接口
+            response = await fetch("http://127.0.0.1:8000/api/v1/auth/login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username, password })
+            });
+        } else {
+            // ✅ 调用后端注册接口
+            if (password !== confirmPassword) {
+                alert("两次密码不一致！");
+                return;
+            }
+            response = await fetch("http://127.0.0.1:8000/api/v1/auth/register", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username, password })
+            });
+        }
+
+        if (response.ok) {
+            const data = await response.json();
+            alert(isLogin ? "登录成功！" : "注册成功！");
+            localStorage.setItem('seeMusic_isLoggedIn', 'true');
+            window.location.href = 'index.html';
+        } else {
+            alert("验证失败，请检查账号密码！");
+        }
+    } catch (error) {
+        alert("后端服务未启动,请先启动Python后端!");
+    } finally {
+        // 恢复按钮
+        submitText.innerText = isLogin ? '立即登录' : '注册账号';
+        submitBtn.disabled = false;
+    }
 });
 
 function createDecorations() {

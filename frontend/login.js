@@ -39,31 +39,38 @@ function initMode() {
 
 document.getElementById('auth-form').addEventListener('submit', async function(e) {
     e.preventDefault();
+    
     const submitBtn = document.getElementById('submit-btn');
     const submitText = document.getElementById('submit-text');
     
+    // 【关键修改】在修改按钮文字之前，先记录当前的模式
+    // 我们假设你的按钮里有一个能区分登录/注册的状态，或者通过是否存在 confirm-password 输入框来判断
+    const confirmInput = document.getElementById('confirm-password');
+    const isLogin = !confirmInput || confirmInput.offsetParent === null; // 如果没有确认密码框，或者框被隐藏了，就是登录模式
+    
     const username = document.getElementById('username').value.trim();
     const password = document.getElementById('password').value.trim();
-    const confirmPassword = document.getElementById('confirm-password')?.value?.trim();
+    const confirmPassword = confirmInput ? confirmInput.value.trim() : "";
 
     submitText.innerText = '验证中...';
     submitBtn.disabled = true;
 
     try {
-        const isLogin = submitText.innerText.includes('登录');
         let response;
-
         if (isLogin) {
-            // ✅ 调用后端登录接口
+            // ✅ 登录逻辑
             response = await fetch("http://127.0.0.1:8000/api/v1/auth/login", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ username, password })
             });
         } else {
-            // ✅ 调用后端注册接口
+            // ✅ 注册逻辑
             if (password !== confirmPassword) {
                 alert("两次密码不一致！");
+                // 恢复按钮状态，否则用户无法再次点击
+                submitText.innerText = '注册账号'; 
+                submitBtn.disabled = false;
                 return;
             }
             response = await fetch("http://127.0.0.1:8000/api/v1/auth/register", {
@@ -74,7 +81,6 @@ document.getElementById('auth-form').addEventListener('submit', async function(e
         }
 
         if (response.ok) {
-            const data = await response.json();
             alert(isLogin ? "登录成功！" : "注册成功！");
             localStorage.setItem('seeMusic_isLoggedIn', 'true');
             window.location.href = 'index.html';
@@ -82,14 +88,12 @@ document.getElementById('auth-form').addEventListener('submit', async function(e
             alert("验证失败，请检查账号密码！");
         }
     } catch (error) {
-        alert("后端服务未启动,请先启动Python后端!");
+        alert("后端服务未启动或接口报错！");
     } finally {
-        // 恢复按钮
         submitText.innerText = isLogin ? '立即登录' : '注册账号';
         submitBtn.disabled = false;
     }
 });
-
 function createDecorations() {
     const container = document.getElementById('decoration-container');
     const notes = ['solar:music-note-bold', 'solar:music-note-2-bold', 'solar:music-note-3-bold', 'solar:music-notes-bold'];

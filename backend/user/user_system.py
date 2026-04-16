@@ -35,6 +35,9 @@ def register_user(username_in: str, password_in: str, email_in: str | None = Non
 
 # 登录函数
 def login_user(username_in: str, password: str) -> dict:
+    user_data = None
+    token = ""
+    
     with session_scope() as db:
         myuser = db.query(User).filter_by(username=username_in).first()
         if not myuser:
@@ -45,19 +48,26 @@ def login_user(username_in: str, password: str) -> dict:
         token = f"tok_{uuid4().hex}"
         expired_time = datetime.now(timezone.utc) + timedelta(seconds=7200)
 
-        myuser_token = UserToken(token=token, id=myuser.id, expired_time=expired_time)
+        myuser_token = UserToken(
+            token=token,
+            user_id=myuser.id, 
+            expired_time=expired_time
+        )
 
-        db.add(myuser_token) # 使用 db.add
-        # 自动 commit
+        db.add(myuser_token)
+        user_data = {
+            "user_id": myuser.id, 
+            "username": myuser.username
+        }
     
     return {
-        "code": 0,
-        "message": "success",
-        "data": {
-            "token": token,
-            "expires_in": 7200,
-            "user": {"user_id": myuser.id, "username": myuser.username}
-        }
+            "code": 0,
+            "message": "success",
+            "data": {
+                "token": token,
+                "expires_in": 7200,
+                "user": user_data
+            }
     }
 
 # 通过token快速获取userid

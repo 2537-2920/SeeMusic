@@ -75,12 +75,29 @@
                 <div class="divider" style="margin:12px 0"></div>
                 <label class="field-label" for="pitch-detect-file-input">从音频自动识别音高</label>
                 <input accept=".wav,.mp3,.ogg,.m4a,audio/*" id="pitch-detect-file-input" type="file"/>
-                <p class="helper-text">选择音频后点击「识别音高」，系统将自动检测音高序列并回填到上方文本框。</p>
+                <p class="helper-text">支持 WAV、MP3、M4A、OGG。识别失败时会保留当前音高序列，方便继续排查或手动调整。</p>
+                <div class="pitch-tuning-grid">
+                    <label>
+                        <span class="field-label">识别算法</span>
+                        <select id="pitch-detect-algorithm-input">
+                            <option value="yin">YIN</option>
+                            <option value="autocorrelation">Autocorrelation</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span class="field-label">分析窗长（ms）</span>
+                        <input id="pitch-detect-frame-ms-input" min="5" step="1" type="number" value="20"/>
+                    </label>
+                    <label>
+                        <span class="field-label">步进间隔（ms）</span>
+                        <input id="pitch-detect-hop-ms-input" min="1" step="1" type="number" value="10"/>
+                    </label>
+                </div>
                 <div class="button-row">
                     <button class="secondary-button" id="pitch-detect-btn" type="button">识别音高</button>
                     <button class="secondary-button" id="pitch-detect-and-score-btn" type="button">识别并直接生成乐谱</button>
                 </div>
-                <p id="pitch-detect-status" class="helper-text" style="min-height:1.4em"></p>
+                <p id="pitch-detect-status" class="helper-text status-text" style="min-height:1.4em"></p>
 
                 <div class="divider" style="margin:12px 0"></div>
                 <div class="button-row">
@@ -88,10 +105,10 @@
                     <button class="primary-button" id="create-score-btn" type="button">生成乐谱</button>
                 </div>
 
-                <details class="advanced-panel">
-                    <summary>高级设置</summary>
+                <details class="advanced-panel" id="analysis-tools-panel">
+                    <summary>高级功能与调试</summary>
                     <div class="advanced-body">
-                        <p class="helper-text">普通使用通常无需改动。这里收纳服务连接、分析微调以及手动节奏评分参数。</p>
+                        <p class="helper-text">主流程只保留识别与生成乐谱。服务连接、音频分析工具和手动节奏评分参数统一收纳在这里。</p>
 
                         <div class="advanced-section">
                             <h3>服务与调试</h3>
@@ -106,7 +123,16 @@
                         </div>
 
                         <div class="advanced-section">
-                            <h3>分析微调</h3>
+                            <h3>高级分析工具</h3>
+                            <label class="field-label" for="analysis-file-input">音频文件</label>
+                            <input accept=".wav,.mp3,.ogg,.m4a,audio/*" id="analysis-file-input" type="file"/>
+
+                            <div class="field-grid">
+                                <label class="field-label" for="chord-style-input">和弦风格</label>
+                                <input id="chord-style-input" placeholder="例如：流行 / 爵士 / 民谣" type="text" value="pop"/>
+                            </div>
+                            <p class="helper-text">节拍检测、音轨分离、和弦生成和节奏评分都需要在这里选择音频或参数，结果会展示在中间分析面板。</p>
+
                             <div class="field-grid">
                                 <label class="field-label" for="beat-bpm-hint-input">BPM 预估提示</label>
                                 <input id="beat-bpm-hint-input" min="0" placeholder="可选，帮助系统更快估计 BPM" step="1" type="number"/>
@@ -140,6 +166,14 @@
                                 <label class="field-label" for="rhythm-threshold-input">判定阈值（毫秒）</label>
                                 <input id="rhythm-threshold-input" min="1" step="1" type="number" value="50"/>
                             </div>
+
+                            <div class="button-row" style="margin-top:12px">
+                                <button class="secondary-button" id="beat-detect-btn" type="button">节拍检测</button>
+                                <button class="secondary-button" id="separate-tracks-btn" type="button">音轨分离</button>
+                                <button class="secondary-button" id="generate-chords-btn" type="button">生成和弦</button>
+                                <button class="secondary-button" id="rhythm-score-btn" type="button">节奏评分</button>
+                                <button class="ghost-button" id="refresh-audio-logs-btn" type="button">刷新日志</button>
+                            </div>
                         </div>
 
                         <div class="advanced-section">
@@ -152,32 +186,6 @@
                         </div>
                     </div>
                 </details>
-
-                <div class="divider"></div>
-
-                <div class="panel-header compact">
-                    <div>
-                        <p class="eyebrow">分析工具</p>
-                        <h2>音频分析工作台</h2>
-                    </div>
-                </div>
-
-                <label class="field-label" for="analysis-file-input">音频文件</label>
-                <input accept=".wav,.mp3,.ogg,.m4a,audio/*" id="analysis-file-input" type="file"/>
-
-                <div class="field-grid">
-                    <label class="field-label" for="chord-style-input">和弦风格</label>
-                    <input id="chord-style-input" placeholder="例如：流行 / 爵士 / 民谣" type="text" value="pop"/>
-                </div>
-                <p class="helper-text">常用操作已保留在当前面板，更细的检测参数可以在上方高级设置中调整。</p>
-
-                <div class="button-row">
-                    <button class="secondary-button" id="beat-detect-btn" type="button">节拍检测</button>
-                    <button class="secondary-button" id="separate-tracks-btn" type="button">音轨分离</button>
-                    <button class="secondary-button" id="generate-chords-btn" type="button">生成和弦</button>
-                    <button class="secondary-button" id="rhythm-score-btn" type="button">节奏评分</button>
-                    <button class="ghost-button" id="refresh-audio-logs-btn" type="button">刷新日志</button>
-                </div>
             </section>
 
             <section class="center-column">

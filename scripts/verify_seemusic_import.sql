@@ -75,6 +75,16 @@ UNION ALL SELECT 'community_post.source_file_name', EXISTS(
     FROM information_schema.columns
     WHERE table_schema = DATABASE() AND table_name = 'community_post' AND column_name = 'source_file_name'
 )
+UNION ALL SELECT 'community_post.file_content_base64', EXISTS(
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'community_post' AND column_name = 'file_content_base64'
+)
+UNION ALL SELECT 'community_post.file_content_type', EXISTS(
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'community_post' AND column_name = 'file_content_type'
+)
 UNION ALL SELECT 'community_post.favorite_count', EXISTS(
     SELECT 1
     FROM information_schema.columns

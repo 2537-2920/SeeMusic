@@ -54,6 +54,7 @@ const state = {
     chordGenerationResult: null,
     rhythmScoreResult: null,
     audioLogs: [],
+    analysisToolsOpen: false,
     busyKeys: new Set(),
 };
 
@@ -65,6 +66,7 @@ function init() {
     cacheElements();
     hydrateInputs();
     bindEvents();
+    state.analysisToolsOpen = Boolean(els.analysisToolsPanel?.open);
     setApiBase(els.apiBaseInput.value || resolveDefaultApiBase(), false);
     renderAll();
     checkBackendConnection();
@@ -100,9 +102,13 @@ function cacheElements() {
         "reference-beats-input",
         "user-beats-input",
         "pitch-detect-file-input",
+        "pitch-detect-algorithm-input",
+        "pitch-detect-frame-ms-input",
+        "pitch-detect-hop-ms-input",
         "pitch-detect-btn",
         "pitch-detect-and-score-btn",
         "pitch-detect-status",
+        "analysis-tools-panel",
         "beat-detect-btn",
         "separate-tracks-btn",
         "generate-chords-btn",
@@ -175,6 +181,9 @@ function hydrateInputs() {
     els.keySignatureInput.value = localStorage.getItem(STORAGE_KEYS.keySignature) || "C";
     els.pitchSequenceInput.value =
         localStorage.getItem(STORAGE_KEYS.pitchSequence) || JSON.stringify(DEFAULT_SEQUENCE, null, 2);
+    els.pitchDetectAlgorithmInput.value = "yin";
+    els.pitchDetectFrameMsInput.value = "20";
+    els.pitchDetectHopMsInput.value = "10";
     els.noteMeasureInput.value = "1";
     els.noteBeatInput.value = "1";
     els.notePitchInput.value = "C4";
@@ -229,6 +238,9 @@ function bindEvents() {
     els.downloadSelectedExportBtn.addEventListener("click", handleDownloadSelectedExport);
     els.deleteSelectedExportBtn.addEventListener("click", handleDeleteSelectedExport);
     els.exportList.addEventListener("click", handleExportListClick);
+    els.analysisToolsPanel?.addEventListener("toggle", () => {
+        state.analysisToolsOpen = els.analysisToolsPanel.open;
+    });
 
     [
         [els.apiBaseInput, STORAGE_KEYS.apiBase],
@@ -489,6 +501,8 @@ function ensureAnalysisFile() {
 function setPitchDetectStatus(message, isError = false) {
     if (els.pitchDetectStatus) {
         els.pitchDetectStatus.textContent = message;
+        els.pitchDetectStatus.classList.toggle("error", Boolean(message) && isError);
+        els.pitchDetectStatus.classList.toggle("success", Boolean(message) && !isError);
         els.pitchDetectStatus.style.color = isError ? "var(--danger, #e74c3c)" : "var(--accent-strong, #2563eb)";
     }
 }
@@ -501,6 +515,31 @@ function ensurePitchDetectFile() {
     return file;
 }
 
+function setAnalysisToolsOpen(isOpen) {
+    state.analysisToolsOpen = Boolean(isOpen);
+    if (els.analysisToolsPanel) {
+        els.analysisToolsPanel.open = state.analysisToolsOpen;
+    }
+}
+
+function getPitchDetectConfig() {
+    return {
+        algorithm: (els.pitchDetectAlgorithmInput.value || "yin").trim() || "yin",
+        frameMs: parsePositiveInteger(els.pitchDetectFrameMsInput.value || "20", "分析窗长"),
+        hopMs: parsePositiveInteger(els.pitchDetectHopMsInput.value || "10", "步进间隔"),
+    };
+}
+
+function buildPitchDetectFormData(file) {
+    const config = getPitchDetectConfig();
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("algorithm", config.algorithm);
+    formData.append("frame_ms", String(config.frameMs));
+    formData.append("hop_ms", String(config.hopMs));
+    return { formData, config };
+}
+
 async function handlePitchDetect() {
     if (isBusy("pitch-detect")) {
         return;
@@ -509,22 +548,21 @@ async function handlePitchDetect() {
     setPitchDetectStatus("");
     try {
         const file = ensurePitchDetectFile();
-        const formData = new FormData();
-        formData.append("file", file);
+        const { formData } = buildPitchDetectFormData(file);
         setPitchDetectStatus("正在检测音高序列，请稍候…");
-        setAppStatus("正在检测音高序列，请稍候…");
+        setAppStatus("正在处理音高识别，请稍候。");
         const result = await requestJson("/pitch/detect", { method: "POST", body: formData });
         const sequence = result.pitch_sequence || [];
         els.pitchSequenceInput.value = JSON.stringify(sequence, null, 2);
         localStorage.setItem(STORAGE_KEYS.pitchSequence, els.pitchSequenceInput.value);
         els.analysisIdInput.value = result.analysis_id || "";
         localStorage.setItem(STORAGE_KEYS.analysisId, els.analysisIdInput.value);
-        const msg = `音高检测完成：识别到 ${sequence.length} 个音高点`;
+        const msg = `音高识别完成：识别到 ${sequence.length} 个音高点`;
         setPitchDetectStatus(msg);
-        setAppStatus(`${msg}，analysis_id=${result.analysis_id}`);
+        setAppStatus("音高识别已完成，可以继续生成乐谱。");
     } catch (error) {
-        setPitchDetectStatus(`检测失败：${error.message}`, true);
-        setAppStatus(`音高检测失败：${error.message}`, true);
+        setPitchDetectStatus(`音高识别失败：${error.message}`, true);
+        setAppStatus("音高识别未完成，请查看识别区域提示。", true);
     } finally {
         setBusy("pitch-detect", false);
     }
@@ -538,11 +576,17 @@ async function handlePitchDetectAndScore() {
     setPitchDetectStatus("");
     try {
         const file = ensurePitchDetectFile();
-        const formData = new FormData();
-        formData.append("file", file);
+        const { formData } = buildPitchDetectFormData(file);
         setPitchDetectStatus("正在检测音高序列…");
-        setAppStatus("正在检测音高序列…");
-        const detectResult = await requestJson("/pitch/detect", { method: "POST", body: formData });
+        setAppStatus("正在处理音频识谱请求。");
+        let detectResult;
+        try {
+            detectResult = await requestJson("/pitch/detect", { method: "POST", body: formData });
+        } catch (error) {
+            setPitchDetectStatus(`音高识别失败：${error.message}`, true);
+            setAppStatus("音高识别未完成，请查看识别区域提示。", true);
+            return;
+        }
         const sequence = detectResult.pitch_sequence || [];
         if (!sequence.length) {
             throw new Error("未能从音频中检测到有效的音高序列");
@@ -551,8 +595,8 @@ async function handlePitchDetectAndScore() {
         localStorage.setItem(STORAGE_KEYS.pitchSequence, els.pitchSequenceInput.value);
         els.analysisIdInput.value = detectResult.analysis_id || "";
         localStorage.setItem(STORAGE_KEYS.analysisId, els.analysisIdInput.value);
-        setPitchDetectStatus(`检测到 ${sequence.length} 个音高点，正在生成乐谱…`);
-        setAppStatus(`检测到 ${sequence.length} 个音高点，正在生成乐谱…`);
+        setPitchDetectStatus(`音高识别完成：检测到 ${sequence.length} 个音高点，正在生成乐谱…`);
+        setAppStatus("音高识别完成，正在生成乐谱。");
 
         const payload = {
             user_id: parsePositiveInteger(els.userIdInput.value, "用户 ID"),
@@ -563,18 +607,25 @@ async function handlePitchDetectAndScore() {
             key_signature: (els.keySignatureInput.value || "").trim() || "C",
             pitch_sequence: sequence,
         };
-        const created = await requestJson("/score/from-pitch-sequence", { method: "POST", body: payload });
+        let created;
+        try {
+            created = await requestJson("/score/from-pitch-sequence", { method: "POST", body: payload });
+        } catch (error) {
+            setPitchDetectStatus(`音高已识别 ${sequence.length} 个音高点，但生成乐谱失败：${error.message}`, true);
+            setAppStatus("乐谱生成未完成，请查看识别区域提示。", true);
+            return;
+        }
         state.exportList = [];
         state.selectedExportRecordId = null;
         state.selectedExportDetail = null;
         applyScoreResult(created, firstNoteId(created));
         await loadExportList();
-        const msg = `音频识谱完成：乐谱 ${created.score_id} 已生成`;
+        const msg = `音高识别与乐谱生成完成：乐谱 ${created.score_id} 已生成`;
         setPitchDetectStatus(msg);
-        setAppStatus(`${msg}，analysis_id=${detectResult.analysis_id}`);
+        setAppStatus(`音频识谱完成，已关联乐谱 ${created.score_id}。`);
     } catch (error) {
         setPitchDetectStatus(`识谱失败：${error.message}`, true);
-        setAppStatus(`音频识谱失败：${error.message}`, true);
+        setAppStatus("音频识谱未完成，请查看识别区域提示。", true);
     } finally {
         setBusy("pitch-detect-score", false);
     }
@@ -613,6 +664,7 @@ async function handleBeatDetect() {
     if (isBusy("beat-detect")) {
         return;
     }
+    setAnalysisToolsOpen(true);
     setBusy("beat-detect", true);
     try {
         const file = ensureAnalysisFile();
@@ -641,6 +693,7 @@ async function handleSeparateTracks() {
     if (isBusy("separate-tracks")) {
         return;
     }
+    setAnalysisToolsOpen(true);
     setBusy("separate-tracks", true);
     try {
         const file = ensureAnalysisFile();
@@ -666,6 +719,7 @@ async function handleGenerateChords() {
     if (isBusy("generate-chords")) {
         return;
     }
+    setAnalysisToolsOpen(true);
     setBusy("generate-chords", true);
     try {
         const key = (state.currentScore?.key_signature || els.keySignatureInput.value || "C").trim() || "C";
@@ -690,6 +744,7 @@ async function handleRhythmScore() {
     if (isBusy("rhythm-score")) {
         return;
     }
+    setAnalysisToolsOpen(true);
     setBusy("rhythm-score", true);
     try {
         const result = await requestJson("/rhythm/score", {

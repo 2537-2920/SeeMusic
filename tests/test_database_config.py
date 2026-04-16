@@ -5,7 +5,7 @@ import os
 from backend.config.settings import Settings
 from sqlalchemy import inspect
 
-from backend.db.session import get_engine, init_database, reset_database_state, resolve_database_url
+from backend.db.session import _engine_options, get_engine, init_database, reset_database_state, resolve_database_url
 from backend.db.tunnel import TunnelConfig, _ssh_subprocess_env, build_ssh_tunnel_command
 
 
@@ -66,6 +66,19 @@ def test_database_url_override_takes_priority(monkeypatch) -> None:
     assert resolve_database_url() == "sqlite+pysqlite:///override.db"
 
 
+def test_engine_options_enable_mysql_timeouts_and_recycle() -> None:
+    options = _engine_options("mysql+pymysql://root@127.0.0.1:3307/SeeMusic")
+
+    assert options["pool_pre_ping"] is True
+    assert options["pool_recycle"] == 300
+    assert options["pool_timeout"] == 10
+    assert options["connect_args"] == {
+        "connect_timeout": 5,
+        "read_timeout": 15,
+        "write_timeout": 15,
+    }
+
+
 def test_init_database_creates_all_declared_tables(monkeypatch, tmp_path) -> None:
     database_path = tmp_path / "schema.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite+pysqlite:///{database_path}")
@@ -105,6 +118,8 @@ def test_init_database_creates_all_declared_tables(monkeypatch, tmp_path) -> Non
         "price",
         "cover_url",
         "source_file_name",
+        "file_content_base64",
+        "file_content_type",
         "favorite_count",
         "download_count",
     }.issubset(community_post_columns)

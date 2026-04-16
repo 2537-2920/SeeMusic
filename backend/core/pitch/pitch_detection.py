@@ -8,10 +8,14 @@ autocorrelation fallback to produce frontend-friendly pitch time series data.
 
 from __future__ import annotations
 
+import logging
 from math import sin
 from typing import Any, Sequence
 
+import numpy as np
+
 from backend.core.pitch.audio_utils import (
+    AudioDecodeError,
     audio_bytes_to_samples,
     extract_audio_features,
     prepare_pitch_frame,
@@ -25,6 +29,9 @@ DEFAULT_MIN_FREQUENCY = 50.0
 DEFAULT_MAX_FREQUENCY = 1200.0
 DEFAULT_YIN_THRESHOLD = 0.12
 SILENCE_RMS_THRESHOLD = 0.01
+BATCH_FRAME_COUNT = 256
+
+logger = logging.getLogger(__name__)
 
 
 def _clamp(value: float, low: float, high: float) -> float:
@@ -212,6 +219,232 @@ def _fallback_pitch_sequence(duration: float, hop_ms: int, algorithm: str) -> li
     return points
 
 
+def _frame_signal(samples: Sequence[float], frame_size: int, hop_size: int) -> tuple[np.ndarray, np.ndarray]:
+    signal = np.asarray(samples, dtype=np.float32)
+    if signal.size == 0:
+        return np.empty((0, frame_size), dtype=np.float32), np.empty((0,), dtype=np.int32)
+
+    if signal.size < frame_size:
+        signal = np.pad(signal, (0, frame_size - signal.size))
+
+    starts = np.arange(0, max(signal.size - frame_size + 1, 1), hop_size, dtype=np.int32)
+    windows = np.lib.stride_tricks.sliding_window_view(signal, frame_size)
+    return np.asarray(windows[starts], dtype=np.float32), starts
+
+
+def _frame_features(frames: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    if frames.size == 0:
+        return np.empty((0,), dtype=np.float32), np.empty((0,), dtype=np.float32)
+
+    rms = np.sqrt(np.mean(frames * frames, axis=1))
+    crossings = ((frames[:, :-1] >= 0) & (frames[:, 1:] < 0)) | ((frames[:, :-1] < 0) & (frames[:, 1:] >= 0))
+    zcr = crossings.mean(axis=1, dtype=np.float32)
+    return rms.astype(np.float32), zcr.astype(np.float32)
+
+
+def _prepare_frames_numpy(frames: np.ndarray) -> np.ndarray:
+    if frames.size == 0:
+        return frames
+    prepared = frames - np.mean(frames, axis=1, keepdims=True)
+    if frames.shape[1] == 1:
+        return prepared
+    return prepared * np.hanning(frames.shape[1]).astype(np.float32, copy=False)
+
+
+def _yin_pitch_batch(
+    prepared_frames: np.ndarray,
+    sample_rate: int,
+    min_frequency: float = DEFAULT_MIN_FREQUENCY,
+    max_frequency: float = DEFAULT_MAX_FREQUENCY,
+    threshold: float = DEFAULT_YIN_THRESHOLD,
+) -> tuple[np.ndarray, np.ndarray]:
+    if prepared_frames.size == 0:
+        return np.empty((0,), dtype=np.float32), np.empty((0,), dtype=np.float32)
+
+    frame_size = prepared_frames.shape[1]
+    min_tau = max(int(sample_rate / max(max_frequency, 1.0)), 2)
+    max_tau = min(int(sample_rate / max(min_frequency, 1.0)), frame_size - 2)
+    if max_tau <= min_tau:
+        empty = np.zeros(prepared_frames.shape[0], dtype=np.float32)
+        return empty, empty
+
+    frequencies: list[np.ndarray] = []
+    clarities: list[np.ndarray] = []
+    tau_range = np.arange(1, max_tau + 1, dtype=np.float32)
+
+    for batch_start in range(0, prepared_frames.shape[0], BATCH_FRAME_COUNT):
+        batch = prepared_frames[batch_start : batch_start + BATCH_FRAME_COUNT]
+        batch_size = batch.shape[0]
+        difference = np.zeros((batch_size, max_tau + 1), dtype=np.float32)
+
+        for tau in range(1, max_tau + 1):
+            delta = batch[:, :-tau] - batch[:, tau:]
+            difference[:, tau] = np.sum(delta * delta, axis=1, dtype=np.float32)
+
+        cumulative = np.ones_like(difference)
+        running_sum = np.cumsum(difference[:, 1:], axis=1, dtype=np.float32)
+        cumulative[:, 1:] = np.divide(
+            difference[:, 1:] * tau_range,
+            np.where(running_sum > 0, running_sum, 1.0),
+            out=np.ones_like(difference[:, 1:]),
+            where=running_sum > 0,
+        )
+
+        search = cumulative[:, min_tau : max_tau + 1]
+        best_offsets = np.argmin(search, axis=1)
+        best_taus = best_offsets + min_tau
+
+        selected_taus = best_taus.copy()
+        below_threshold = search < threshold
+        if np.any(below_threshold):
+            first_hits = np.argmax(below_threshold, axis=1) + min_tau
+            has_hit = np.any(below_threshold, axis=1)
+            selected_taus = np.where(has_hit, first_hits, selected_taus)
+
+        tau_values = selected_taus.astype(np.float32)
+        valid_parabola = (selected_taus >= 1) & (selected_taus < max_tau)
+        if np.any(valid_parabola):
+            indices = np.arange(batch_size)[valid_parabola]
+            tau_idx = selected_taus[valid_parabola]
+            left = cumulative[indices, tau_idx - 1]
+            center = cumulative[indices, tau_idx]
+            right = cumulative[indices, tau_idx + 1]
+            denominator = left - 2 * center + right
+            safe = np.abs(denominator) > 1e-12
+            refined = tau_idx.astype(np.float32)
+            refined[safe] = refined[safe] + 0.5 * (left[safe] - right[safe]) / denominator[safe]
+            tau_values[valid_parabola] = refined
+
+        freq = np.divide(
+            float(sample_rate),
+            tau_values,
+            out=np.zeros_like(tau_values),
+            where=tau_values > 0,
+        )
+        clarity = np.clip(1.0 - cumulative[np.arange(batch_size), selected_taus], 0.0, 1.0)
+        frequencies.append(freq.astype(np.float32))
+        clarities.append(clarity.astype(np.float32))
+
+    return np.concatenate(frequencies), np.concatenate(clarities)
+
+
+def _autocorrelation_pitch_batch(
+    prepared_frames: np.ndarray,
+    sample_rate: int,
+    min_frequency: float = DEFAULT_MIN_FREQUENCY,
+    max_frequency: float = DEFAULT_MAX_FREQUENCY,
+) -> tuple[np.ndarray, np.ndarray]:
+    if prepared_frames.size == 0:
+        return np.empty((0,), dtype=np.float32), np.empty((0,), dtype=np.float32)
+
+    frame_size = prepared_frames.shape[1]
+    min_lag = max(int(sample_rate / max(max_frequency, 1.0)), 2)
+    max_lag = min(int(sample_rate / max(min_frequency, 1.0)), frame_size - 2)
+    if max_lag <= min_lag:
+        empty = np.zeros(prepared_frames.shape[0], dtype=np.float32)
+        return empty, empty
+
+    frequencies: list[np.ndarray] = []
+    clarities: list[np.ndarray] = []
+
+    for batch_start in range(0, prepared_frames.shape[0], BATCH_FRAME_COUNT):
+        batch = prepared_frames[batch_start : batch_start + BATCH_FRAME_COUNT]
+        batch_size = batch.shape[0]
+        energies = np.sum(batch * batch, axis=1, dtype=np.float32)
+        correlations = np.full((batch_size, max_lag + 1), -1.0, dtype=np.float32)
+
+        for lag in range(min_lag, max_lag + 1):
+            corr = np.sum(batch[:, :-lag] * batch[:, lag:], axis=1, dtype=np.float32)
+            correlations[:, lag] = np.divide(
+                corr,
+                np.where(energies > 1e-12, energies, 1.0),
+                out=np.zeros(batch_size, dtype=np.float32),
+                where=energies > 1e-12,
+            )
+
+        best_offsets = np.argmax(correlations[:, min_lag : max_lag + 1], axis=1)
+        best_lags = best_offsets + min_lag
+        freq = sample_rate / best_lags.astype(np.float32)
+        clarity = np.clip(correlations[np.arange(batch_size), best_lags], 0.0, 1.0)
+        frequencies.append(freq.astype(np.float32))
+        clarities.append(clarity.astype(np.float32))
+
+    return np.concatenate(frequencies), np.concatenate(clarities)
+
+
+def _build_pitch_sequence_fast(
+    samples: Sequence[float],
+    sample_rate: int,
+    frame_ms: int,
+    hop_ms: int,
+    algorithm: str,
+    duration: float | None = None,
+) -> list[dict] | None:
+    normalized_algorithm = (algorithm or "yin").lower()
+    if normalized_algorithm not in {"yin", "pyin", "autocorrelation", "acf"}:
+        return None
+
+    frame_size = max(int(sample_rate * frame_ms / 1000), int(sample_rate * 0.04), 32)
+    hop_size = max(int(sample_rate * hop_ms / 1000), 1)
+    frames, starts = _frame_signal(samples, frame_size, hop_size)
+    if frames.size == 0:
+        return []
+
+    rms_values, zcr_values = _frame_features(frames)
+    prepared_frames = _prepare_frames_numpy(frames)
+
+    if normalized_algorithm in {"yin", "pyin"}:
+        frequencies, clarities = _yin_pitch_batch(prepared_frames, sample_rate)
+        if np.any(clarities < 0.35):
+            fallback_frequencies, fallback_clarities = _autocorrelation_pitch_batch(prepared_frames, sample_rate)
+            use_fallback = fallback_clarities > clarities
+            frequencies = np.where(use_fallback, fallback_frequencies, frequencies)
+            clarities = np.where(use_fallback, fallback_clarities, clarities)
+    else:
+        frequencies, clarities = _autocorrelation_pitch_batch(prepared_frames, sample_rate)
+
+    valid_frequency = (
+        np.isfinite(frequencies)
+        & (frequencies >= DEFAULT_MIN_FREQUENCY)
+        & (frequencies <= DEFAULT_MAX_FREQUENCY)
+        & (rms_values >= SILENCE_RMS_THRESHOLD)
+    )
+    confidences = np.clip(clarities * np.clip(rms_values / 0.08, 0.3, 1.0), 0.0, 0.99)
+
+    sequence: list[dict] = []
+    for index, start in enumerate(starts.tolist()):
+        if valid_frequency[index]:
+            frequency = round(float(frequencies[index]), 2)
+            confidence = round(float(confidences[index]), 2)
+            note = frequency_to_note(frequency)
+            voiced = confidence >= 0.25
+        else:
+            frequency = 0.0
+            confidence = 0.0
+            note = "Rest"
+            voiced = False
+
+        sequence.append(
+            {
+                "time": round(start / sample_rate, 3),
+                "frequency": frequency,
+                "note": note,
+                "confidence": confidence,
+                "duration": round(hop_ms / 1000.0, 3),
+                "algorithm": algorithm,
+                "voiced": voiced,
+                "rms": round(float(rms_values[index]), 5),
+                "zcr": round(float(zcr_values[index]), 5),
+            }
+        )
+
+    if duration and sequence:
+        expected_end = max(float(duration), sequence[-1]["time"])
+        sequence[-1]["duration"] = round(max(expected_end - sequence[-1]["time"], sequence[-1]["duration"]), 3)
+
+    return sequence
+
+
 def detect_pitch_sequence(
     file_name: str,
     sample_rate: int | None = None,
@@ -228,12 +461,22 @@ def detect_pitch_sequence(
     hop_ms = max(int(hop_ms or 10), 1)
     algorithm = algorithm or "yin"
 
-    preprocessed = preprocess_audio_features(audio_bytes, requested_rate)
+    preprocessed = preprocess_audio_features(audio_bytes, requested_rate, file_name=file_name)
     samples = preprocessed["samples"]
     actual_rate = preprocessed["sample_rate"]
     if not samples:
-        fallback_duration = duration or 4.0
-        return _fallback_pitch_sequence(fallback_duration, hop_ms, algorithm)
+        if audio_bytes is None:
+            fallback_duration = duration or 4.0
+            return _fallback_pitch_sequence(fallback_duration, hop_ms, algorithm)
+        raise AudioDecodeError("无法从上传音频中解码出有效波形，请确认文件格式受支持。")
+
+    try:
+        fast_sequence = _build_pitch_sequence_fast(samples, actual_rate, frame_ms, hop_ms, algorithm, duration=duration)
+    except Exception as exc:
+        logger.warning("Fast pitch path failed for %s, falling back to pure Python detector: %s", file_name, exc)
+        fast_sequence = None
+    if fast_sequence is not None:
+        return fast_sequence
 
     frame_size = max(int(actual_rate * frame_ms / 1000), int(actual_rate * 0.04), 32)
     hop_size = max(int(actual_rate * hop_ms / 1000), 1)

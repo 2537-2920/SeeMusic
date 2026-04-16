@@ -12,18 +12,21 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.db.base import Base
 
 
 BIGINT_COMPAT = BigInteger().with_variant(Integer, "sqlite")
+LONGTEXT_COMPAT = Text().with_variant(mysql.LONGTEXT(), "mysql")
 
 
 class User(Base):
@@ -171,6 +174,13 @@ class CommunityPost(Base):
     price: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     cover_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     source_file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    file_content_base64: Mapped[str | None] = mapped_column(LONGTEXT_COMPAT, nullable=True)
+    file_content_type: Mapped[str] = mapped_column(
+        String(64),
+        default="application/pdf",
+        server_default="application/pdf",
+        nullable=False,
+    )
     tags: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     is_public: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     like_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -226,6 +236,9 @@ class AudioAnalysis(Base):
 
 class PitchSequence(Base):
     __tablename__ = "pitch_sequence"
+    __table_args__ = (
+        Index("ix_pitch_sequence_analysis_id_is_reference", "analysis_id", "is_reference"),
+    )
 
     id: Mapped[int] = mapped_column(BIGINT_COMPAT, primary_key=True, autoincrement=True)
     analysis_id: Mapped[str] = mapped_column(

@@ -8,7 +8,7 @@ import uuid
 import logging
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 
 from backend.api.schemas import (
@@ -32,10 +32,11 @@ from backend.api.schemas import (
 )
 from backend.core.generation.chord_generation import generate_chord_sequence
 from backend.core.generation.variation_suggestions import generate_variation_suggestions
-from backend.core.pitch.audio_utils import estimate_duration_from_bytes, infer_audio_metadata
+from backend.core.pitch.audio_utils import AudioDecodeError, AudioDependencyError, estimate_duration_from_bytes, infer_audio_metadata
 from backend.core.pitch.pitch_comparison import build_pitch_comparison_payload, load_pitch_sequence_json
 from backend.core.pitch.pitch_detection import detect_pitch_sequence
 from backend.core.pitch.realtime_tuning import analyze_audio_frame
+from backend.services import analysis_service
 from backend.services.report_service import export_report
 from backend.services.community_service import (
     add_community_comment,
@@ -70,11 +71,12 @@ from backend.user.user_system import get_current_user, get_user_by_token, login_
 from backend.utils.audio_logger import record_audio_log, record_audio_processing_log, get_audio_logs, read_audio_logs_from_file
 
 # 引入节奏处理服务与项目配置项
-from backend.services.analysis_service import get_saved_pitch_sequence, process_rhythm_scoring, save_analysis_result
+from backend.services.analysis_service import cache_analysis_result, get_saved_pitch_sequence, process_rhythm_scoring, save_analysis_result
 from backend.config.settings import settings
 
 
 router = APIRouter(prefix="/api/v1", tags=["api"])
+logger = logging.getLogger(__name__)
 
 INLINE_PREVIEW_TYPES = (
     "application/pdf",
@@ -130,23 +132,51 @@ def resolve_pitch_sequence_source(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
     if fallback_id:
-        saved_sequence = get_saved_pitch_sequence(fallback_id)
+        saved_sequence = get_saved_pitch_sequence(fallback_id, populate_cache=True)
         if saved_sequence:
             return saved_sequence
         if fallback_id.endswith("_reference"):
-            saved_sequence = get_saved_pitch_sequence(fallback_id[: -len("_reference")])
+            saved_sequence = get_saved_pitch_sequence(fallback_id[: -len("_reference")], populate_cache=True)
             if saved_sequence:
                 return saved_sequence
         if fallback_id.endswith("_user"):
-            saved_sequence = get_saved_pitch_sequence(fallback_id[: -len("_user")])
+            saved_sequence = get_saved_pitch_sequence(fallback_id[: -len("_user")], populate_cache=True)
             if saved_sequence:
                 return saved_sequence
-        return detect_pitch_sequence(file_name=fallback_id, duration=duration)
+        raise HTTPException(status_code=404, detail=f"未找到分析 ID 对应的音高序列：{fallback_id}")
     raise HTTPException(status_code=400, detail="missing pitch source")
+
+
+def _normalize_pitch_detect_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, AudioDependencyError):
+        return HTTPException(status_code=503, detail=str(exc))
+    if isinstance(exc, AudioDecodeError):
+        return HTTPException(status_code=400, detail=str(exc))
+    return HTTPException(status_code=500, detail="音高检测服务发生未知错误。")
+
+
+def _ensure_detected_pitch(sequence: list[dict[str, Any]]) -> None:
+    has_pitch = any(float(item.get("frequency") or 0.0) > 0 and bool(item.get("voiced", True)) for item in sequence)
+    if not has_pitch:
+        raise HTTPException(status_code=400, detail="未检测到可用的音高，请上传更清晰的单音旋律音频。")
+
+
+def _persist_analysis_result_non_blocking(
+    background_tasks: BackgroundTasks | None,
+    **payload: Any,
+) -> None:
+    cache_analysis_result(**payload)
+    if not analysis_service.USE_DB:
+        return
+    if background_tasks is None:
+        save_analysis_result(**payload)
+        return
+    background_tasks.add_task(analysis_service.save_analysis_result, **payload)
 
 
 @router.post("/pitch/detect")
 async def pitch_detect(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     sample_rate: Optional[int] = Form(None),
     frame_ms: int = Form(20),
@@ -154,6 +184,16 @@ async def pitch_detect(
     algorithm: str = Form("yin"),
 ):
     content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="上传的音频文件为空。")
+    logger.info(
+        "Pitch detect started file=%s size=%sB algorithm=%s frame_ms=%s hop_ms=%s",
+        file.filename or "audio",
+        len(content),
+        algorithm,
+        frame_ms,
+        hop_ms,
+    )
     resolved_sample_rate = sample_rate or 16000
     estimated_duration = estimate_duration_from_bytes(content, resolved_sample_rate)
     metadata = infer_audio_metadata(file.filename or "audio", resolved_sample_rate, estimated_duration or None)
@@ -167,16 +207,23 @@ async def pitch_detect(
         stage="pitch_detect",
         params={"frame_ms": frame_ms, "hop_ms": hop_ms, "algorithm": algorithm},
     )
-    pitches = detect_pitch_sequence(
-        file_name=file.filename or "audio",
-        sample_rate=metadata["sample_rate"],
-        frame_ms=frame_ms,
-        hop_ms=hop_ms,
-        algorithm=algorithm,
-        duration=metadata["duration"],
-        audio_bytes=content,
-    )
-    save_analysis_result(
+    metadata["sample_rate"] = int(log_entry.get("sample_rate") or metadata["sample_rate"])
+    metadata["duration"] = float(log_entry.get("duration") or metadata["duration"])
+    try:
+        pitches = detect_pitch_sequence(
+            file_name=file.filename or "audio",
+            sample_rate=metadata["sample_rate"],
+            frame_ms=frame_ms,
+            hop_ms=hop_ms,
+            algorithm=algorithm,
+            duration=metadata["duration"],
+            audio_bytes=content,
+        )
+    except Exception as exc:
+        raise _normalize_pitch_detect_error(exc) from exc
+    _ensure_detected_pitch(pitches)
+    _persist_analysis_result_non_blocking(
+        background_tasks,
         analysis_id=metadata["analysis_id"],
         file_name=file.filename or "audio",
         sample_rate=metadata["sample_rate"],
@@ -247,15 +294,19 @@ async def pitch_detect_multitrack(
             "tracks": [track["name"] for track in tracks],
         },
     )
-    pitches = detect_pitch_sequence(
-        file_name="multitrack",
-        sample_rate=metadata["sample_rate"],
-        frame_ms=frame_ms,
-        hop_ms=hop_ms,
-        algorithm=algorithm,
-        duration=metadata["duration"],
-        audio_bytes={"sample_rate": metadata["sample_rate"], "tracks": tracks},
-    )
+    try:
+        pitches = detect_pitch_sequence(
+            file_name="multitrack",
+            sample_rate=metadata["sample_rate"],
+            frame_ms=frame_ms,
+            hop_ms=hop_ms,
+            algorithm=algorithm,
+            duration=metadata["duration"],
+            audio_bytes={"sample_rate": metadata["sample_rate"], "tracks": tracks},
+        )
+    except Exception as exc:
+        raise _normalize_pitch_detect_error(exc) from exc
+    _ensure_detected_pitch(pitches)
     return ok(
         {
             "analysis_id": metadata["analysis_id"],
@@ -464,6 +515,7 @@ def score_export_preview(score_id: str, export_record_id: int):
 
 @router.post("/rhythm/beat-detect")
 async def rhythm_beat_detect(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     bpm_hint: Optional[int] = Form(None),
     sensitivity: float = Form(0.5),
@@ -481,7 +533,8 @@ async def rhythm_beat_detect(
         params={"bpm_hint": bpm_hint, "sensitivity": sensitivity},
     )
     result = detect_beats(file.filename or "audio", bpm_hint=bpm_hint, sensitivity=sensitivity, audio_bytes=content)
-    save_analysis_result(
+    _persist_analysis_result_non_blocking(
+        background_tasks,
         analysis_id=metadata["analysis_id"],
         file_name=file.filename or "audio",
         sample_rate=log_entry.get("sample_rate"),
@@ -496,6 +549,7 @@ async def rhythm_beat_detect(
 
 @router.post("/audio/separate-tracks")
 async def audio_separate_tracks(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     model: str = Form("demucs"),
     stems: int = Form(2),
@@ -513,7 +567,8 @@ async def audio_separate_tracks(
         params={"model": model, "stems": stems},
     )
     result = separate_tracks(file.filename or "audio", model=model, stems=stems, audio_bytes=content)
-    save_analysis_result(
+    _persist_analysis_result_non_blocking(
+        background_tasks,
         analysis_id=metadata["analysis_id"],
         file_name=file.filename or "audio",
         sample_rate=result.get("sample_rate") or log_entry.get("sample_rate"),
@@ -581,6 +636,7 @@ def rhythm_score(payload: RhythmScoreRequest):
 # ==========================================
 @router.post("/analyze/rhythm")
 async def analyze_rhythm_api(
+    background_tasks: BackgroundTasks,
     user_audio: UploadFile = File(...),
     ref_id: str = Form("default_ref"),
     language: str = Form("en"),
@@ -651,7 +707,8 @@ async def analyze_rhythm_api(
             scoring_model=scoring_model,
             threshold_ms=threshold_ms,
         )
-        save_analysis_result(
+        _persist_analysis_result_non_blocking(
+            background_tasks,
             analysis_id=metadata["analysis_id"],
             file_name=user_audio.filename or "audio",
             sample_rate=log_entry.get("sample_rate"),

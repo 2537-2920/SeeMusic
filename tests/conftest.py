@@ -1,18 +1,51 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
+import types
 
 import pytest
 
+import fastapi.testclient as fastapi_testclient
+import starlette.testclient as starlette_testclient
+
 from backend.config.settings import settings
+from backend.numba_compat import ensure_numba_cache_dir
 from backend.core.score.score_utils import reset_score_cache
 from backend.db.models import User
 from backend.db.session import init_database, reset_database_state, session_scope
 from backend.services import analysis_service, community_service, report_service
+from tests.compat_testclient import CompatibilityTestClient
 from backend.user import history_manager, user_system
 from backend.user.history_manager import HISTORIES
 from backend.user.user_system import TOKENS, USERS
 from backend.utils.audio_logger import AUDIO_LOGS
+
+ensure_numba_cache_dir()
+
+
+def _install_demucs_pretrained_stub() -> None:
+    try:
+        from demucs import pretrained as _pretrained  # noqa: F401
+        return
+    except ModuleNotFoundError:
+        pass
+
+    asset_dir = Path(__file__).resolve().parent / "fixtures" / "demucs"
+    demucs_module = types.ModuleType("demucs")
+    demucs_module.__path__ = [str(asset_dir)]
+    pretrained_module = types.ModuleType("demucs.pretrained")
+    pretrained_module.REMOTE_ROOT = str(asset_dir)
+    demucs_module.pretrained = pretrained_module
+    sys.modules.setdefault("demucs", demucs_module)
+    sys.modules["demucs.pretrained"] = pretrained_module
+
+
+_install_demucs_pretrained_stub()
+
+
+fastapi_testclient.TestClient = CompatibilityTestClient
+starlette_testclient.TestClient = CompatibilityTestClient
 
 
 @pytest.fixture(autouse=True)

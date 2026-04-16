@@ -6,10 +6,11 @@
 
 - `report`：补充 `report_id`、`analysis_id`、`metadata`，并允许旧数据的 `project_id` 为空。
 - `community_post`：补充社区业务字段与互动计数，允许旧数据的 `user_id` / `sheet_id` 为空。
-- `audio_analysis`：补充 `result` JSON 字段，并允许旧数据的 `user_id` 为空。
+- `audio_analysis`：补充 `result` JSON 字段，并允许旧数据的 `user_id` 为空；当前音高主存储改为 `note events`。
 - `community_comment`：新增，保存社区评论。
 - `community_like`：新增，保存社区点赞记录。
 - `community_favorite`：新增，保存社区收藏记录。
+- `pitch_sequence`：从默认主存储降级为按需生成的逐点缓存表。
 
 ## 通用约定
 
@@ -19,6 +20,7 @@
 - 布尔字段 `is_public`、`is_reference` 在 MySQL 中按 `TINYINT(1)` 存储。
 - `project.analysis_id` 是业务关联字段，不是数据库外键；`pitch_sequence.analysis_id` 外键指向 `audio_analysis.analysis_id`。
 - ORM 中 `report.metadata` 和 `user_history.metadata` 分别映射为 `metadata_`，用于避开 SQLAlchemy 的保留属性名。
+- 一次性全清当前 `.env` 指向 MySQL 应用数据时，可使用 [`scripts/clear_current_mysql_data.py`](/home/xianz/SeeMusic/scripts/clear_current_mysql_data.py)；该脚本只 `TRUNCATE` 应用表，不改表结构。
 
 ## 1. user（用户表）
 
@@ -118,6 +120,8 @@
 | price | FLOAT | 价格，默认 `0`。 |
 | cover_url | VARCHAR(500) | 封面图地址，可空。 |
 | source_file_name | VARCHAR(255) | 原始文件名，可空。 |
+| file_content_base64 | LONGTEXT | PDF 等文件内容的 Base64 编码，可空。 |
+| file_content_type | VARCHAR(64) | 文件 MIME 类型，默认 `application/pdf`。 |
 | tags | JSON | 标签数组，默认空列表。 |
 | is_public | BOOLEAN | 是否公开，默认 `true`。 |
 | like_count | INT | 点赞数，默认 `0`。 |
@@ -182,13 +186,13 @@
 | bpm | INT | 检测到的节拍速度，可空。 |
 | status | INT | 任务状态，`0=处理中` / `1=成功` / `2=失败`。 |
 | params | JSON | 分析参数 JSON，默认空对象。 |
-| result | JSON | 分析结果 JSON，默认空对象。 |
+| result | JSON | 分析结果 JSON，默认空对象。音高场景下主存 `{ pitch_sequence_format: "note_events", pitch_sequence: [...], pitch_meta: {...} }`。 |
 | create_time | DATETIME | 创建时间，自动生成。 |
 | update_time | DATETIME | 更新时间，自动更新。 |
 
-## 11. pitch_sequence（音高序列表）
+## 11. pitch_sequence（音高序列缓存表）
 
-作用：存储音高时间点、频率、音符信息，用于对比和图表渲染。
+作用：按需缓存逐点音高时间序列，用于对比和图表渲染；默认持久化不再写入该表。
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
@@ -202,6 +206,8 @@
 | is_reference | BOOLEAN | 是否为参考音轨，默认 `false`。 |
 
 > 该表只保存序列采样点，不包含 `create_time` / `update_time`。
+> 当前默认链路会先把逐帧音高压缩为音符事件，落到 `audio_analysis.result` 中；只有 `/pitch/compare`、`/charts/pitch-curve` 等确实需要逐点曲线时，才会把展开后的点写入本表作为缓存。
+> 建议索引：`ix_pitch_sequence_analysis_id_is_reference (analysis_id, is_reference)`，用于加速按需缓存写入与音高曲线读取。
 
 ## 12. user_history（用户历史记录表）
 
@@ -228,5 +234,3 @@
 | token | VARCHAR(128) | 登录令牌，唯一，非空，带索引。 |
 | expired_time | DATETIME | 令牌过期时间，非空。 |
 | created_at | DATETIME | 令牌创建时间，自动生成。 |
-
-

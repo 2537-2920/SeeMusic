@@ -7,7 +7,7 @@ import soundfile as sf
 
 from backend.db.models import AudioAnalysis, PitchSequence, Report
 from backend.db.session import session_scope
-from backend.services.analysis_service import analyze_audio
+from backend.services.analysis_service import analyze_audio, get_saved_pitch_sequence
 from backend.services.report_service import export_report
 from backend.services.score_service import (
     ExportRecordNotFoundError,
@@ -79,7 +79,27 @@ def test_analysis_service_persists_audio_analysis_when_db_enabled(user_database,
     assert analysis.sample_rate == 16000
     assert analysis.status == 1
     assert analysis.result_data["score_id"] == result["score"]["score_id"]
-    assert len(points) == len(result["pitch_sequence"])
+    assert analysis.result_data["pitch_sequence_format"] == "note_events"
+    assert analysis.result_data["pitch_sequence"]
+    assert analysis.result_data["pitch_meta"]["original_point_count"] == len(result["pitch_sequence"])
+    assert points == []
+    rebuilt = get_saved_pitch_sequence(result["analysis_id"], populate_cache=False)
+    assert rebuilt
+    assert rebuilt[0]["note"] == result["pitch_sequence"][0]["note"]
+
+
+def test_analysis_service_populates_pitch_sequence_cache_on_demand(user_database, temp_audio_bytes):
+    result = analyze_audio("demo.wav", temp_audio_bytes, sample_rate=16000)
+
+    first = get_saved_pitch_sequence(result["analysis_id"], populate_cache=True)
+    second = get_saved_pitch_sequence(result["analysis_id"], populate_cache=False)
+
+    with session_scope() as session:
+        points = session.query(PitchSequence).filter_by(analysis_id=result["analysis_id"]).all()
+
+    assert first
+    assert second
+    assert len(points) == len(first)
 
 
 def test_report_service_persists_report_when_db_enabled(user_database):

@@ -30,6 +30,14 @@ def _engine_options(database_url: str) -> dict[str, object]:
     options: dict[str, object] = {"pool_pre_ping": True}
     if database_url.startswith("sqlite"):
         options["connect_args"] = {"check_same_thread": False}
+    elif database_url.startswith("mysql"):
+        options["pool_recycle"] = 300
+        options["pool_timeout"] = 10
+        options["connect_args"] = {
+            "connect_timeout": 5,
+            "read_timeout": 15,
+            "write_timeout": 15,
+        }
     return options
 
 

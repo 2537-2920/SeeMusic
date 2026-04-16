@@ -11,6 +11,9 @@ from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 
+from backend.numba_compat import ensure_numba_cache_dir
+
+ensure_numba_cache_dir()
 
 import librosa
 import numpy as np

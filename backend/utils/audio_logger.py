@@ -3,20 +3,21 @@
 from __future__ import annotations
 
 import io
+import importlib
 import json
+import tempfile
+import wave
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
 
-import soundfile as sf
-
 from backend.config.settings import settings
-from backend.core.pitch.audio_utils import estimate_duration_from_bytes
+from backend.core.pitch.audio_utils import AudioDecodeError, AudioDependencyError, audio_bytes_to_samples, estimate_duration_from_bytes
 
 
-AUDIO_LOGS: list[dict[str, Any]] = []
+AUDIO_LOGS: list[dict[str, Any]] = globals().get("AUDIO_LOGS", [])
 DEFAULT_AUDIO_LOG_FILE = settings.storage_dir / "logs" / "audio_logs.jsonl"
 
 
@@ -33,14 +34,42 @@ def _safe_float(value: Any) -> float | None:
         return None
 
 
+def _load_soundfile():
+    try:
+        return importlib.import_module("soundfile")
+    except ModuleNotFoundError as exc:
+        raise AudioDependencyError("环境缺少 soundfile，日志只能记录基础音频元数据。") from exc
+
+
+def _probe_with_soundfile(audio_bytes: bytes, file_name: str) -> dict[str, Any]:
+    soundfile = _load_soundfile()
+    suffix = Path(file_name).suffix.lower() or ".audio"
+    temp_path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
+            temp_path = handle.name
+            handle.write(audio_bytes)
+            handle.flush()
+        info = soundfile.info(temp_path)
+    finally:
+        if temp_path:
+            Path(temp_path).unlink(missing_ok=True)
+
+    duration = round(float(info.frames) / info.samplerate, 4) if info.samplerate else 0.0
+    return {
+        "sample_rate": int(info.samplerate) if info.samplerate else None,
+        "duration": duration,
+        "channels": int(info.channels) if info.channels else None,
+        "frame_count": int(info.frames) if info.frames else None,
+        "audio_format": (info.format or Path(file_name).suffix.lower().removeprefix(".") or "unknown").lower(),
+        "subtype": info.subtype,
+    }
+
+
 def inspect_audio_bytes(audio_bytes: bytes, file_name: str = "audio") -> dict[str, Any]:
     """Inspect raw audio bytes and return debug-friendly metadata."""
-    # Import at top of function to avoid UnboundLocalError
-    from pathlib import Path as PathlibPath
-    import tempfile
-    
     byte_size = len(audio_bytes)
-    suffix = PathlibPath(file_name).suffix.lower().removeprefix(".") or None
+    suffix = Path(file_name).suffix.lower().removeprefix(".") or None
     metadata: dict[str, Any] = {
         "byte_size": byte_size,
         "file_extension": suffix,
@@ -50,41 +79,57 @@ def inspect_audio_bytes(audio_bytes: bytes, file_name: str = "audio") -> dict[st
         "frame_count": None,
         "audio_format": suffix,
         "subtype": None,
+        "inspection_error": None,
     }
 
     if not audio_bytes:
         metadata["duration"] = 0.0
         return metadata
 
-    temp_path = None
     try:
-        # Write bytes to temporary file for soundfile inspection
-        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
-            temp_path = f.name
-            f.write(audio_bytes)
-            f.flush()  # Ensure data is written to disk
-        
-        # Read file info after temp file is created
-        info = sf.info(temp_path)
-        
-        duration = round(float(info.frames) / info.samplerate, 4) if info.samplerate else 0.0
+        if audio_bytes[:4] == b"RIFF" and audio_bytes[8:12] == b"WAVE":
+            with wave.open(io.BytesIO(audio_bytes), "rb") as wav_file:
+                frame_count = wav_file.getnframes()
+                sample_rate = wav_file.getframerate() or None
+                duration = round(float(frame_count) / sample_rate, 4) if sample_rate else 0.0
+                metadata.update(
+                    {
+                        "sample_rate": int(sample_rate) if sample_rate else None,
+                        "duration": duration,
+                        "channels": int(wav_file.getnchannels()) or None,
+                        "frame_count": int(frame_count),
+                        "audio_format": "wav",
+                        "subtype": f"PCM_{int(wav_file.getsampwidth()) * 8}",
+                    }
+                )
+                return metadata
+    except Exception as exc:
+        metadata["inspection_error"] = str(exc)
+
+    try:
         metadata.update(
-            {
-                "sample_rate": int(info.samplerate) if info.samplerate else None,
-                "duration": duration,
-                "channels": int(info.channels) if info.channels else None,
-                "frame_count": int(info.frames) if info.frames else None,
-                "audio_format": (info.format or suffix or "unknown").lower(),
-                "subtype": info.subtype,
-            }
+            _probe_with_soundfile(audio_bytes, file_name)
         )
-    except Exception:
-        metadata["duration"] = estimate_duration_from_bytes(audio_bytes)
-    finally:
-        # Clean up temporary file
-        if temp_path and PathlibPath(temp_path).exists():
-            PathlibPath(temp_path).unlink(missing_ok=True)
-    
+        return metadata
+    except Exception as exc:
+        metadata["inspection_error"] = metadata["inspection_error"] or str(exc)
+
+    try:
+        samples, decoded_rate = audio_bytes_to_samples(audio_bytes, file_name=file_name)
+        if samples:
+            metadata.update(
+                {
+                    "sample_rate": decoded_rate,
+                    "duration": round(len(samples) / max(decoded_rate, 1), 4),
+                    "channels": metadata["channels"] or 1,
+                    "frame_count": len(samples),
+                }
+            )
+            return metadata
+    except (AudioDecodeError, AudioDependencyError) as exc:
+        metadata["inspection_error"] = metadata["inspection_error"] or str(exc)
+
+    metadata["duration"] = estimate_duration_from_bytes(audio_bytes)
     return metadata
 
 
@@ -121,6 +166,7 @@ def build_audio_log_payload(
         "audio_format": inspected.get("audio_format"),
         "file_extension": inspected.get("file_extension"),
         "subtype": inspected.get("subtype"),
+        "inspection_error": inspected.get("inspection_error"),
         "source": source,
         "stage": stage,
         "params": params,
@@ -207,5 +253,4 @@ def read_audio_logs_from_file(log_file: Path | None = None, limit: int = 100) ->
 
 def clear_audio_logs() -> None:
     """Clear in-memory audio logs (for testing)."""
-    global AUDIO_LOGS
-    AUDIO_LOGS = []
+    AUDIO_LOGS.clear()

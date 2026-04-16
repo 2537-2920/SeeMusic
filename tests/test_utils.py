@@ -3,6 +3,7 @@ from pathlib import Path
 
 from backend.config.settings import settings
 from backend.core.pitch.pitch_comparison import load_pitch_sequence_json
+from backend.core.pitch.pitch_sequence_utils import compress_pitch_sequence_to_note_events, expand_note_events_to_pitch_sequence
 from backend.core.score.sheet_extraction import build_score_from_pitch_sequence
 from backend.export.export_utils import build_export_files, build_score_export_payload, write_score_export
 from backend.utils.audio_logger import AUDIO_LOGS, build_audio_log_payload, record_audio_log
@@ -86,6 +87,34 @@ def test_load_pitch_sequence_json_supports_nested_api_payload(tmp_path: Path):
     assert result[1]["confidence"] == 0.8
 
 
+def test_compress_pitch_sequence_to_note_events_merges_adjacent_frames():
+    note_events = compress_pitch_sequence_to_note_events(
+        [
+            {"time": 0.0, "frequency": 440.0, "duration": 0.01, "note": "A4", "voiced": True},
+            {"time": 0.01, "frequency": 442.0, "duration": 0.01, "note": "A4", "voiced": True},
+            {"time": 0.02, "frequency": 0.0, "duration": 0.01, "note": "Rest", "voiced": False},
+            {"time": 0.05, "frequency": 493.88, "duration": 0.01, "note": "B4", "voiced": True},
+        ],
+        hop_ms=10,
+    )
+
+    assert note_events == [
+        {"start": 0.0, "end": 0.02, "note": "A4", "frequency_avg": 441.0},
+        {"start": 0.05, "end": 0.06, "note": "B4", "frequency_avg": 493.88},
+    ]
+
+
+def test_expand_note_events_to_pitch_sequence_rebuilds_compatible_frames():
+    sequence = expand_note_events_to_pitch_sequence(
+        [{"start": 0.0, "end": 0.025, "note": "A4", "frequency_avg": 440.0}],
+        hop_ms=10,
+    )
+
+    assert [point["time"] for point in sequence] == [0.0, 0.01, 0.02]
+    assert sequence[-1]["duration"] == 0.005
+    assert all(point["note"] == "A4" for point in sequence)
+
+
 def test_build_export_files_returns_downloadable_entries():
     files = build_export_files("resource_001", ["pdf", "png"])
     assert len(files) == 2
@@ -113,3 +142,17 @@ def test_write_score_export_persists_real_files():
         assert file_path.exists()
         assert file_path.stat().st_size > 0
         assert payload["download_url"].startswith("/storage/exports/")
+
+
+def test_build_score_from_note_events_supports_direct_event_input():
+    score = build_score_from_pitch_sequence(
+        [
+            {"start": 0.0, "end": 0.5, "note": "A4", "frequency_avg": 440.0},
+            {"start": 1.0, "end": 1.5, "note": "B4", "frequency_avg": 493.88},
+        ],
+        tempo=120,
+    )
+
+    notes = score["measures"][0]["notes"]
+    assert notes[0]["pitch"] == "A4"
+    assert any(note["is_rest"] for note in notes)

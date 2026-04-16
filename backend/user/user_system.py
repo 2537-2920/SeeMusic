@@ -68,6 +68,7 @@ def _register_user_mem(username: str, password: str, email: str | None) -> dict:
 
 def _register_user_db(username: str, password: str, email: str | None) -> dict:
     from backend.db.models import User
+
     session = _get_session()
     try:
         if session.query(User).filter_by(username=username).first():
@@ -109,6 +110,7 @@ def _login_user_mem(username: str, password: str) -> dict:
 
 def _login_user_db(username: str, password: str) -> dict:
     from backend.db.models import User, UserToken
+
     session = _get_session()
     try:
         user = session.query(User).filter_by(username=username).first()
@@ -151,6 +153,7 @@ def _get_user_by_token_mem(token: str) -> dict:
 
 def _get_user_by_token_db(token: str) -> dict:
     from backend.db.models import User, UserToken
+
     session = _get_session()
     try:
         now = datetime.now(timezone.utc)
@@ -189,6 +192,7 @@ def _logout_user_mem(token: str) -> dict:
 
 def _logout_user_db(token: str) -> dict:
     from backend.db.models import UserToken
+
     session = _get_session()
     try:
         tok = session.query(UserToken).filter_by(token=token).first()

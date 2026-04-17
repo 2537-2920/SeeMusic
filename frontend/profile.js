@@ -94,9 +94,31 @@ function updateSecurity(user, historyItems) {
 
 function renderUser(user) {
     const currentUser = user || getCurrentUser();
+    const isGuest = !currentUser || !currentUser.username;
+    
     document.getElementById("profile-avatar").src = avatarUrl(currentUser && currentUser.username ? currentUser.username : "SeeMusic");
-    document.getElementById("profile-name").textContent = currentUser && currentUser.username ? currentUser.username : "未登录用户";
+    document.getElementById("profile-name").textContent = currentUser && currentUser.username ? (currentUser.nickname || currentUser.username) : "未登录用户";
     document.getElementById("profile-email").textContent = currentUser && currentUser.email ? currentUser.email : "登录后可查看记录";
+    
+    // 渲染简介
+    const bioEl = document.getElementById("profile-bio");
+    if (bioEl) {
+        bioEl.textContent = currentUser && currentUser.bio ? currentUser.bio : "还没有填写个人简介...";
+    }
+
+    // 渲染音乐标签
+    const tasteContainer = document.getElementById("profile-taste-tags");
+    if (tasteContainer) {
+        tasteContainer.innerHTML = "";
+        if (currentUser && Array.isArray(currentUser.music_taste)) {
+            currentUser.music_taste.forEach(tag => {
+                const span = document.createElement("span");
+                span.className = "px-2 py-0.5 rounded-full bg-blue-50 text-[10px] text-[#457b9d] border border-blue-100/50";
+                span.textContent = tag;
+                tasteContainer.appendChild(span);
+            });
+        }
+    }
 }
 
 function renderStats(items) {
@@ -259,6 +281,9 @@ async function loadProfile() {
             requestJson("/users/me"),
             requestJson("/users/me/history"),
         ]);
+        
+        // 渲染从服务器获取的最新资料
+        renderUser(user);
         const items = (history.items || []).slice().sort((a, b) => {
             const left = new Date(a.created_at || 0).getTime();
             const right = new Date(b.created_at || 0).getTime();
@@ -345,8 +370,8 @@ function calculateAge(birthdayStr) {
 
 function setupEditProfileModal() {
     const modal = document.getElementById("edit-profile-modal");
-    // 使用类名选择开启按钮
-    const openBtn = document.querySelector(".edit-profile-btn");
+    // 使用 ID 选择开启按钮
+    const openBtn = document.getElementById("open-edit-modal-btn");
     const closeBtn = document.getElementById("close-edit-modal-btn");
     const overlay = document.getElementById("edit-modal-overlay");
     const birthdayInput = document.getElementById("edit-birthday");
@@ -377,8 +402,25 @@ function setupEditProfileModal() {
 
     openBtn.addEventListener("click", () => {
         // 初始化表单数据
-        const currentName = document.getElementById("profile-name").textContent;
-        document.getElementById("edit-nickname").value = currentName === "未登录用户" ? "" : currentName;
+        const user = getCurrentUser();
+        if (!user) {
+            setStatus("请先登录后再修改个人资料。", true);
+            return;
+        }
+        document.getElementById("edit-nickname").value = user.nickname || user.username || "";
+        document.getElementById("edit-bio").value = user.bio || "";
+        document.getElementById("edit-birthday").value = user.birthday || "";
+        document.getElementById("edit-age").value = calculateAge(user.birthday);
+        
+        // 初始化音乐倾向标签
+        tasteChips.forEach(chip => {
+            const val = chip.dataset.value;
+            if (user.music_taste && user.music_taste.includes(val)) {
+                chip.classList.add("active");
+            } else {
+                chip.classList.remove("active");
+            }
+        });
         
         // 同步当前头像到预览图
         if (avatarPreview) {
@@ -404,22 +446,33 @@ function setupEditProfileModal() {
         });
     });
 
-    form.addEventListener("submit", (e) => {
+    form.addEventListener("submit", async (e) => {
         e.preventDefault();
         
-        // 更新昵称
-        const nickname = document.getElementById("edit-nickname").value;
-        if (nickname) {
-            document.getElementById("profile-name").textContent = nickname;
-        }
+        const selectedTastes = Array.from(document.querySelectorAll(".taste-chip.active")).map(c => c.dataset.value);
+        
+        const payload = {
+            nickname: document.getElementById("edit-nickname").value,
+            bio: document.getElementById("edit-bio").value,
+            birthday: document.getElementById("edit-birthday").value,
+            music_taste: selectedTastes
+        };
 
-        // 更新主页面头像
-        if (avatarPreview && avatarPreview.src) {
-            document.getElementById("profile-avatar").src = avatarPreview.src;
+        try {
+            setStatus("正在同步至数据库...");
+            const updatedUser = await requestJson("/users/me", {
+                method: "PATCH",
+                body: payload
+            });
+            
+            // 重要：由于 getCurrentUser() 是从 Token 中解析的或从内存拿的，这里更新后可能需要刷新页面或手动更新全局状态
+            // 在这个项目中，我们直接重新渲染 UI
+            renderUser(updatedUser);
+            setStatus("个人资料已成功持久化至数据库。");
+            closeModal();
+        } catch (error) {
+            setStatus(error.message || "同步失败，请检查网络。", true);
         }
-
-        setStatus("个人详情已在本地同步更新。");
-        closeModal();
     });
 }
 

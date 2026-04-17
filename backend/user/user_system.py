@@ -160,7 +160,47 @@ def _get_user_by_token_db(token: str) -> dict:
         user = session.get(User, tok.user_id)
         if not user:
             raise HTTPException(status_code=401, detail="user not found")
-        return {"user_id": str(user.id), "username": user.username, "email": user.email}
+        return {
+            "user_id": str(user.id),
+            "username": user.username,
+            "email": user.email,
+            "nickname": user.nickname,
+            "avatar": user.avatar,
+            "bio": user.bio,
+            "birthday": user.birthday,
+            "music_taste": user.music_taste,
+        }
+    finally:
+        session.close()
+
+
+def update_user_info(user_id: str, data: dict) -> dict:
+    """更新数据库中的用户信息"""
+    from backend.db.models import User
+    session = _get_session()
+    try:
+        user = session.get(User, int(user_id))
+        if not user:
+            raise HTTPException(status_code=404, detail="user not found")
+        
+        # 批量更新字段
+        allowed_fields = ["nickname", "bio", "birthday", "music_taste", "avatar"]
+        for field in allowed_fields:
+            if field in data and data[field] is not None:
+                setattr(user, field, data[field])
+        
+        session.commit()
+        return {
+            "user_id": str(user.id),
+            "nickname": user.nickname,
+            "bio": user.bio,
+            "birthday": user.birthday,
+            "music_taste": user.music_taste,
+            "avatar": user.avatar
+        }
+    except Exception as e:
+        session.rollback()
+        raise e
     finally:
         session.close()
 

@@ -13,7 +13,10 @@ import base64
 from fastapi import HTTPException
 
 from sqlalchemy import select
+import os
 
+
+UPLOAD_DIR = "D:/SeeMusic_data/avatars"
 
 COMMUNITY_TZ = timezone(timedelta(hours=8))
 DEFAULT_AUTHOR = "社区用户"
@@ -986,3 +989,18 @@ def get_score_pdf_content(score_id: str) -> tuple[bytes, str]:
             return pdf_bytes, post.source_file_name or "score.pdf"
         except Exception as e:
             raise HTTPException(status_code=500, detail="文件解码失败")
+        
+def save_user_avatar(user_id: str, file_content: bytes, filename: str) -> str:
+    from backend.db.models import User
+    file_path = os.path.join(UPLOAD_DIR, f"{user_id}.png")
+    
+    with open(file_path, "wb") as f:
+        f.write(file_content)
+        
+    avatar_url = f"/static/avatars/{user_id}.png"
+    
+    with _session_scope() as db:
+        user = db.query(User).filter_by(id=user_id).first()
+        user.avatar = avatar_url  
+        
+    return avatar_url

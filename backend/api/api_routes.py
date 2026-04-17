@@ -42,6 +42,7 @@ from backend.core.pitch.realtime_tuning import analyze_audio_frame
 from backend.services import analysis_service
 from backend.services.report_service import export_report
 from backend.services.community_service import (
+    save_user_avatar,
     get_score_pdf_content,
     add_community_comment,
     get_community_score_detail as get_community_score_detail_data,
@@ -1079,3 +1080,17 @@ def update_user_preferences(payload: PreferencesUpdateRequest, current_user: Dic
 @router.post("/reports/export")
 def reports_export(payload: ReportExportRequest):
     return ok(export_report(payload.model_dump()))
+
+@router.post("/users/avatar")
+async def update_avatar(
+    file: UploadFile = File(...),
+    authorization: str = Header(...)
+):
+    token = authorization.removeprefix("Bearer ").strip()
+    user_info = get_user_by_token(token) 
+    
+    content = await file.read()
+    
+    avatar_url = save_user_avatar(user_info["user_id"], content, file.filename)
+    
+    return {"code": 0, "message": "success", "data": {"avatar_url": avatar_url}}

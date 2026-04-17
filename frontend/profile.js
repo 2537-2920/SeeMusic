@@ -94,9 +94,18 @@ function updateSecurity(user, historyItems) {
 
 function renderUser(user) {
     const currentUser = user || getCurrentUser();
+<<<<<<< Updated upstream
     document.getElementById("profile-avatar").src = avatarUrl(currentUser && currentUser.username ? currentUser.username : "SeeMusic");
     document.getElementById("profile-name").textContent = currentUser && currentUser.username ? currentUser.username : "未登录用户";
     document.getElementById("profile-email").textContent = currentUser && currentUser.email ? currentUser.email : "登录后可查看记录";
+=======
+    const avatarElement = document.getElementById("profile-avatar");
+    avatarElement.src = avatarUrl(currentUser);
+    document.getElementById("profile-name").textContent = (currentUser && currentUser.username) ? currentUser.username : "未登录用户";
+    document.getElementById("profile-email").textContent = (currentUser && currentUser.email)
+        ? currentUser.email
+        : "登录后可查看数据库中的个人记录";
+>>>>>>> Stashed changes
 }
 
 function renderStats(items) {
@@ -467,3 +476,48 @@ window.addEventListener("load", () => {
     loadProfile();
     loadPreferences();
 });
+
+async function uploadAvatar() {
+    const fileInput = document.getElementById("avatar-input");
+    const file = fileInput.files[0];
+    
+    if (!file) {
+        alert("请先选择图片！");
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", file); // 这里的 "file" 必须和后端 UploadFile 变量名一致
+
+    try {
+        // 直接用原生 fetch，避免 requestJson 的 JSON 处理逻辑污染 FormData
+        const response = await fetch("http://127.0.0.1:8000/api/v1/users/avatar", {
+            method: "POST",
+            headers: {
+                // 注意：这里不要设置 Content-Type，浏览器会自动处理成 multipart/form-data
+                "Authorization": `Bearer ${localStorage.getItem("my_token")}`
+            },
+            body: formData 
+        });
+
+        const result = await response.json(); // 等待后端返回 JSON
+
+        if (result.code === 0) {
+            alert("头像上传成功！");
+            
+            // 【处理响应】：更新页面头像
+            const newAvatarUrl = "http://127.0.0.1:8000" + result.data.avatar_url;
+            document.getElementById("profile-avatar").src = newAvatarUrl;
+            
+            // 更新本地存储
+            const user = JSON.parse(localStorage.getItem("user_info") || "{}");
+            user.avatar = result.data.avatar_url;
+            localStorage.setItem("user_info", JSON.stringify(user));
+        } else {
+            alert("上传失败：" + result.message);
+        }
+    } catch (error) {
+        console.error("上传错误:", error);
+        alert("后端服务未启动或连接中断");
+    }
+}

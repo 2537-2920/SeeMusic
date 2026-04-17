@@ -131,6 +131,10 @@
     }
 
     function avatarUrl(seed) {
+         if (user && user.avatar) {
+            const baseUrl = "http://127.0.0.1:8000"; 
+            return user.avatar.startsWith("http") ? user.avatar : `${baseUrl}${user.avatar}`;
+        }
         return `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed || "SeeMusic")}`;
     }
 

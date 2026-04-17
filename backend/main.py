@@ -20,6 +20,7 @@ from backend.config.settings import settings
 from backend.db.session import close_mysql_tunnel, get_session_factory, init_database
 from backend.services import analysis_service, community_service, report_service
 from backend.user import history_manager, user_system
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,11 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+UPLOAD_DIR = "D:/SeeMusic_data/avatars"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+app.mount("/static/avatars", StaticFiles(directory=UPLOAD_DIR), name="avatars")
 
 
 if __name__ == "__main__":

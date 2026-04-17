@@ -122,7 +122,7 @@ async function handleSubmit(event) {
 function createDecorations() {
     const container = document.getElementById("decoration-container");
     const notes = ["solar:music-note-bold", "solar:music-note-2-bold", "solar:music-note-3-bold", "solar:music-notes-bold"];
-    const markings = ["p", "f", "ff", "mf", "pp", "fz"];
+    const markings = ["p", "f", "ff", "mf", "pp", "mf"];
 
     for (let i = 0; i < 15; i += 1) {
         const el = document.createElement("div");

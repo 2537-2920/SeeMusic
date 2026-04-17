@@ -1,4 +1,4 @@
-const {
+﻿const {
     requestJson,
     getCurrentUser,
     getAuthToken,
@@ -142,11 +142,11 @@ function renderAnalysis() {
     document.getElementById("bar-consistency").style.width = `${Math.min(toPercent(consistencyValue), 100)}%`;
     document.getElementById("last-analysis-time").textContent = new Date().toLocaleString("zh-CN");
 
-    renderErrorList(analysis.error_classification);
+    renderErrorList(analysis.error_classification, analysis);
     renderPitchComparison();
 }
 
-function renderErrorList(errorClassification) {
+function renderErrorList(errorClassification, analysis = null) {
     const container = document.getElementById("rhythm-error-list");
     if (!errorClassification || typeof errorClassification !== "object" || !Object.keys(errorClassification).length) {
         container.innerHTML = `
@@ -157,24 +157,151 @@ function renderErrorList(errorClassification) {
         return;
     }
 
-    container.innerHTML = Object.entries(errorClassification).map(([key, value]) => `
-        <div class="p-4 rounded-xl border border-gray-100 bg-white flex-1 min-w-[200px]">
-            <div class="text-xs text-gray-400 mb-2 uppercase tracking-wider font-bold">${escapeHtml(key)}</div>
-            <div class="p-2 error-highlight rounded-lg">
-                <span class="text-sm font-medium">${escapeHtml(stringifyValue(value))}</span>
+    const earlyBeats = Array.isArray(errorClassification.early_beats) ? errorClassification.early_beats : [];
+    const lateBeats = Array.isArray(errorClassification.late_beats) ? errorClassification.late_beats : [];
+    const onTime = Number(errorClassification.on_time || 0);
+    const early = Number(errorClassification.early || 0);
+    const late = Number(errorClassification.late || 0);
+
+    const maxBeatIndex = Math.max(
+        -1,
+        ...earlyBeats.map((item) => Number(item && item.beat_index)),
+        ...lateBeats.map((item) => Number(item && item.beat_index)),
+    );
+    const inferredTotal = Math.max(8, Math.round(onTime + early + late), maxBeatIndex + 1);
+    const totalBeats = Number.isFinite(Number(analysis && analysis.total_ref_beats))
+        ? Math.max(inferredTotal, Math.round(Number(analysis.total_ref_beats)))
+        : inferredTotal;
+    const referenceBpm = Number(analysis && analysis.reference_bpm);
+
+    container.innerHTML = `
+        <div class="p-4 rounded-xl border border-gray-100 bg-white w-full">
+            <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+                <div class="text-sm font-bold text-gray-700">节奏时间轴对比</div>
+                <div class="text-xs text-gray-500">准点 ${Math.round(onTime)} / 提前 ${Math.round(early)} / 延后 ${Math.round(late)}</div>
+            </div>
+            <div class="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                <canvas id="rhythm-waveform-canvas" width="960" height="220" style="width:100%;height:220px;display:block;"></canvas>
+            </div>
+            <div class="flex flex-wrap gap-4 mt-3 text-xs text-gray-500">
+                <span class="flex items-center gap-2"><span style="display:inline-block;width:18px;height:2px;background:#dc2626;"></span>理想节奏（红）</span>
+                <span class="flex items-center gap-2"><span style="display:inline-block;width:18px;height:2px;background:#2563eb;"></span>实际节奏（蓝）</span>
+                <span>${Number.isFinite(referenceBpm) && referenceBpm > 0 ? `参考 BPM: ${Math.round(referenceBpm)}` : "时间轴: 按节拍序号"}</span>
             </div>
         </div>
-    `).join("");
+    `;
+
+    drawRhythmWaveformChart({
+        earlyBeats,
+        lateBeats,
+        totalBeats,
+        referenceBpm,
+    });
 }
 
-function stringifyValue(value) {
-    if (Array.isArray(value)) {
-        return value.map((item) => stringifyValue(item)).join("；");
+function drawRhythmWaveformChart({ earlyBeats, lateBeats, totalBeats, referenceBpm }) {
+    const canvas = document.getElementById("rhythm-waveform-canvas");
+    if (!canvas) {
+        return;
     }
-    if (value && typeof value === "object") {
-        return Object.entries(value).map(([key, item]) => `${key}: ${stringifyValue(item)}`).join("；");
+    const ctx = canvas.getContext("2d");
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = Math.max(1, rect.width * dpr);
+    canvas.height = Math.max(1, rect.height * dpr);
+    ctx.scale(dpr, dpr);
+
+    const W = rect.width;
+    const H = rect.height;
+    ctx.clearRect(0, 0, W, H);
+
+    const PAD_L = 40;
+    const PAD_R = 14;
+    const PAD_T = 16;
+    const PAD_B = 24;
+    const plotW = W - PAD_L - PAD_R;
+    const plotH = H - PAD_T - PAD_B;
+    const midY = PAD_T + plotH * 0.5;
+    const beatCount = Math.max(2, Number(totalBeats) || 2);
+
+    const deviations = new Array(beatCount).fill(0);
+    for (const item of earlyBeats || []) {
+        const idx = Number(item && item.beat_index);
+        const dev = Number(item && item.deviation_ms);
+        if (Number.isFinite(idx) && idx >= 0 && idx < beatCount && Number.isFinite(dev)) {
+            deviations[Math.round(idx)] = dev;
+        }
     }
-    return String(value);
+    for (const item of lateBeats || []) {
+        const idx = Number(item && item.beat_index);
+        const dev = Number(item && item.deviation_ms);
+        if (Number.isFinite(idx) && idx >= 0 && idx < beatCount && Number.isFinite(dev)) {
+            deviations[Math.round(idx)] = dev;
+        }
+    }
+
+    const maxAbs = Math.max(60, ...deviations.map((v) => Math.abs(v)));
+    const amp = plotH * 0.34;
+
+    function tx(i) {
+        if (beatCount <= 1) return PAD_L;
+        return PAD_L + (i / (beatCount - 1)) * plotW;
+    }
+    function ty(devMs) {
+        return midY - (devMs / maxAbs) * amp;
+    }
+
+    ctx.strokeStyle = "#e5e7eb";
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+        const y = PAD_T + (plotH / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(PAD_L, y);
+        ctx.lineTo(PAD_L + plotW, y);
+        ctx.stroke();
+    }
+
+    ctx.strokeStyle = "#dc2626";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(PAD_L, midY);
+    ctx.lineTo(PAD_L + plotW, midY);
+    ctx.stroke();
+
+    ctx.strokeStyle = "#2563eb";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < beatCount; i++) {
+        const x = tx(i);
+        const y = ty(deviations[i] || 0);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    ctx.fillStyle = "#2563eb";
+    for (let i = 0; i < beatCount; i++) {
+        const x = tx(i);
+        const y = ty(deviations[i] || 0);
+        ctx.beginPath();
+        ctx.arc(x, y, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    ctx.fillStyle = "#9ca3af";
+    ctx.font = "10px sans-serif";
+    ctx.textAlign = "center";
+    const ticks = Math.min(6, beatCount - 1);
+    for (let i = 0; i <= ticks; i++) {
+        const idx = Math.round((i / Math.max(1, ticks)) * (beatCount - 1));
+        const x = tx(idx);
+        let label = `Beat ${idx + 1}`;
+        if (Number.isFinite(referenceBpm) && referenceBpm > 0) {
+            const sec = (idx * 60) / referenceBpm;
+            label = `${sec.toFixed(1)}s`;
+        }
+        ctx.fillText(label, x, H - 6);
+    }
 }
 
 function renderPitchComparison() {

@@ -39,6 +39,9 @@ class User(Base):
     nickname: Mapped[str | None] = mapped_column(String(50), nullable=True)
     avatar: Mapped[str | None] = mapped_column(String(255), nullable=True)
     email: Mapped[str | None] = mapped_column(String(128), unique=True, nullable=True)
+    bio: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    birthday: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    music_taste: Mapped[list | None] = mapped_column(JSON, nullable=True)
     create_time: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)
     update_time: Mapped[datetime] = mapped_column(
         DateTime,

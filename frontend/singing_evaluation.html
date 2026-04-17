@@ -66,8 +66,8 @@
                 <div>
                     <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">用户音频类型</label>
                     <select class="w-full bg-gray-50 border-none rounded-xl py-3 px-4 text-sm outline-none" id="user-audio-mode">
-                        <option value="a_cappella">清唱版本</option>
-                        <option value="with_accompaniment">带伴奏版本</option>
+                        <option value="with_accompaniment">with accompaniment</option>
+                        <option value="a_cappella">a cappella (clean vocal)</option>
                     </select>
                 </div>
                 <div>
@@ -79,11 +79,8 @@
                 </div>
                 <div>
                     <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">评分模型</label>
-                    <select class="w-full bg-gray-50 border-none rounded-xl py-3 px-4 text-sm outline-none" id="evaluation-model">
-                        <option value="balanced">balanced</option>
-                        <option value="strict">strict</option>
-                        <option value="lenient">lenient</option>
-                    </select>
+                    <input id="evaluation-model" type="hidden" value="balanced"/>
+                    <div class="w-full bg-gray-50 border-none rounded-xl py-3 px-4 text-sm text-gray-500">balanced</div>
                 </div>
             </div>
 

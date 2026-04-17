@@ -294,7 +294,7 @@ def _separate_vocal_track(
 
 
 def _normalize_user_audio_mode(user_audio_mode: str) -> str:
-    normalized_mode = (user_audio_mode or "a_cappella").strip().lower()
+    normalized_mode = (user_audio_mode or "with_accompaniment").strip().lower()
     if normalized_mode in {"clear", "clean", "vocal", "acapella", "a-cappella", "清唱版本", "清唱"}:
         return "a_cappella"
     if normalized_mode in {"with_accompaniment", "accompanied", "mixed", "伴奏", "带伴奏版本", "带伴奏"}:
@@ -304,13 +304,26 @@ def _normalize_user_audio_mode(user_audio_mode: str) -> str:
     raise ValueError("user_audio_mode must be either 'a_cappella' or 'with_accompaniment'")
 
 
+def _normalize_scoring_model(scoring_model: str) -> str:
+    """Singing evaluation now uses a single balanced model."""
+    _ = scoring_model
+    return "balanced"
+
+
+def _apply_model_bias(value: float, scoring_model: str, upper_bound: float) -> float:
+    """Keep score clamped without strict/lenient bias."""
+    _ = scoring_model
+    return round(max(0.0, min(float(value), float(upper_bound))), 4)
+
+
+
 def evaluate_singing(
     *,
     reference_file_name: str,
     reference_audio_bytes: bytes,
     user_file_name: str,
     user_audio_bytes: bytes,
-    user_audio_mode: str = "a_cappella",
+    user_audio_mode: str = "with_accompaniment",
     language: str = "zh",
     scoring_model: str = "balanced",
     threshold_ms: float = 50.0,
@@ -321,6 +334,7 @@ def evaluate_singing(
     """Evaluate singing using separated reference vocals and optional user vocal separation."""
 
     normalized_mode = _normalize_user_audio_mode(user_audio_mode)
+    normalized_scoring_model = _normalize_scoring_model(scoring_model)
     _ensure_wav_upload(reference_file_name, reference_audio_bytes, "reference")
     _ensure_wav_upload(user_file_name, user_audio_bytes, "user")
 
@@ -353,7 +367,21 @@ def evaluate_singing(
 
     cleanup_paths: list[str] = []
     user_separation: dict[str, Any] | None = None
-    if normalized_mode == "with_accompaniment":
+    same_audio_inputs = reference_audio_bytes == user_audio_bytes
+    reused_reference_vocal = False
+
+    if same_audio_inputs:
+        # Hard guard: identical uploads should be compared against the exact same
+        # separated vocal signal to avoid duplicate-separation drift.
+        user_vocal_path = reference_vocal_path
+        user_vocal_bytes = reference_vocal_bytes
+        reused_reference_vocal = True
+        if normalized_mode == "with_accompaniment":
+            user_separation = {
+                **deepcopy(reference_separation),
+                "reused_from_reference": True,
+            }
+    elif normalized_mode == "with_accompaniment":
         user_vocal_path, user_vocal_bytes, user_separation = _separate_vocal_track(
             file_name=user_file_name,
             audio_bytes=user_audio_bytes,
@@ -371,7 +399,7 @@ def evaluate_singing(
                 user_vocal_path,
                 reference_vocal_path,
                 language=language,
-                scoring_model=scoring_model,
+                scoring_model=normalized_scoring_model,
                 threshold_ms=threshold_ms,
             )
         )
@@ -394,7 +422,11 @@ def evaluate_singing(
         )
 
         rhythm_score = float(rhythm_report.get("score", 0.0) or 0.0)
-        pitch_score = float(pitch_comparison["summary"].get("accuracy", 0.0) or 0.0)
+        raw_pitch_score = float(pitch_comparison["summary"].get("accuracy", 0.0) or 0.0)
+        adjusted_pitch_score = _apply_model_bias(raw_pitch_score, normalized_scoring_model, 100.0)
+        pitch_comparison["summary"]["raw_accuracy"] = round(raw_pitch_score, 2)
+        pitch_comparison["summary"]["accuracy"] = round(adjusted_pitch_score, 2)
+        pitch_score = adjusted_pitch_score
         overall_score = round(rhythm_score * 0.5 + pitch_score * 0.5, 2)
         result_data = {
             "analysis_type": "singing_evaluation",
@@ -404,6 +436,8 @@ def evaluate_singing(
             "user_audio_mode": normalized_mode,
             "reference_separation": reference_separation,
             "user_separation": user_separation,
+            "same_audio_inputs": same_audio_inputs,
+            "reused_reference_vocal": reused_reference_vocal,
             "logs": {
                 "reference_log_id": reference_log["log_id"],
                 "user_log_id": user_log["log_id"],
@@ -421,7 +455,7 @@ def evaluate_singing(
                 "pipeline": "singing_evaluation",
                 "user_audio_mode": normalized_mode,
                 "language": language,
-                "scoring_model": scoring_model,
+                "scoring_model": normalized_scoring_model,
                 "threshold_ms": threshold_ms,
                 "separation_model": separation_model,
             },
@@ -433,6 +467,7 @@ def evaluate_singing(
             "analysis_id": metadata["analysis_id"],
             "overall_score": overall_score,
             "score": rhythm_report.get("score", 0.0),
+            "scoring_model": normalized_scoring_model,
             "user_audio_mode": normalized_mode,
             "rhythm": rhythm_report,
             "pitch_comparison": pitch_comparison,
@@ -440,6 +475,8 @@ def evaluate_singing(
             "user_pitch_sequence": user_pitch_sequence,
             "reference_separation": reference_separation,
             "user_separation": user_separation,
+            "same_audio_inputs": same_audio_inputs,
+            "reused_reference_vocal": reused_reference_vocal,
             "audio_logs": {
                 "reference": reference_log,
                 "user": user_log,
@@ -465,6 +502,7 @@ def process_rhythm_scoring_sync(
     from backend.core.rhythm.rhythm_analysis import AdvancedRhythmAnalyzer
 
     rhythm_analyzer = AdvancedRhythmAnalyzer(threshold_ms=threshold_ms)
+    normalized_scoring_model = _normalize_scoring_model(scoring_model)
 
     try:
         user_audio, user_sr = sf.read(user_audio_path, dtype="float32")
@@ -524,7 +562,7 @@ def process_rhythm_scoring_sync(
         comparison_result = rhythm_analyzer.compare_rhythm(
             user_beats,
             ref_beats,
-            scoring_model=scoring_model,
+            scoring_model=normalized_scoring_model,
             language=language,
         )
     except Exception as exc:
@@ -550,7 +588,7 @@ def process_rhythm_scoring_sync(
         "feedback": comparison_result["feedback"],
         "detailed_assessment": comparison_result["detailed_assessment"],
         "language": language,
-        "scoring_model": scoring_model,
+        "scoring_model": normalized_scoring_model,
         "analysis_type": "rhythm_comparison",
         "reference_duration": float(len(ref_audio) / ref_sr),
         "user_duration": float(len(user_audio) / user_sr),

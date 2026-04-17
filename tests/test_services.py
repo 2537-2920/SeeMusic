@@ -179,6 +179,68 @@ def test_evaluate_singing_separates_user_when_accompanied(temp_audio_bytes, tmp_
         lambda **kwargs: [{"time": 0.0, "frequency": 440.0, "confidence": 0.9}],
     )
 
+    different_user_audio = temp_audio_bytes + b"\x00"
+
+    result = evaluate_singing(
+        reference_file_name="standard.wav",
+        reference_audio_bytes=temp_audio_bytes,
+        user_file_name="user.wav",
+        user_audio_bytes=different_user_audio,
+        user_audio_mode="with_accompaniment",
+    )
+
+    assert calls == ["standard.wav", "user.wav"]
+    assert result["user_audio_mode"] == "with_accompaniment"
+    assert result["user_separation"]["vocal_track"]["name"] == "vocal"
+
+
+def test_evaluate_singing_reuses_reference_vocal_when_same_audio(temp_audio_bytes, tmp_path, monkeypatch):
+    calls = []
+
+    def fake_separate_tracks(file_name, model="demucs", stems=2, audio_bytes=None, sample_rate=44100):
+        calls.append(file_name)
+        vocal_path = tmp_path / f"{Path(file_name).stem}_vocal.wav"
+        vocal_path.write_bytes(temp_audio_bytes)
+        return {
+            "task_id": f"sep_{Path(file_name).stem}",
+            "status": "completed",
+            "model": model,
+            "tracks": [
+                {
+                    "name": "vocal",
+                    "file_name": vocal_path.name,
+                    "download_url": f"/api/v1/audio/download/{vocal_path.name}",
+                    "file_path": str(vocal_path),
+                    "duration": 2.0,
+                }
+            ],
+        }
+
+    monkeypatch.setattr("backend.core.separation.multi_track_separation.separate_tracks", fake_separate_tracks)
+    monkeypatch.setattr(
+        analysis_service,
+        "process_rhythm_scoring_sync",
+        lambda *args, **kwargs: {
+            "score": 88,
+            "timing_accuracy": 0.88,
+            "coverage_ratio": 1.0,
+            "consistency_ratio": 0.92,
+            "mean_deviation_ms": 9,
+            "missing_beats": 0,
+            "extra_beats": 0,
+            "error_classification": {},
+            "reference_duration": 2.0,
+            "user_duration": 2.0,
+            "reference_bpm": 120,
+            "user_bpm": 120,
+        },
+    )
+    monkeypatch.setattr(
+        analysis_service,
+        "detect_pitch_sequence",
+        lambda **kwargs: [{"time": 0.0, "frequency": 440.0, "confidence": 0.9}],
+    )
+
     result = evaluate_singing(
         reference_file_name="standard.wav",
         reference_audio_bytes=temp_audio_bytes,
@@ -187,9 +249,9 @@ def test_evaluate_singing_separates_user_when_accompanied(temp_audio_bytes, tmp_
         user_audio_mode="with_accompaniment",
     )
 
-    assert calls == ["standard.wav", "user.wav"]
+    assert calls == ["standard.wav"]
     assert result["user_audio_mode"] == "with_accompaniment"
-    assert result["user_separation"]["vocal_track"]["name"] == "vocal"
+    assert result["user_separation"]["reused_from_reference"] is True
 
 
 def test_evaluate_singing_rejects_non_wav_upload(temp_audio_bytes):

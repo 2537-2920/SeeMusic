@@ -130,12 +130,7 @@
                                     <option value="en">英文</option>
                                 </select>
 
-                                <label class="field-label" for="rhythm-model-input">评分方式</label>
-                                <select id="rhythm-model-input">
-                                    <option value="balanced">平衡</option>
-                                    <option value="strict">严格</option>
-                                    <option value="lenient">宽松</option>
-                                </select>
+                                <input id="rhythm-model-input" type="hidden" value="balanced"/>
 
                                 <label class="field-label" for="rhythm-threshold-input">判定阈值（毫秒）</label>
                                 <input id="rhythm-threshold-input" min="1" step="1" type="number" value="50"/>

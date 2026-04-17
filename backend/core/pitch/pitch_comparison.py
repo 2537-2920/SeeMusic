@@ -230,6 +230,24 @@ def _build_deviation_rows(
     return deviation_hz, deviation_cents, deviation_rows
 
 
+def _robust_average_cents(valid_cents: list[float]) -> float:
+    """Compute a spike-resistant cents average.
+
+    We clip top-tail outliers (winsorize at P90) when enough points are
+    available, so a few transition spikes do not dominate the final score.
+    """
+    if not valid_cents:
+        return 0.0
+
+    cents_array = np.array(valid_cents, dtype=float)
+    if cents_array.size < 10:
+        return float(np.mean(cents_array))
+
+    p90 = float(np.quantile(cents_array, 0.90))
+    clipped = np.clip(cents_array, 0.0, p90)
+    return float(np.mean(clipped))
+
+
 def _build_summary(
     deviation_hz: list[Optional[float]],
     deviation_cents: list[Optional[float]],
@@ -239,20 +257,42 @@ def _build_summary(
     valid_hz = [abs(value) for value in deviation_hz if value is not None]
     valid_cents = [abs(value) for value in deviation_cents if value is not None]
     mean_abs_hz = round(float(np.mean(valid_hz)), 4) if valid_hz else 0.0
-    mean_abs_cents = round(float(np.mean(valid_cents)), 4) if valid_cents else 0.0
+
+    raw_mean_abs_cents = round(float(np.mean(valid_cents)), 4) if valid_cents else 0.0
+    robust_mean_abs_cents = round(_robust_average_cents(valid_cents), 4) if valid_cents else 0.0
     max_abs_cents = round(float(np.max(valid_cents)), 4) if valid_cents else 0.0
+
     within_25 = round(sum(value <= 25.0 for value in valid_cents) / matched_points, 4) if matched_points else 0.0
     within_50 = round(sum(value <= 50.0 for value in valid_cents) / matched_points, 4) if matched_points else 0.0
 
-    accuracy = 0.0 if matched_points == 0 else round(max(0.0, 100.0 - min(mean_abs_cents, 100.0)), 2)
+    # Legacy score kept for diagnostics/backward understanding.
+    legacy_accuracy = 0.0 if matched_points == 0 else round(
+        max(0.0, 100.0 - min(raw_mean_abs_cents, 100.0)),
+        2,
+    )
+
+    # Balanced score: primarily hit-rate driven with a softer cents penalty.
+    # This keeps near-identical audio comparisons in a high range while still
+    # penalizing consistently off-pitch singing.
+    if matched_points == 0:
+        accuracy = 0.0
+    else:
+        hit_rate_score = (within_25 * 0.6 + within_50 * 0.4) * 100.0
+        soft_cents_score = max(0.0, 100.0 - min(robust_mean_abs_cents, 300.0) / 3.0)
+        coverage_ratio = (matched_points / aligned_points) if aligned_points else 0.0
+        coverage_bonus = min(max(coverage_ratio, 0.0), 1.0) * 2.0
+        accuracy = round(min(100.0, hit_rate_score * 0.9 + soft_cents_score * 0.1 + coverage_bonus), 2)
+
     return {
         "accuracy": accuracy,
+        "accuracy_legacy": legacy_accuracy,
         "matched_points": matched_points,
         "aligned_points": aligned_points,
         "coverage_ratio": round(matched_points / aligned_points, 4) if aligned_points else 0.0,
         "average_deviation": mean_abs_hz,
         "average_deviation_hz": mean_abs_hz,
-        "average_deviation_cents": mean_abs_cents,
+        "average_deviation_cents": robust_mean_abs_cents,
+        "raw_average_deviation_cents": raw_mean_abs_cents,
         "max_deviation_cents": max_abs_cents,
         "within_25_cents_ratio": within_25,
         "within_50_cents_ratio": within_50,

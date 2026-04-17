@@ -529,7 +529,7 @@ async def audio_separate_tracks(
 async def singing_evaluate(
     reference_audio: UploadFile = File(...),
     user_audio: UploadFile = File(...),
-    user_audio_mode: str = Form("a_cappella"),
+    user_audio_mode: str = Form("with_accompaniment"),
     language: str = Form("zh"),
     scoring_model: str = Form("balanced"),
     threshold_ms: float = Form(50.0),

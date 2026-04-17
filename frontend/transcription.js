@@ -698,7 +698,7 @@ async function handleRhythmScore() {
                 reference_beats: parseJsonArray(els.referenceBeatsInput.value, "参考拍点"),
                 user_beats: parseJsonArray(els.userBeatsInput.value, "用户拍点"),
                 language: els.rhythmLanguageInput.value,
-                scoring_model: els.rhythmModelInput.value,
+                scoring_model: "balanced",
                 threshold_ms: Number(els.rhythmThresholdInput.value || 50),
             },
         });

@@ -63,6 +63,20 @@ def test_build_pitch_curve_aligns_misaligned_sequences():
     assert chart["summary"]["accuracy"] == 100.0
 
 
+def test_build_pitch_curve_accuracy_is_robust_to_spikes():
+    reference = [{"time": round(i * 0.1, 2), "frequency": 440.0} for i in range(21)]
+    user = [{"time": round(i * 0.1, 2), "frequency": 440.0} for i in range(21)]
+    user[10]["frequency"] = 1760.0  # isolated extreme outlier
+
+    chart = build_pitch_curve(reference, user)
+    summary = chart["summary"]
+
+    assert summary["within_25_cents_ratio"] > 0.9
+    assert summary["accuracy"] > 90.0
+    assert summary["accuracy"] > summary["accuracy_legacy"]
+    assert summary["raw_average_deviation_cents"] > summary["average_deviation_cents"]
+
+
 def test_load_pitch_sequence_json_supports_nested_api_payload(tmp_path: Path):
     payload_path = tmp_path / "pitch.json"
     payload_path.write_text(

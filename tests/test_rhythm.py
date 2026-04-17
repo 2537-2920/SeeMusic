@@ -138,6 +138,40 @@ def test_scoring_models():
     print("✓ Scoring models test passed")
 
 
+
+
+def test_scoring_model_alias_linent_maps_to_lenient():
+    """`linent` alias should behave exactly like `lenient`."""
+    analyzer = AdvancedRhythmAnalyzer()
+
+    user_beats = [0.0, 0.48, 1.02, 1.5, 2.05, 2.48]
+    ref_beats = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5]
+
+    alias_result = analyzer.compare_rhythm(user_beats, ref_beats, scoring_model='linent')
+    lenient_result = analyzer.compare_rhythm(user_beats, ref_beats, scoring_model='lenient')
+
+    assert alias_result['score'] == lenient_result['score']
+    assert alias_result['timing_accuracy'] == lenient_result['timing_accuracy']
+    assert alias_result['coverage_ratio'] == lenient_result['coverage_ratio']
+    assert alias_result['consistency_ratio'] == lenient_result['consistency_ratio']
+
+
+def test_scoring_models_order_across_timing_coverage_consistency():
+    """Strict <= balanced <= lenient for displayed rhythm dimensions."""
+    analyzer = AdvancedRhythmAnalyzer()
+
+    user_beats = [0.0, 0.47, 1.04, 1.53, 1.96, 2.55]
+    ref_beats = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5]
+
+    strict = analyzer.compare_rhythm(user_beats, ref_beats, scoring_model='strict')
+    balanced = analyzer.compare_rhythm(user_beats, ref_beats, scoring_model='balanced')
+    lenient = analyzer.compare_rhythm(user_beats, ref_beats, scoring_model='lenient')
+
+    assert strict['score'] <= balanced['score'] <= lenient['score']
+    assert strict['timing_accuracy'] <= balanced['timing_accuracy'] <= lenient['timing_accuracy']
+    assert strict['coverage_ratio'] <= balanced['coverage_ratio'] <= lenient['coverage_ratio']
+    assert strict['consistency_ratio'] <= balanced['consistency_ratio'] <= lenient['consistency_ratio']
+
 def test_function_compatibility():
     """Test score_rhythm function"""
     user_beats = [0.0, 0.5, 1.0, 1.5, 2.0]

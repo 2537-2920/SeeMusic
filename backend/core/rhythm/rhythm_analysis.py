@@ -9,6 +9,29 @@ except ImportError:  # pragma: no cover - exercised through fallback path
 from .i18n import FeedbackFormatter
 
 
+def _normalize_scoring_model(model: str) -> str:
+    """Normalize incoming scoring model names and aliases."""
+    normalized = str(model or "balanced").strip().lower()
+    alias_map = {
+        "strict": "strict",
+        "balanced": "balanced",
+        "lenient": "lenient",
+        "linent": "lenient",
+    }
+    return alias_map.get(normalized, "balanced")
+
+
+def _apply_model_bias(value: float, model: str, upper_bound: float) -> float:
+    """Apply model-specific strict/balanced/lenient bias to a bounded score."""
+    clamped = float(np.clip(float(value), 0.0, upper_bound))
+    normalized_model = _normalize_scoring_model(model)
+    if normalized_model == "strict":
+        return round(clamped * 0.92, 4)
+    if normalized_model == "lenient":
+        return round(clamped + (upper_bound - clamped) * 0.08, 4)
+    return round(clamped, 4)
+
+
 def _fallback_dtw(user_beats: np.ndarray, ref_beats: np.ndarray) -> Tuple[float, List[Tuple[int, int]]]:
     """Compute a simple DTW alignment when fastdtw is unavailable."""
     n_user = len(user_beats)
@@ -426,10 +449,27 @@ class AdvancedRhythmAnalyzer:
             user_beats.tolist(), ref_beats.tolist(), valid_pairs
         )
 
+        normalized_model = _normalize_scoring_model(scoring_model)
+
         # Calculate scores
-        base_score, timing_accuracy = self._calculate_score(
-            mean_deviation, valid_deviations, missing, extra, scoring_model
+        base_score, raw_timing_accuracy = self._calculate_score(
+            mean_deviation, valid_deviations, missing, extra, normalized_model
         )
+        timing_accuracy = _apply_model_bias(raw_timing_accuracy, normalized_model, 100.0)
+
+        raw_coverage_ratio = (
+            float(len(valid_pairs) / len(ref_beats))
+            if ref_beats.size > 0
+            else 0.0
+        )
+        coverage_ratio = _apply_model_bias(raw_coverage_ratio, normalized_model, 1.0)
+
+        raw_consistency_ratio = (
+            user_consistency['consistency_score']
+            / (ref_consistency['consistency_score'] + 1e-8)
+        )
+        consistency_ratio = _apply_model_bias(raw_consistency_ratio, normalized_model, 1.0)
+
         feedback = self._generate_feedback(
             base_score, mean_deviation, missing, extra, error_classification, language
         )
@@ -437,6 +477,7 @@ class AdvancedRhythmAnalyzer:
         return {
             'score': round(base_score, 2),
             'timing_accuracy': round(timing_accuracy, 2),
+            'raw_timing_accuracy': round(raw_timing_accuracy, 2),
             'mean_deviation_ms': round(mean_deviation * 1000, 2),
             'max_deviation_ms': round(max_deviation * 1000, 2),
             'std_deviation_ms': round(std_deviation * 1000, 2),
@@ -444,16 +485,13 @@ class AdvancedRhythmAnalyzer:
             'extra_beats': int(extra),
             'valid_matches': len(valid_pairs),
             'total_ref_beats': len(ref_beats),
-            'coverage_ratio': float(len(valid_pairs) / len(ref_beats))
-            if ref_beats.size > 0
-            else 0.0,
+            'coverage_ratio': float(coverage_ratio),
+            'raw_coverage_ratio': float(round(raw_coverage_ratio, 4)),
             'user_consistency': user_consistency,
             'ref_consistency': ref_consistency,
-            'consistency_ratio': round(
-                user_consistency['consistency_score']
-                / (ref_consistency['consistency_score'] + 1e-8),
-                2,
-            ),
+            'consistency_ratio': float(consistency_ratio),
+            'raw_consistency_ratio': float(round(raw_consistency_ratio, 4)),
+            'scoring_model': normalized_model,
             'tempo_analysis': tempo_analysis,
             'error_classification': error_classification,
             'feedback': feedback,

@@ -26,9 +26,9 @@ from backend.api.schemas import (
     RegisterRequest,
     ReportExportRequest,
     RhythmScoreRequest,
-    ScoreEditRequest,
     ScoreExportRequest,
     ScoreReExportRequest,
+    ScoreUpdateRequest,
     VariationSuggestionRequest,
 )
 from backend.core.generation.chord_generation import generate_chord_sequence
@@ -60,6 +60,7 @@ from backend.services.score_service import (
     delete_score_export,
     edit_score,
     export_score,
+    get_score,
     get_score_export_file,
     get_score_export_record,
     list_score_exports,
@@ -85,6 +86,7 @@ INLINE_PREVIEW_TYPES = (
     "image/jpeg",
     "image/webp",
     "image/gif",
+    "image/svg+xml",
     "text/plain",
 )
 
@@ -411,17 +413,38 @@ def pitch_compare(payload: PitchCompareRequest):
 
 
 @router.post("/score/from-pitch-sequence")
-def score_from_pitch_sequence(payload: PitchToScoreRequest):
+def score_from_pitch_sequence(payload: PitchToScoreRequest, authorization: str = Header(default="")):
+    payload_data = payload.model_dump()
     try:
-        return ok(create_score_from_pitch_sequence(payload.model_dump()))
+        return ok(create_score_from_pitch_sequence(payload_data))
     except UserNotFoundError as exc:
+        current_user = optional_user_from_authorization(authorization)
+        fallback_user_id = current_user.get("user_id") if current_user else None
+        if (
+            fallback_user_id is not None
+            and str(fallback_user_id).isdigit()
+            and int(fallback_user_id) != int(payload_data["user_id"])
+        ):
+            payload_data["user_id"] = int(fallback_user_id)
+            try:
+                return ok(create_score_from_pitch_sequence(payload_data))
+            except UserNotFoundError:
+                pass
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/scores/{score_id}")
+def score_detail(score_id: str):
+    try:
+        return ok(get_score(score_id))
+    except ScoreNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.patch("/scores/{score_id}")
-def patch_score(score_id: str, payload: ScoreEditRequest):
+def patch_score(score_id: str, payload: ScoreUpdateRequest):
     try:
-        return ok(edit_score(score_id, [op.model_dump() for op in payload.operations]))
+        return ok(edit_score(score_id, payload.musicxml))
     except ScoreNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ScoreOperationError as exc:

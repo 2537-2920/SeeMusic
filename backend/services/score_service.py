@@ -2,19 +2,24 @@
 
 from __future__ import annotations
 
+import logging
 import mimetypes
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from backend.config.settings import settings
 from backend.core.score.score_utils import (
-    apply_operations,
+    create_score as create_canonical_score,
     get_score_state,
     redo_score as _redo_score,
     save_score,
     snapshot_score,
     undo_score as _undo_score,
+    update_score_musicxml,
 )
 from backend.core.score.sheet_extraction import build_score_from_pitch_sequence
 from backend.db.models import ExportRecord
@@ -45,7 +50,7 @@ class ScoreNotFoundError(ScoreServiceError):
 
 
 class ScoreOperationError(ScoreServiceError):
-    """Raised when a score operation payload is invalid."""
+    """Raised when a full-score MusicXML payload is invalid."""
 
 
 class UserNotFoundError(ScoreServiceError):
@@ -61,6 +66,21 @@ class ExportFileNotFoundError(ScoreServiceError):
 
 
 STORAGE_PREFIX = "/storage/"
+SCORE_PROJECT_CACHE: Dict[str, int] = {}
+SCORE_EXPORT_CACHE: Dict[str, Dict[str, Any]] = {}
+IN_MEMORY_PROJECT_ID_BASE = 900_000_000
+_in_memory_project_id_counter = 0
+_DB_FALLBACK_RUNTIME_MARKERS = (
+    "db mode enabled but no session factory configured",
+    "database unavailable",
+    "mysql tunnel",
+    "ssh tunnel",
+    "local mysql port",
+    "ssh:",
+    "socket:",
+)
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -71,13 +91,106 @@ def _default_project_title(title: str | None, score_id: str) -> str:
     return f"Generated Score {score_id} @ {timestamp}"
 
 
+def _next_in_memory_project_id() -> int:
+    global _in_memory_project_id_counter
+    _in_memory_project_id_counter += 1
+    return IN_MEMORY_PROJECT_ID_BASE + _in_memory_project_id_counter
+
+
+def _cache_score_runtime_state(score: Dict[str, Any], project_id: int) -> None:
+    score_id = str(score["score_id"])
+    SCORE_PROJECT_CACHE[score_id] = int(project_id)
+    SCORE_EXPORT_CACHE.setdefault(
+        score_id,
+        {
+            "score_id": score_id,
+            "project_id": int(project_id),
+            "items": [],
+        },
+    )
+
+
+def _load_sheet_from_cache(score_id: str) -> tuple[Dict[str, Any], int]:
+    try:
+        cached_score = snapshot_score(get_score_state(score_id))
+    except KeyError as exc:
+        raise ScoreNotFoundError(f"score {score_id} not found") from exc
+
+    project_id = SCORE_PROJECT_CACHE.get(score_id)
+    if project_id is None:
+        raise ScoreNotFoundError(f"score {score_id} not found")
+    return cached_score, int(project_id)
+
+
+def _build_cached_export_listing(score_id: str) -> Dict[str, Any]:
+    listing = SCORE_EXPORT_CACHE.get(score_id)
+    if listing is None:
+        _, project_id = _load_sheet_from_cache(score_id)
+        listing = {"score_id": score_id, "project_id": int(project_id), "items": []}
+        SCORE_EXPORT_CACHE[score_id] = deepcopy(listing)
+
+    items = deepcopy(listing.get("items", []))
+    return {
+        "score_id": score_id,
+        "project_id": int(listing["project_id"]),
+        "count": len(items),
+        "items": items,
+    }
+
+
+def _cache_export_listing(score_id: str, project_id: int, items: List[Dict[str, Any]]) -> Dict[str, Any]:
+    SCORE_EXPORT_CACHE[score_id] = {
+        "score_id": score_id,
+        "project_id": int(project_id),
+        "items": deepcopy(items),
+    }
+    return _build_cached_export_listing(score_id)
+
+
+def _upsert_cached_export_item(score_id: str, project_id: int, item: Dict[str, Any]) -> Dict[str, Any]:
+    listing = _build_cached_export_listing(score_id)
+    items = [existing for existing in listing["items"] if int(existing["export_record_id"]) != int(item["export_record_id"])]
+    items.insert(0, deepcopy(item))
+    return _cache_export_listing(score_id, project_id, items)
+
+
+def _get_cached_export_item(score_id: str, export_record_id: int) -> Dict[str, Any]:
+    listing = _build_cached_export_listing(score_id)
+    for item in listing["items"]:
+        if int(item["export_record_id"]) == int(export_record_id):
+            return deepcopy(item)
+    raise ExportRecordNotFoundError(f"export record {export_record_id} not found for score {score_id}")
+
+
+def _is_db_fallback_exception(exc: Exception) -> bool:
+    if isinstance(exc, SQLAlchemyError):
+        return True
+    if not isinstance(exc, RuntimeError):
+        return False
+    message = str(exc).strip().lower()
+    return any(marker in message for marker in _DB_FALLBACK_RUNTIME_MARKERS)
+
+
 
 def _load_sheet(score_id: str) -> tuple[Dict[str, Any], int]:
-    with session_scope() as session:
-        sheet = get_sheet_by_score_id(session, score_id)
-        if sheet is None:
-            raise ScoreNotFoundError(f"score {score_id} not found")
-        return score_from_sheet(sheet), int(sheet.project_id)
+    try:
+        with session_scope() as session:
+            sheet = get_sheet_by_score_id(session, score_id)
+            if sheet is None:
+                logger.warning(
+                    "Score %s was not found in DB; using in-memory fallback if available",
+                    score_id,
+                )
+                return _load_sheet_from_cache(score_id)
+            score = score_from_sheet(sheet)
+            project_id = int(sheet.project_id)
+            _cache_score_runtime_state(score, project_id)
+            return score, project_id
+    except Exception as exc:
+        if not _is_db_fallback_exception(exc):
+            raise
+        logger.warning("Failed to load score %s from DB; using in-memory fallback if available: %s", score_id, exc)
+        return _load_sheet_from_cache(score_id)
 
 
 
@@ -97,13 +210,29 @@ def _sync_score_cache(score: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _persist_score(score: Dict[str, Any], project_id: int) -> Dict[str, Any]:
-    with session_scope() as session:
-        sheet = get_sheet_by_score_id(session, score["score_id"])
-        if sheet is None:
-            raise ScoreNotFoundError(f"score {score['score_id']} not found")
-        update_sheet_from_score(session, sheet, score)
-        project_id = int(sheet.project_id)
-    return {"project_id": project_id, **snapshot_score(score)}
+    score["project_id"] = int(project_id)
+    try:
+        with session_scope() as session:
+            sheet = get_sheet_by_score_id(session, score["score_id"])
+            if sheet is None:
+                logger.warning(
+                    "Score %s is not persisted in DB; keeping in-memory state only",
+                    score["score_id"],
+                )
+                _cache_score_runtime_state(score, int(project_id))
+                return {**snapshot_score(score), "project_id": project_id}
+            update_sheet_from_score(session, sheet, score)
+            project_id = int(sheet.project_id)
+    except Exception as exc:
+        if not _is_db_fallback_exception(exc):
+            raise
+        logger.warning(
+            "Failed to persist score %s to DB; using in-memory fallback instead: %s",
+            score["score_id"],
+            exc,
+        )
+    _cache_score_runtime_state(score, int(project_id))
+    return {**snapshot_score(score), "project_id": project_id}
 
 
 
@@ -210,40 +339,69 @@ def create_score_from_pitch_sequence(payload: Dict[str, Any]) -> Dict[str, Any]:
         tempo=payload.get("tempo", 120),
         time_signature=payload.get("time_signature", "4/4"),
         key_signature=payload.get("key_signature", "C"),
+        title=payload.get("title"),
     )
     user_id = int(payload["user_id"])
     title = _default_project_title(payload.get("title"), score["score_id"])
+    if score.get("title") != title:
+        score = create_canonical_score(
+            musicxml=score["musicxml"],
+            title=title,
+            score_id=score["score_id"],
+            version=int(score.get("version", 1)),
+        )
     score["title"] = title
 
-    with session_scope() as session:
-        user = get_user_by_id(session, user_id)
-        if user is None:
-            raise UserNotFoundError(f"user {user_id} not found")
+    project_id: int | None = None
+    try:
+        with session_scope() as session:
+            user = get_user_by_id(session, user_id)
+            if user is None:
+                raise UserNotFoundError(f"user {user_id} not found")
 
-        project = create_project(
-            session,
-            user_id=user.id,
-            title=title,
-            status=1,
-            analysis_id=payload.get("analysis_id"),
-            audio_url=None,
-            duration=None,
+            project = create_project(
+                session,
+                user_id=user.id,
+                title=title,
+                status=1,
+                analysis_id=payload.get("analysis_id"),
+                audio_url=None,
+                duration=None,
+            )
+            create_sheet(session, project_id=project.id, score=score)
+            project_id = int(project.id)
+    except Exception as exc:
+        if not _is_db_fallback_exception(exc):
+            raise
+        project_id = _next_in_memory_project_id()
+        logger.warning(
+            "Failed to create score %s in DB; using in-memory fallback project_id=%s instead: %s",
+            score["score_id"],
+            project_id,
+            exc,
         )
-        create_sheet(session, project_id=project.id, score=score)
-        project_id = int(project.id)
 
-    return {"project_id": project_id, **score}
+    score["project_id"] = int(project_id)
+    save_score(score)
+    _cache_score_runtime_state(score, int(project_id))
+    return {**score, "project_id": project_id}
 
 
 
-def edit_score(score_id: str, operations: List[Dict[str, Any]]) -> Dict[str, Any]:
+def get_score(score_id: str) -> Dict[str, Any]:
+    score, project_id = _load_sheet(score_id)
+    cached = _sync_score_cache(score)
+    return {**snapshot_score(cached), "project_id": project_id}
+
+
+
+def edit_score(score_id: str, musicxml: str) -> Dict[str, Any]:
     db_score, project_id = _load_sheet(score_id)
     score = _sync_score_cache(db_score)
     try:
-        updated = apply_operations(score, operations)
+        updated = update_score_musicxml(score, musicxml)
     except ValueError as exc:
         raise ScoreOperationError(str(exc)) from exc
-    save_score(updated)
     return _persist_score(updated, project_id)
 
 
@@ -266,26 +424,50 @@ def export_score(score_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         update_export_record(session, record, file_url=export_payload.get("download_url"))
         record_payload = _serialize_export_record(score_id, record)
 
+    _upsert_cached_export_item(score_id, project_id, record_payload)
     return {"project_id": project_id, **export_payload, **record_payload}
 
 
 
 def list_score_exports(score_id: str) -> Dict[str, Any]:
     _, project_id = _load_sheet(score_id)
-    with session_scope() as session:
-        records = list_export_records_by_project(session, project_id)
-        items = [_serialize_export_record(score_id, record) for record in records]
-    return {"score_id": score_id, "project_id": project_id, "count": len(items), "items": items}
+    try:
+        with session_scope() as session:
+            records = list_export_records_by_project(session, project_id)
+            items = [_serialize_export_record(score_id, record) for record in records]
+        return _cache_export_listing(score_id, project_id, items)
+    except Exception as exc:
+        if not _is_db_fallback_exception(exc):
+            raise
+        logger.warning(
+            "Failed to load export list for %s from DB; using in-memory fallback if available: %s",
+            score_id,
+            exc,
+        )
+        return _build_cached_export_listing(score_id)
 
 
 
 def get_score_export_record(score_id: str, export_record_id: int) -> Dict[str, Any]:
-    return _get_export_record(score_id, export_record_id)
+    try:
+        record = _get_export_record(score_id, export_record_id)
+        _upsert_cached_export_item(score_id, int(record["project_id"]), record)
+        return record
+    except Exception as exc:
+        if not _is_db_fallback_exception(exc):
+            raise
+        logger.warning(
+            "Failed to load export record %s for %s from DB; using in-memory fallback if available: %s",
+            export_record_id,
+            score_id,
+            exc,
+        )
+        return _get_cached_export_item(score_id, export_record_id)
 
 
 
 def get_score_export_file(score_id: str, export_record_id: int) -> Dict[str, Any]:
-    export_record = _get_export_record(score_id, export_record_id)
+    export_record = get_score_export_record(score_id, export_record_id)
     if not export_record.get("exists") or not export_record.get("file_path"):
         raise ExportFileNotFoundError(f"export file {export_record_id} is missing for score {score_id}")
     return export_record
@@ -326,6 +508,7 @@ def regenerate_score_export(score_id: str, export_record_id: int, payload: Dict[
         ):
             _safe_unlink(previous_file_path)
 
+    _upsert_cached_export_item(score_id, project_id, record_payload)
     return {"project_id": project_id, "regenerated": True, **export_payload, **record_payload}
 
 
@@ -348,6 +531,9 @@ def delete_score_export(score_id: str, export_record_id: int) -> Dict[str, Any]:
         file_deleted = bool(file_path and should_delete_file and _safe_unlink(file_path))
         delete_export_record(session, record)
 
+    cached_listing = _build_cached_export_listing(score_id)
+    remaining_items = [item for item in cached_listing["items"] if int(item["export_record_id"]) != int(export_record_id)]
+    _cache_export_listing(score_id, project_id, remaining_items)
     return {
         "score_id": score_id,
         "project_id": project_id,

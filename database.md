@@ -1,12 +1,13 @@
 # SeeMusic 数据库说明
 
-> 说明：本文档以当前 ORM 模型 [`backend/db/models.py`](SeeMusic/backend/db/models.py) 和增量迁移脚本 [`seemusic_db_migration_20260415.sql`](SeeMusic/seemusic_db_migration_20260415.sql) 为准。项目启动时会读取根目录 `.env`，通过 `SSH_*` + `MYSQL_*` 连接远程 MySQL；`DB_*` 保留为运行时兼容/回退配置。
+> 说明：本文档以当前 ORM 模型 [`backend/db/models.py`](/home/xianz/SeeMusic/backend/db/models.py)、清库脚本 [`scripts/clear_current_mysql_data.py`](/home/xianz/SeeMusic/scripts/clear_current_mysql_data.py) 和一次性迁移脚本 [`scripts/migrate_sheet_musicxml.py`](/home/xianz/SeeMusic/scripts/migrate_sheet_musicxml.py) 为准。项目启动时会读取根目录 `.env`，通过 `SSH_*` + `MYSQL_*` 连接远程 MySQL；`DB_*` 保留为运行时兼容/回退配置。
 
 ## 变更概览
 
 - `report`：补充 `report_id`、`analysis_id`、`metadata`，并允许旧数据的 `project_id` 为空。
 - `community_post`：补充社区业务字段与互动计数，允许旧数据的 `user_id` / `sheet_id` 为空。
 - `audio_analysis`：补充 `result` JSON 字段，并允许旧数据的 `user_id` 为空；当前音高主存储改为 `note events`。
+- `sheet`：乐谱真源切换为 `MusicXML`，新增 `musicxml` 文本列；`note_data` 降级为派生元数据快照，不再承载可编辑谱面。
 - `community_comment`：新增，保存社区评论。
 - `community_like`：新增，保存社区点赞记录。
 - `community_favorite`：新增，保存社区收藏记录。
@@ -17,10 +18,17 @@
 - MySQL 下主键使用 `BIGINT` 自增；SQLite 下会自动兼容为 `INTEGER`。
 - `create_time` / `update_time` 统一由数据库时间戳自动维护。
 - JSON 字段包括 `note_data`、`error_points`、`tags`、`params`、`result`、`metadata`。
+- `sheet.musicxml` 是乐谱唯一真源；`sheet.note_data` 只保存从 MusicXML 派生出的摘要快照，例如 `score_id/title/tempo/time_signature/key_signature/version/summary/canonical_format`。
 - 布尔字段 `is_public`、`is_reference` 在 MySQL 中按 `TINYINT(1)` 存储。
 - `project.analysis_id` 是业务关联字段，不是数据库外键；`pitch_sequence.analysis_id` 外键指向 `audio_analysis.analysis_id`。
 - ORM 中 `report.metadata` 和 `user_history.metadata` 分别映射为 `metadata_`，用于避开 SQLAlchemy 的保留属性名。
 - 一次性全清当前 `.env` 指向 MySQL 应用数据时，可使用 [`scripts/clear_current_mysql_data.py`](/home/xianz/SeeMusic/scripts/clear_current_mysql_data.py)；该脚本只 `TRUNCATE` 应用表，不改表结构。
+
+## MusicXML 迁移与运维
+
+- [`scripts/clear_current_mysql_data.py`](/home/xianz/SeeMusic/scripts/clear_current_mysql_data.py)：清空当前 `.env` 指向的 MySQL 应用数据表，保留表结构、索引和约束。
+- [`scripts/migrate_sheet_musicxml.py`](/home/xianz/SeeMusic/scripts/migrate_sheet_musicxml.py)：一次性为 `sheet` 补齐 `musicxml` 列，并把历史 `note_data.measures[]` JSON 乐谱转换为 canonical MusicXML；转换后会同步回填 `note_data` 摘要、`bpm`、`key_sign`、`time_sign`。
+- 如果数据库已经先执行过全清，该迁移脚本仍然有意义，因为它会确保 `sheet.musicxml` 列存在，即使没有旧数据需要逐行转换。
 
 ## 1. user（用户表）
 
@@ -55,14 +63,15 @@
 
 ## 3. sheet（乐谱数据表）
 
-作用：存储扒谱生成的五线谱结构、音符和基础谱面参数。
+作用：存储 canonical MusicXML 乐谱文本，以及供列表/检索使用的派生谱面元数据。
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | id | BIGINT PK | 乐谱主键，自增。 |
 | project_id | BIGINT FK | 关联 `project.id`，非空，带索引。 |
 | score_id | VARCHAR(64) | 乐谱唯一标识，唯一，可空。 |
-| note_data | JSON | 音符与五线谱结构 JSON，非空。 |
+| note_data | JSON | MusicXML 派生的元数据快照，非空。当前用于保存 `score_id/title/tempo/time_signature/key_signature/version/summary/canonical_format`。 |
+| musicxml | LONGTEXT/TEXT | 乐谱真源 MusicXML 文本。迁移前历史行可为空；迁移完成后的新写入应始终有值。 |
 | bpm | INT | 曲速，默认 `120`。 |
 | key_sign | VARCHAR(10) | 调号，默认 `C`。 |
 | time_sign | VARCHAR(10) | 拍号，默认 `4/4`。 |
@@ -76,7 +85,7 @@
 | --- | --- | --- |
 | id | BIGINT PK | 导出记录主键，自增。 |
 | project_id | BIGINT FK | 关联 `project.id`，非空，带索引。 |
-| format | VARCHAR(32) | 导出格式，例如 `pdf` / `png` / `midi`。 |
+| format | VARCHAR(32) | 导出格式，例如 `pdf` / `png` / `midi` / `svg`。 |
 | file_url | VARCHAR(500) | 导出文件路径，可空。 |
 | create_time | DATETIME | 导出操作时间，自动生成。 |
 | update_time | DATETIME | 导出记录最后更新时间，自动更新。 |

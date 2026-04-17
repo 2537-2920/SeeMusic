@@ -39,28 +39,12 @@ class PitchToScoreRequest(BaseModel):
     pitch_sequence: List[PitchSequenceItem]
 
 
-class ScoreOperation(BaseModel):
-    type: Literal[
-        "add_note",
-        "delete_note",
-        "update_note",
-        "update_time_signature",
-        "update_key_signature",
-        "update_tempo",
-    ]
-    measure_no: Optional[int] = None
-    beat: Optional[float] = None
-    note: Optional[Dict[str, Any]] = None
-    value: Optional[Any] = None
-    note_id: Optional[str] = None
-
-
-class ScoreEditRequest(BaseModel):
-    operations: List[ScoreOperation]
+class ScoreUpdateRequest(BaseModel):
+    musicxml: str = Field(..., min_length=1)
 
 
 class ScoreExportRequest(BaseModel):
-    format: Literal["midi", "png", "pdf"]
+    format: Literal["midi", "png", "pdf", "svg"]
     page_size: Optional[str] = "A4"
     with_annotations: bool = True
 

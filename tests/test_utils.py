@@ -127,6 +127,7 @@ def test_build_score_export_payload_supports_visual_and_midi_formats():
     pdf_payload = build_score_export_payload(score, "pdf", page_size="A4", with_annotations=True)
     assert midi_payload["manifest"]["kind"] == "midi"
     assert pdf_payload["manifest"]["kind"] == "pdf"
+    assert pdf_payload["manifest"]["page_count"] >= 1
     assert pdf_payload["manifest"]["pages"]
 
 
@@ -153,6 +154,7 @@ def test_build_score_from_note_events_supports_direct_event_input():
         tempo=120,
     )
 
-    notes = score["measures"][0]["notes"]
-    assert notes[0]["pitch"] == "A4"
-    assert any(note["is_rest"] for note in notes)
+    assert score["musicxml"].startswith("<?xml")
+    assert "<rest" in score["musicxml"]
+    assert "<step>A</step>" in score["musicxml"]
+    assert "<step>B</step>" in score["musicxml"]

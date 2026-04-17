@@ -84,6 +84,7 @@ class Sheet(Base):
     )
     score_id: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
     note_data: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    musicxml: Mapped[str | None] = mapped_column(LONGTEXT_COMPAT, nullable=True)
     bpm: Mapped[int] = mapped_column(Integer, default=120, nullable=False)
     key_sign: Mapped[str] = mapped_column(String(10), default="C", nullable=False)
     time_sign: Mapped[str] = mapped_column(String(10), default="4/4", nullable=False)

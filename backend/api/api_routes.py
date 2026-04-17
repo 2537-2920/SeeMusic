@@ -1041,6 +1041,42 @@ def update_me(payload: UserUpdatePayload, current_user: Dict[str, Any] = Depends
     return ok(result)
 
 
+@router.post("/users/me/avatar")
+async def upload_avatar(file: UploadFile = File(...), current_user: Dict[str, Any] = Depends(get_current_user)):
+    """上传并更新个人头像"""
+    # 验证类型
+    ext = Path(file.filename).suffix.lower()
+    if ext not in [".jpg", ".jpeg", ".png", ".webp"]:
+        raise HTTPException(status_code=400, detail="仅支持 jpg, png, webp 格式的图片")
+    
+    # 生成唯一文件名
+    filename = f"avatar_{current_user['user_id']}_{uuid.uuid4().hex[:8]}{ext}"
+    save_path = Path("storage/avatars") / filename
+    
+    try:
+        # 保存文件
+        content = await file.read()
+        with open(save_path, "wb") as f:
+            f.write(content)
+        
+        # 更新数据库中的头像路径 (假设前端可以通过 /api/v1/users/me/avatar/filename 访问，这里暂存相对路径)
+        avatar_url = f"/api/v1/users/me/avatar/{filename}"
+        update_user_info(current_user["user_id"], {"avatar": avatar_url})
+        
+        return ok({"avatar_url": avatar_url})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"文件保存失败: {str(e)}")
+
+
+@router.get("/users/me/avatar/{filename}")
+def get_avatar(filename: str):
+    """读取头像文件流"""
+    path = Path("storage/avatars") / filename
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="图片不存在")
+    return FileResponse(path)
+
+
 @router.get("/users/me/history")
 def get_history(current_user: Dict[str, Any] = Depends(get_current_user)):
     return ok(list_history(current_user["user_id"]))

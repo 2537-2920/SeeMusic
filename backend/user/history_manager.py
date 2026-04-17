@@ -12,7 +12,8 @@ from fastapi import HTTPException
 # ---------------------------------------------------------------------------
 # Mode toggle – flipped by conftest.py or application bootstrap
 # ---------------------------------------------------------------------------
-USE_DB: bool = False
+# 开启数据库持久化模式
+USE_DB: bool = True
 _session_factory = None
 
 
@@ -94,23 +95,67 @@ def _list_history_mem(user_id: str) -> dict:
 
 
 def _list_history_db(user_id: str) -> dict:
-    from backend.db.models import UserHistory
+    from backend.db.models import UserHistory, Project, AudioAnalysis, CommunityPost
     session = _get_session()
     try:
         db_user_id = _parse_db_user_id(user_id)
+        all_items = []
+        
+        # 1. 聚合 Project 表 (音频转谱)
+        projects = session.query(Project).filter_by(user_id=db_user_id).all()
+        for p in projects:
+            all_items.append({
+                "history_id": f"p_{p.id}",
+                "history_type": "audio",
+                "info": {
+                    "title": p.title or "音频转谱项目",
+                    "duration": f"{p.duration:.1f}s" if p.duration else "未知"
+                },
+                "created_at": p.create_time.isoformat() if p.create_time else None
+            })
+
+        # 2. 聚合 AudioAnalysis 表 (音乐评估)
+        analyses = session.query(AudioAnalysis).filter_by(user_id=db_user_id).all()
+        for a in analyses:
+            all_items.append({
+                "history_id": f"a_{a.id}",
+                "history_type": "transcription",
+                "info": {
+                    "title": a.file_name or "音频分析评估",
+                    **(a.result or {})
+                },
+                "created_at": a.create_time.isoformat() if a.create_time else None
+            })
+
+        # 3. 聚合 CommunityPost 表 (社区贡献)
+        posts = session.query(CommunityPost).filter_by(user_id=db_user_id).all()
+        for s in posts:
+            all_items.append({
+                "history_id": f"c_{s.id}",
+                "history_type": "community",
+                "info": {
+                    "title": s.title or "乐谱发布",
+                    "likes": s.like_count, 
+                    "downloads": s.download_count
+                },
+                "created_at": s.create_time.isoformat() if s.create_time else None
+            })
+
+        # 4. 聚合 UserHistory 表 (其他操作)
         rows = session.query(UserHistory).filter_by(user_id=db_user_id).all()
-        items = [
-            {
-                "history_id": str(r.id),
-                "type": r.type,
-                "resource_id": r.resource_id,
-                "title": r.title,
-                "metadata": deepcopy(r.metadata_ or {}),
-                "created_at": r.create_time.isoformat() if r.create_time else None,
-            }
-            for r in rows
-        ]
-        return {"items": items}
+        for r in rows:
+            all_items.append({
+                "history_id": f"h_{r.id}",
+                "history_type": r.type,
+                "info": {
+                    "title": r.title,
+                    **(r.metadata_ or {})
+                },
+                "created_at": r.create_time.isoformat() if r.create_time else None
+            })
+
+        all_items.sort(key=lambda x: x["created_at"] or "", reverse=True)
+        return {"items": all_items}
     finally:
         session.close()
 

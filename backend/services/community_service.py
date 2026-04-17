@@ -312,6 +312,11 @@ def _serialize_score(entry: dict[str, Any], current_user: dict[str, Any] | None 
     payload["liked"] = actor_key in COMMUNITY_LIKES.get(score_id, set())
     payload["favorited"] = actor_key in COMMUNITY_FAVORITES.get(score_id, set())
     payload["download_url"] = payload.get("download_url") or f"/api/v1/community/scores/{score_id}/download"
+    # Ensure cover_url reflects the actual uploaded cover_image if available (important for memory mode/tests)
+    if payload.get("cover_image"):
+        data_url = _cover_data_url(payload.get("cover_image"), payload.get("cover_content_type"))
+        if data_url:
+            payload["cover_url"] = data_url
     return payload
 
 

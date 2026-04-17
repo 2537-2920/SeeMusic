@@ -1,176 +1,71 @@
 from __future__ import annotations
-"""Dual-mode auth/user system: in-memory (default) or database-backed.
-
-Set ``USE_DB = True`` and call ``set_db_session_factory(factory)`` to switch
-to database mode.  When ``USE_DB`` is ``False`` the module falls back to
-plain Python dicts (``USERS`` / ``TOKENS``), which is ideal for unit tests
-that don't need a real database.
-"""
-
+"""Simple in-memory auth/user system."""
+from backend.db.models import User, UserToken
+from backend.db.session import session_scope # 统一使用这个来操作数据库
 import hashlib
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 
 from fastapi import Header, HTTPException
 
-
-# ---------------------------------------------------------------------------
-# Mode toggle – flipped by conftest.py or application bootstrap
-# ---------------------------------------------------------------------------
-USE_DB: bool = False
-_session_factory = None  # set via set_db_session_factory()
-
-
-def set_db_session_factory(factory) -> None:
-    """Inject a SQLAlchemy sessionmaker so the module can talk to the DB."""
-    global _session_factory
-    _session_factory = factory
-
-
-def _get_session():
-    if _session_factory is None:
-        raise RuntimeError("DB mode enabled but no session factory configured")
-    return _session_factory()
-
-
-# ---------------------------------------------------------------------------
-# In-memory stores – used when USE_DB is False
-# ---------------------------------------------------------------------------
-USERS: dict[str, dict] = {}
-TOKENS: dict[str, dict] = {}
-
-
+# 密码加密处理函数
 def _hash_password(password: str) -> str:
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
-
-# ===== register =====
-def register_user(username: str, password: str, email: str | None = None) -> dict:
-    if USE_DB:
-        return _register_user_db(username, password, email)
-    return _register_user_mem(username, password, email)
-
-
-def _register_user_mem(username: str, password: str, email: str | None) -> dict:
-    for u in USERS.values():
-        if u["username"] == username:
+# 注册函数
+def register_user(username_in: str, password_in: str, email_in: str | None = None) -> dict:
+    with session_scope() as db: # 开启数据库会话
+        if db.query(User).filter_by(username=username_in).first():
             raise HTTPException(status_code=400, detail="username already exists")
-    user_id = f"u_{uuid4().hex[:8]}"
-    USERS[user_id] = {
-        "user_id": user_id,
-        "username": username,
-        "password": _hash_password(password),
-        "email": email,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    return {"user_id": user_id}
+    
+        user_id = f"u_{uuid4().hex[:8]}"
+        new_user = User(
+            password=_hash_password(password_in),
+            email=email_in,
+            create_time=datetime.now(timezone.utc)
+        )
+        db.add(new_user) # 使用 db.add
+        # 不需要 commit()，with 块退出时会自动提交
+        
 
 
-def _register_user_db(username: str, password: str, email: str | None) -> dict:
-    from backend.db.models import User
-    session = _get_session()
-    try:
-        if session.query(User).filter_by(username=username).first():
-            raise HTTPException(status_code=400, detail="username already exists")
-        new_user = User(username=username, password=_hash_password(password), email=email)
-        session.add(new_user)
-        session.commit()
-        return {"user_id": str(new_user.id)}
-    except HTTPException:
-        raise
-    except Exception:
-        session.rollback()
-        raise
-    finally:
-        session.close()
-
-
-# ===== login =====
-def login_user(username: str, password: str) -> dict:
-    if USE_DB:
-        return _login_user_db(username, password)
-    return _login_user_mem(username, password)
-
-
-def _login_user_mem(username: str, password: str) -> dict:
-    matched = next((u for u in USERS.values() if u["username"] == username), None)
-    if not matched:
-        raise HTTPException(status_code=401, detail="invalid credentials")
-    if matched["password"] != _hash_password(password):
-        raise HTTPException(status_code=401, detail="invalid credentials")
-    token = f"tok_{uuid4().hex}"
-    TOKENS[token] = {"user_id": matched["user_id"], "username": matched["username"]}
-    return {
-        "token": token,
-        "expires_in": 7200,
-        "user": {"user_id": matched["user_id"], "username": matched["username"]},
-    }
-
-
-def _login_user_db(username: str, password: str) -> dict:
-    from backend.db.models import User, UserToken
-    session = _get_session()
-    try:
-        user = session.query(User).filter_by(username=username).first()
-        if not user or user.password != _hash_password(password):
-            raise HTTPException(status_code=401, detail="invalid credentials")
-        token = f"tok_{uuid4().hex}"
-        expired_time = datetime.now(timezone.utc) + timedelta(seconds=7200)
-        session.add(UserToken(user_id=user.id, token=token, expired_time=expired_time))
-        session.commit()
-        return {
-            "token": token,
-            "expires_in": 7200,
-            "user": {"user_id": str(user.id), "username": user.username},
-        }
-    except HTTPException:
-        raise
-    except Exception:
-        session.rollback()
-        raise
-    finally:
-        session.close()
-
-
-# ===== token lookup =====
+# 通过token快速获取userid
 def get_user_by_token(token: str) -> dict:
-    if USE_DB:
-        return _get_user_by_token_db(token)
-    return _get_user_by_token_mem(token)
-
-
-def _get_user_by_token_mem(token: str) -> dict:
-    record = TOKENS.get(token)
-    if not record:
-        raise HTTPException(status_code=401, detail="token invalid or expired")
-    user = USERS.get(record["user_id"])
-    if not user:
-        raise HTTPException(status_code=401, detail="user not found")
-    return {"user_id": user["user_id"], "username": user["username"], "email": user.get("email")}
-
-
-def _get_user_by_token_db(token: str) -> dict:
-    from backend.db.models import User, UserToken
-    session = _get_session()
-    try:
-        now = datetime.now(timezone.utc)
-        tok = session.query(UserToken).filter(UserToken.token == token, UserToken.expired_time > now).first()
-        if not tok:
+    now_time = datetime.now(timezone.utc)
+    with session_scope() as db:
+        token_record = db.query(UserToken).filter(UserToken.token == token, UserToken.expired_time > now_time).first()
+        if not token_record:
             raise HTTPException(status_code=401, detail="token invalid or expired")
-        user = session.get(User, tok.user_id)
-        if not user:
+        
+        myuser = db.query(User).get(token_record.id)
+        if not myuser:
             raise HTTPException(status_code=401, detail="user not found")
-        return {"user_id": str(user.id), "username": user.username, "email": user.email}
-    finally:
-        session.close()
+            
+        return {
+            "user_id": myuser.id, # 确保字段名是 id 还是 user_id
+            "username": myuser.username,
+            "email": myuser.email
+        }
 
+# 退出登录函数
+def logout_user(token: str):
+    with session_scope() as db:
+        token_record = db.query(UserToken).filter_by(token=token).first()
+        if not token_record:
+            raise HTTPException(status_code=400, detail="token not exists")
+        
+        db.delete(token_record) # 使用 db.delete
+        # 自动 commit
+    
+    return {"message": "退出登录成功,token已失效"}
 
-# ===== current user from header =====
+#所有需要登录功能使用前对登陆状态的安全验证：验证token是否有效
 def get_current_user(authorization: str = Header(default="")) -> dict:
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="missing token")
     token = authorization.removeprefix("Bearer ").strip()
     return get_user_by_token(token)
+<<<<<<< HEAD
 
 
 # ===== logout =====
@@ -269,3 +164,5 @@ def _update_preferences_db(user_id: str, prefs: dict) -> dict:
         raise
     finally:
         session.close()
+=======
+>>>>>>> 9f15fe82e422c3f2cb326c055ffe04f096de512e

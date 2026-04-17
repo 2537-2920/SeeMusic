@@ -1,4 +1,4 @@
-﻿"""REST and WebSocket routes for the Music AI System."""
+"""REST and WebSocket routes for the Music AI System."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import json
 import os
 import uuid
 import logging
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
@@ -91,6 +92,15 @@ INLINE_PREVIEW_TYPES = (
 )
 
 
+COMMUNITY_SCORE_MAX_BYTES = 20 * 1024 * 1024
+COMMUNITY_COVER_MAX_BYTES = 5 * 1024 * 1024
+COMMUNITY_COVER_TYPES = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
+COMMUNITY_COVER_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 
 def ok(data: Any, message: str = "success") -> Dict[str, Any]:
     return {"code": 0, "message": message, "data": data}
@@ -114,6 +124,14 @@ def optional_query_int(value: Any, default: int) -> int:
     return value if isinstance(value, int) else default
 
 
+def _resolve_cover_suffix(upload: UploadFile) -> str:
+    content_type = (upload.content_type or "").lower().strip()
+    if content_type in COMMUNITY_COVER_TYPES:
+        return COMMUNITY_COVER_TYPES[content_type]
+    suffix = Path(upload.filename or "").suffix.lower()
+    if suffix in COMMUNITY_COVER_EXTENSIONS:
+        return suffix
+    raise HTTPException(status_code=400, detail="cover image must be PNG, JPG, WEBP, or GIF")
 def resolve_pitch_sequence_source(
     *,
     pitch_path: str | None = None,
@@ -175,8 +193,6 @@ def _persist_analysis_result_non_blocking(
         save_analysis_result(**payload)
         return
     background_tasks.add_task(analysis_service.save_analysis_result, **payload)
-
-
 @router.post("/pitch/detect")
 async def pitch_detect(
     background_tasks: BackgroundTasks,
@@ -792,7 +808,11 @@ def publish_community_score(payload: CommunityScorePublishRequest, authorization
 @router.post("/community/scores/upload")
 async def upload_community_score(
     file: UploadFile = File(...),
+<<<<<<< HEAD
     file_content_base64: str = Form(...), 
+=======
+    cover_file: UploadFile | None = File(default=None),
+>>>>>>> main
     title: str = Form(...),
     style: str = Form("精选"),
     instrument: str = Form("乐谱"),
@@ -804,9 +824,17 @@ async def upload_community_score(
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="empty upload file")
-    if len(content) > 20 * 1024 * 1024:
+    if len(content) > COMMUNITY_SCORE_MAX_BYTES:
         raise HTTPException(status_code=400, detail="file exceeds 20MB limit")
 
+    cover_url = None
+    if cover_file is not None:
+        cover_content = await cover_file.read()
+        if not cover_content:
+            raise HTTPException(status_code=400, detail="empty cover file")
+        if len(cover_content) > COMMUNITY_COVER_MAX_BYTES:
+            raise HTTPException(status_code=400, detail="cover image exceeds 5MB limit")
+        _resolve_cover_suffix(cover_file)
     current_user = optional_user_from_authorization(authorization)
     payload = {
         "title": title,
@@ -817,6 +845,9 @@ async def upload_community_score(
         "price": price,
         "tags": [tag.strip() for tag in tags.split(",") if tag.strip()],
         "source_file_name": file.filename or "community-upload.bin",
+        "cover_url": cover_url,
+        "cover_image": cover_content if cover_file is not None else None,
+        "cover_content_type": (cover_file.content_type or "image/png") if cover_file is not None else None,
         "is_public": True,
     }
     published = publish_community_score_data(payload, current_user=current_user)
@@ -824,6 +855,8 @@ async def upload_community_score(
         "file_name": file.filename or "community-upload.bin",
         "size_bytes": len(content),
         "content_type": file.content_type or "application/octet-stream",
+        "cover_file_name": cover_file.filename if cover_file is not None else None,
+        "cover_url": published["item"].get("cover_url"),
     }
     return ok(published)
 
@@ -879,6 +912,7 @@ def download_community_score(score_id: str):
             "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
         }
     )
+
 
 @router.post("/community/scores/{score_id}/like")
 def like_score(score_id: str, authorization: str = Header(default="")):

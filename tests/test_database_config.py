@@ -117,6 +117,8 @@ def test_init_database_creates_all_declared_tables(monkeypatch, tmp_path) -> Non
         "instrument",
         "price",
         "cover_url",
+        "cover_image",
+        "cover_content_type",
         "source_file_name",
         "file_content_base64",
         "file_content_type",

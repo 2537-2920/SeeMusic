@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
@@ -314,7 +315,20 @@ def _serialize_score(entry: dict[str, Any], current_user: dict[str, Any] | None 
     payload["liked"] = actor_key in COMMUNITY_LIKES.get(score_id, set())
     payload["favorited"] = actor_key in COMMUNITY_FAVORITES.get(score_id, set())
     payload["download_url"] = payload.get("download_url") or f"/api/v1/community/scores/{score_id}/download"
+    # Ensure cover_url reflects the actual uploaded cover_image if available (important for memory mode/tests)
+    if payload.get("cover_image"):
+        data_url = _cover_data_url(payload.get("cover_image"), payload.get("cover_content_type"))
+        if data_url:
+            payload["cover_url"] = data_url
     return payload
+
+
+def _cover_data_url(image_bytes: bytes | None, content_type: str | None) -> str | None:
+    if not image_bytes:
+        return None
+    resolved_type = (content_type or "image/png").strip() or "image/png"
+    encoded = base64.b64encode(image_bytes).decode("ascii")
+    return f"data:{resolved_type};base64,{encoded}"
 
 
 def _seed_score(entry: dict[str, Any], comments: list[dict[str, Any]]) -> None:
@@ -378,7 +392,7 @@ def _serialize_db_score(session: Any, post: Any, current_user: dict[str, Any] | 
         "instrument": instrument,
         "price": float(post.price or 0.0),
         "price_label": _format_price(float(post.price or 0.0)),
-        "cover_url": post.cover_url,
+        "cover_url": _cover_data_url(post.cover_image, post.cover_content_type) or post.cover_url,
         "downloads": int(post.download_count or 0),
         "download_count_display": _compact_count(int(post.download_count or 0)),
         "likes": int(post.like_count or 0),
@@ -418,6 +432,8 @@ def _ensure_seeded_db() -> None:
                 instrument=str(entry.get("instrument") or ""),
                 price=float(entry.get("price") or 0.0),
                 cover_url=entry.get("cover_url"),
+                cover_image=entry.get("cover_image"),
+                cover_content_type=entry.get("cover_content_type"),
                 source_file_name=entry.get("source_file_name"),
                 tags=list(entry.get("tags") or []),
                 is_public=bool(entry.get("is_public", True)),
@@ -670,6 +686,8 @@ def publish_community_score(payload: dict[str, Any], current_user: dict[str, Any
                     instrument=instrument,
                     price=price,
                     cover_url=str(payload.get("cover_url") or f"https://api.dicebear.com/7.x/initials/svg?seed={score_id}"),
+                    cover_image=payload.get("cover_image"),
+                    cover_content_type=payload.get("cover_content_type"),
                     source_file_name=str(payload.get("source_file_name") or ""),
                     tags=tags,
                     is_public=bool(payload.get("is_public", True)),
@@ -698,6 +716,9 @@ def publish_community_score(payload: dict[str, Any], current_user: dict[str, Any
                     or post.cover_url
                     or f"https://api.dicebear.com/7.x/initials/svg?seed={score_id}"
                 )
+                if "cover_image" in payload:
+                    post.cover_image = payload.get("cover_image")
+                    post.cover_content_type = payload.get("cover_content_type")
                 post.source_file_name = str(payload.get("source_file_name") or post.source_file_name or "")
                 post.tags = tags
                 post.is_public = bool(payload.get("is_public", True))
@@ -731,6 +752,10 @@ def publish_community_score(payload: dict[str, Any], current_user: dict[str, Any
             or existing.get("cover_url")
             or f"https://api.dicebear.com/7.x/initials/svg?seed={score_id}"
         ),
+        "cover_image": payload.get("cover_image") if "cover_image" in payload else existing.get("cover_image"),
+        "cover_content_type": payload.get("cover_content_type")
+        if "cover_content_type" in payload
+        else existing.get("cover_content_type"),
         "downloads": int(existing.get("downloads", 0)),
         "likes_base": int(existing.get("likes_base", 0)),
         "favorites_base": int(existing.get("favorites_base", 0)),

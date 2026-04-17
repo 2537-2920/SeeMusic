@@ -8,6 +8,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Iterator
 from uuid import uuid4
 
+import base64
+from fastapi import HTTPException
+
 from sqlalchemy import select
 
 
@@ -15,7 +18,7 @@ COMMUNITY_TZ = timezone(timedelta(hours=8))
 DEFAULT_AUTHOR = "社区用户"
 COMMUNITY_TAGS = ["精选", "流行", "古典", "爵士", "ACG", "指弹吉他"]
 
-USE_DB: bool = False
+USE_DB: bool = True
 _session_factory = None
 
 COMMUNITY_SCORES: dict[str, dict[str, Any]] = {}
@@ -674,6 +677,7 @@ def publish_community_score(payload: dict[str, Any], current_user: dict[str, Any
                     favorite_count=0,
                     download_count=0,
                     view_count=0,
+                    file_content_base64=payload.get("file_content_base64"),
                     create_time=now,
                     update_time=now,
                 )
@@ -698,6 +702,7 @@ def publish_community_score(payload: dict[str, Any], current_user: dict[str, Any
                 post.tags = tags
                 post.is_public = bool(payload.get("is_public", True))
                 post.update_time = now
+                post.file_content_base64 = payload.get("file_content_base64")
                 session.add(post)
                 session.flush()
 
@@ -942,3 +947,17 @@ def register_score_download(score_id: str) -> dict[str, Any]:
         "download_url": entry.get("download_url") or f"/api/v1/community/scores/{score_id}/download",
         "file_name": entry.get("source_file_name") or f"{score_id}.pdf",
     }
+
+def get_score_pdf_content(score_id: str) -> tuple[bytes, str]:
+    from backend.db.models import CommunityPost
+    with _session_scope() as db:
+        post = db.query(CommunityPost).filter_by(score_id=score_id).first()
+        
+        if not post or not post.file_content_base64:
+            raise HTTPException(status_code=404, detail="乐谱文件不存在")
+        
+        try:
+            pdf_bytes = base64.b64decode(post.file_content_base64)
+            return pdf_bytes, post.source_file_name or "score.pdf"
+        except Exception as e:
+            raise HTTPException(status_code=500, detail="文件解码失败")

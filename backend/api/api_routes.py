@@ -10,6 +10,8 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
+from fastapi import Response
+from urllib.parse import quote
 
 from backend.api.schemas import (
     AnalyzeRhythmRequest,
@@ -39,6 +41,7 @@ from backend.core.pitch.realtime_tuning import analyze_audio_frame
 from backend.services import analysis_service
 from backend.services.report_service import export_report
 from backend.services.community_service import (
+    get_score_pdf_content,
     add_community_comment,
     get_community_score_detail as get_community_score_detail_data,
     list_community_comments as list_community_comments_data,
@@ -789,6 +792,7 @@ def publish_community_score(payload: CommunityScorePublishRequest, authorization
 @router.post("/community/scores/upload")
 async def upload_community_score(
     file: UploadFile = File(...),
+    file_content_base64: str = Form(...), 
     title: str = Form(...),
     style: str = Form("精选"),
     instrument: str = Form("乐谱"),
@@ -806,6 +810,7 @@ async def upload_community_score(
     current_user = optional_user_from_authorization(authorization)
     payload = {
         "title": title,
+        "file_content_base64": file_content_base64,
         "description": description,
         "style": style,
         "instrument": instrument,
@@ -859,10 +864,21 @@ def post_community_score_comment(
 @router.post("/community/scores/{score_id}/download")
 def download_community_score(score_id: str):
     try:
-        return ok(register_score_download(score_id))
+        register_score_download(score_id)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail=str(exc))
 
+    pdf_bytes, filename = get_score_pdf_content(score_id)
+    
+    encoded_filename = quote(filename)
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+         headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
+        }
+    )
 
 @router.post("/community/scores/{score_id}/like")
 def like_score(score_id: str, authorization: str = Header(default="")):

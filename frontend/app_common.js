@@ -94,6 +94,8 @@
         const headers = authHeaders(config.headers);
         let body = config.body;
 
+        const isBlob = config.responseType === 'blob';
+
         if (body && !(body instanceof FormData)) {
             headers["Content-Type"] = "application/json";
             body = JSON.stringify(body);
@@ -109,8 +111,13 @@
         const payload = contentType.includes("application/json") ? await response.json() : null;
 
         if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
             const detail = payload && (payload.detail || payload.message);
             throw new Error(detail || `Request failed (${response.status})`);
+        }
+
+        if (isBlob) {
+            return await response.blob(); 
         }
 
         if (payload && Object.prototype.hasOwnProperty.call(payload, "code")) {

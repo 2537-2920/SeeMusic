@@ -94,18 +94,12 @@ function updateSecurity(user, historyItems) {
 
 function renderUser(user) {
     const currentUser = user || getCurrentUser();
-<<<<<<< Updated upstream
-    document.getElementById("profile-avatar").src = avatarUrl(currentUser && currentUser.username ? currentUser.username : "SeeMusic");
-    document.getElementById("profile-name").textContent = currentUser && currentUser.username ? currentUser.username : "未登录用户";
-    document.getElementById("profile-email").textContent = currentUser && currentUser.email ? currentUser.email : "登录后可查看记录";
-=======
     const avatarElement = document.getElementById("profile-avatar");
     avatarElement.src = avatarUrl(currentUser);
     document.getElementById("profile-name").textContent = (currentUser && currentUser.username) ? currentUser.username : "未登录用户";
     document.getElementById("profile-email").textContent = (currentUser && currentUser.email)
         ? currentUser.email
         : "登录后可查看数据库中的个人记录";
->>>>>>> Stashed changes
 }
 
 function renderStats(items) {

@@ -126,6 +126,24 @@
             <p class="text-[10px] text-gray-300 mt-2">支持 PDF, MIDI, MusicXML (Max 20MB)</p>
             <p class="text-[10px] text-[#457b9d] mt-2" id="upload-file-name">尚未选择文件</p>
         </div>
+        <div id="upload-cover-section" class="rounded-3xl border border-gray-100 bg-gray-50/70 p-5 mb-8">
+            <div class="flex items-center justify-between gap-4 mb-4">
+                <div>
+                    <p class="text-sm font-semibold text-gray-700">选择作品封面</p>
+                    <p class="text-[11px] text-gray-400 mt-1">支持 PNG、JPG、WEBP、GIF，未上传时会自动生成默认封面。</p>
+                </div>
+                <input accept="image/png,image/jpeg,image/webp,image/gif" hidden id="upload-cover-input" type="file"/>
+                <button class="shrink-0 px-4 py-2 rounded-full bg-white text-[#1d3557] text-xs font-bold border border-gray-200 hover:border-[#a8dadc] transition-all" id="upload-cover-trigger" type="button">选择封面</button>
+            </div>
+            <div class="border-2 border-dashed border-gray-200 rounded-3xl p-6 text-center hover:border-[#a8dadc] transition-colors cursor-pointer" id="upload-cover-dropzone">
+                <div class="hidden w-28 h-28 rounded-2xl overflow-hidden bg-white shadow-sm mx-auto mb-4" id="upload-cover-preview-frame">
+                    <img alt="封面预览" class="w-full h-full object-cover" id="upload-cover-preview" src=""/>
+                </div>
+                <iconify-icon class="text-4xl text-gray-200 mb-3" icon="solar:gallery-add-bold-duotone" id="upload-cover-placeholder-icon"></iconify-icon>
+                <p class="text-sm text-gray-500" id="upload-cover-hint">拖拽图片到这里 或 <span class="text-[#457b9d] font-bold">点击上传封面</span></p>
+                <p class="text-[10px] text-[#457b9d] mt-2" id="upload-cover-name">尚未选择封面</p>
+            </div>
+        </div>
         <div class="space-y-4 mb-8">
             <input class="w-full bg-gray-50 border-none rounded-xl py-3 px-4 text-sm outline-none" id="upload-title-input" placeholder="作品标题" type="text"/>
             <textarea class="w-full bg-gray-50 border-none rounded-xl py-3 px-4 text-sm outline-none min-h-[100px]" id="upload-description-input" placeholder="补充一点作品说明，方便社区用户理解你的版本"></textarea>
@@ -146,6 +164,45 @@
         </div>
         <p class="hidden text-xs rounded-xl px-4 py-3 mb-4" id="upload-status"></p>
         <button class="w-full bg-[#1d3557] text-white py-4 rounded-2xl font-bold shadow-lg shadow-blue-100 hover:opacity-90 transition-all" id="upload-submit-btn" type="button">发布作品</button>
+    </div>
+</div>
+
+<div class="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] hidden items-center justify-center p-6" id="upload-cover-crop-modal">
+    <div class="bg-white w-full max-w-5xl rounded-[32px] p-6 md:p-8 shadow-2xl scale-in-center">
+        <div class="flex items-start justify-between gap-4 mb-6">
+            <div>
+                <h2 class="text-2xl font-bold text-gray-800">裁剪封面</h2>
+                <p class="text-sm text-gray-400 mt-2">拖动图片调整位置，滑动缩放条控制范围，最终封面会按 4:3 比例保存。</p>
+            </div>
+            <button class="text-gray-400 hover:text-gray-600" id="upload-cover-crop-close" type="button">
+                <iconify-icon class="text-2xl" icon="solar:close-circle-bold"></iconify-icon>
+            </button>
+        </div>
+        <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px] items-start">
+            <div>
+                <div class="relative aspect-[4/3] rounded-[28px] overflow-hidden border border-gray-100 bg-[#f7fbfc]" id="upload-cover-crop-viewport">
+                    <div class="absolute inset-0 community-cover-crop-grid"></div>
+                    <img alt="封面裁剪图" class="absolute left-1/2 top-1/2 max-w-none select-none" draggable="false" id="upload-cover-crop-image" src=""/>
+                    <div class="absolute inset-0 pointer-events-none border border-white/70 rounded-[28px] shadow-[inset_0_0_0_9999px_rgba(15,23,42,0.06)]"></div>
+                </div>
+                <div class="flex items-center justify-between gap-4 mt-4">
+                    <label class="flex-1 text-sm text-gray-500" for="upload-cover-crop-zoom">
+                        缩放
+                        <input class="mt-2 w-full accent-[#457b9d]" id="upload-cover-crop-zoom" max="3" min="1" step="0.01" type="range" value="1"/>
+                    </label>
+                    <button class="shrink-0 px-4 py-2 rounded-full border border-gray-200 text-sm font-semibold text-gray-600 hover:border-[#a8dadc] hover:text-[#1d3557] transition-all" id="upload-cover-crop-reset" type="button">重置位置</button>
+                </div>
+            </div>
+            <aside class="rounded-[28px] border border-gray-100 bg-gray-50/80 p-5">
+                <p class="text-sm font-semibold text-gray-700">实时预览</p>
+                <p class="text-xs text-gray-400 mt-1">这个预览会和社区卡片里看到的封面一致。</p>
+                <canvas class="w-full aspect-[4/3] mt-4 rounded-2xl bg-white border border-gray-100 shadow-sm" height="240" id="upload-cover-crop-preview" width="320"></canvas>
+                <div class="grid grid-cols-2 gap-3 mt-6">
+                    <button class="px-4 py-3 rounded-2xl bg-white border border-gray-200 text-sm font-semibold text-gray-600 hover:border-[#a8dadc] transition-all" id="upload-cover-crop-cancel" type="button">取消</button>
+                    <button class="px-4 py-3 rounded-2xl bg-[#1d3557] text-white text-sm font-semibold shadow-lg shadow-blue-100 hover:opacity-90 transition-all" id="upload-cover-crop-apply" type="button">使用封面</button>
+                </div>
+            </aside>
+        </div>
     </div>
 </div>
 

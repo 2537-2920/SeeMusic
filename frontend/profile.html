@@ -6,7 +6,7 @@
 <title>个人中心 - SeeMusic</title>
 <script src="https://modao.cc/agent-py/static/source/js/tailwindcss.3.4.3.js"></script>
 <script src="https://modao.cc/agent-py/static/source/js/iconify-icon.min.1.0.7.js"></script>
-<link rel="stylesheet" href="profile.css"/>
+<link rel="stylesheet" href="profile.css?v=2"/>
 </head>
 <body class="p-8 md:p-12">
 
@@ -42,7 +42,12 @@
 <iconify-icon icon="solar:refresh-bold"></iconify-icon>
 </button>
 </div>
-<h2 class="text-2xl font-bold" id="profile-name">未登录用户</h2>
+        <div class="flex items-center justify-center gap-2 mb-1">
+            <h2 class="text-2xl font-bold" id="profile-name">未登录用户</h2>
+            <button id="open-edit-modal-btn" class="p-1.5 rounded-lg text-gray-300 hover:text-[#457b9d] hover:bg-[#457b9d]/5 transition-all" title="修改个人详情">
+                <iconify-icon icon="solar:pen-new-square-bold-duotone" class="text-xl"></iconify-icon>
+            </button>
+        </div>
 <p class="text-gray-400 text-sm mb-6" id="profile-email">登录后可查看数据库中的个人记录</p>
 <div class="w-full flex justify-around border-t border-gray-100 pt-6">
 <div>
@@ -85,23 +90,26 @@
 </div>
 
 <div class="lg:col-span-2 flex flex-col gap-8">
-<section class="card">
-<h3 class="section-title">
-<iconify-icon icon="solar:chart-square-bold-duotone"></iconify-icon> 最近 7 天活跃数据
-                </h3>
-<div class="h-48 flex items-end justify-between gap-4 px-4 bg-gray-50 rounded-2xl pt-8 pb-4" id="activity-chart"></div>
-<p class="mt-4 text-xs text-gray-400" id="activity-summary">登录后将从后端拉取个人历史并生成统计。</p>
-</section>
 
 <section class="card">
-<h3 class="section-title">
-<iconify-icon icon="solar:history-bold-duotone"></iconify-icon> 最近操作记录
-                </h3>
-<div class="space-y-4" id="history-list">
-<div class="rounded-2xl border border-dashed border-gray-200 p-6 text-center text-sm text-gray-400">
-尚未加载任何历史记录
-</div>
-</div>
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
+        <h3 class="section-title mb-0">
+            <iconify-icon icon="solar:history-bold-duotone"></iconify-icon> 历史看板
+        </h3>
+        <!-- 功能模块分类切换 -->
+        <div class="flex p-1.5 bg-gray-100/50 rounded-2xl border border-gray-100" id="history-filter-tabs">
+            <button class="history-tab active" data-filter="all">全部</button>
+            <button class="history-tab" data-filter="audio">音频转谱</button>
+            <button class="history-tab" data-filter="transcription">音乐评估</button>
+            <button class="history-tab" data-filter="community">社区贡献</button>
+        </div>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="history-list">
+        <!-- 动态生成：根据不同模块展示不同样式的详情卡片 -->
+        <div class="col-span-full rounded-2xl border border-dashed border-gray-200 p-12 text-center text-sm text-gray-400">
+            正在加载您的音乐足迹...
+        </div>
+    </div>
 </section>
 
 <section class="card">
@@ -160,6 +168,78 @@
 <footer class="mt-12 text-center text-gray-300 text-xs pb-12">
 <p>© 2026 SeeMusic Studio. All Rights Reserved.</p>
 </footer>
+
+<!-- 个人详情修改弹窗 (毛玻璃风格) -->
+<div id="edit-profile-modal" class="fixed inset-0 z-[100] flex items-center justify-center p-4 opacity-0 pointer-events-none transition-all duration-300">
+    <div class="absolute inset-0 bg-[#1d3557]/20 backdrop-blur-md" id="edit-modal-overlay"></div>
+    <div class="relative w-full max-w-md bg-white/80 backdrop-blur-xl rounded-[32px] shadow-2xl border border-white/50 p-8 transform scale-95 transition-all duration-300 overflow-hidden">
+        <div class="flex justify-between items-center mb-8">
+            <div>
+                <h3 class="text-xl font-bold text-[#1d3557]">完善个人细节</h3>
+                <p class="text-xs text-gray-500 mt-1">你的主页，由你定义</p>
+            </div>
+            <button class="w-10 h-10 rounded-full bg-gray-100/50 flex items-center justify-center text-gray-400 hover:text-red-400 transition-colors" id="close-edit-modal-btn">
+                <iconify-icon icon="solar:close-circle-bold-duotone" class="text-2xl"></iconify-icon>
+            </button>
+        </div>
+
+        <form id="edit-profile-form" class="space-y-6">
+            <!-- 头像更换区域 -->
+            <div class="flex flex-col items-center mb-6">
+                <div class="relative group cursor-pointer" id="avatar-upload-trigger">
+                    <div class="w-24 h-24 rounded-full border-4 border-white shadow-lg overflow-hidden transition-transform group-hover:scale-105">
+                        <img id="edit-avatar-preview" src="https://api.dicebear.com/7.x/avataaars/svg?seed=Felix" class="w-full h-full object-cover"/>
+                    </div>
+                    <div class="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <iconify-icon icon="solar:camera-bold" class="text-white text-2xl"></iconify-icon>
+                    </div>
+                </div>
+                <input type="file" id="avatar-file-input" class="hidden" accept="image/*"/>
+                <p class="text-[9px] text-gray-400 mt-2 uppercase font-black tracking-widest">点击圆形区域更换头像</p>
+            </div>
+
+            <div class="space-y-2">
+                <label class="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1">昵称 / Nickname</label>
+                <div class="relative">
+                    <iconify-icon icon="solar:user-circle-bold-duotone" class="absolute left-4 top-1/2 -translate-y-1/2 text-[#457b9d] text-lg"></iconify-icon>
+                    <input type="text" id="edit-nickname" class="w-full bg-white/50 border border-gray-100 focus:border-[#457b9d] rounded-2xl py-3 pl-12 pr-4 text-sm outline-none transition-all" placeholder="输入你的大名"/>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div class="space-y-2">
+                    <label class="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1">出生日期</label>
+                    <input type="date" id="edit-birthday" class="w-full bg-white/50 border border-gray-100 focus:border-[#457b9d] rounded-2xl py-3 px-4 text-xs outline-none transition-all"/>
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1">年龄 / Age</label>
+                    <input type="number" id="edit-age" readonly class="w-full bg-gray-50/50 border border-gray-100 rounded-2xl py-3 px-4 text-sm text-gray-400 outline-none" placeholder="自动计算"/>
+                </div>
+            </div>
+
+            <div class="space-y-2">
+                <label class="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1">音乐倾向 / Music Taste</label>
+                <div class="flex flex-wrap gap-2" id="music-taste-chips">
+                    <span class="taste-chip" data-value="Classical">古典</span>
+                    <span class="taste-chip" data-value="Pop">流行</span>
+                    <span class="taste-chip active" data-value="Jazz">爵士</span>
+                    <span class="taste-chip" data-value="Rock">摇滚</span>
+                    <span class="taste-chip" data-value="ACG">二次元</span>
+                    <span class="taste-chip" data-value="Piano">纯钢琴</span>
+                </div>
+            </div>
+
+            <div class="space-y-2">
+                <label class="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1">个人简介 / Bio</label>
+                <textarea id="edit-bio" class="w-full bg-white/50 border border-gray-100 focus:border-[#457b9d] rounded-2xl py-3 px-4 text-sm outline-none transition-all min-h-[80px]" placeholder="用一句话介绍你的音乐灵魂..."></textarea>
+            </div>
+
+            <button type="submit" class="w-full py-4 rounded-2xl bg-gradient-to-r from-[#457b9d] to-[#1d3557] text-white font-bold text-sm shadow-xl shadow-blue-900/10 hover:shadow-blue-900/20 active:scale-[0.98] transition-all mt-4">
+                保存修改
+            </button>
+        </form>
+    </div>
+</div>
 
 <script src="app_common.js"></script>
 <script src="profile.js"></script>

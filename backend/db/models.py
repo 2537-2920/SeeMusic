@@ -14,6 +14,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -173,6 +174,8 @@ class CommunityPost(Base):
     instrument: Mapped[str | None] = mapped_column(String(64), nullable=True)
     price: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     cover_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    cover_image: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    cover_content_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     source_file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     file_content_base64: Mapped[str | None] = mapped_column(LONGTEXT_COMPAT, nullable=True)
     file_content_type: Mapped[str] = mapped_column(
@@ -350,7 +353,6 @@ class UserToken(Base):
     token: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
     expired_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)
-
 
 class UserPreference(Base):
     __tablename__ = "user_preference"

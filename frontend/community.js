@@ -22,6 +22,12 @@ const scoreGrid = document.getElementById("score-grid");
 const headerAvatar = document.getElementById("header-avatar");
 const uploadFileInput = document.getElementById("upload-file-input");
 const uploadFileName = document.getElementById("upload-file-name");
+const uploadCoverInput = document.getElementById("upload-cover-input");
+const uploadCoverName = document.getElementById("upload-cover-name");
+const uploadCoverPreview = document.getElementById("upload-cover-preview");
+const uploadCoverPreviewFrame = document.getElementById("upload-cover-preview-frame");
+const uploadCoverPlaceholderIcon = document.getElementById("upload-cover-placeholder-icon");
+const uploadCoverHint = document.getElementById("upload-cover-hint");
 const uploadStatus = document.getElementById("upload-status");
 const uploadTitleInput = document.getElementById("upload-title-input");
 const uploadDescriptionInput = document.getElementById("upload-description-input");
@@ -30,6 +36,16 @@ const uploadPriceInput = document.getElementById("upload-price-input");
 const uploadInstrumentInput = document.getElementById("upload-instrument-input");
 const uploadTagsInput = document.getElementById("upload-tags-input");
 const uploadSubmitBtn = document.getElementById("upload-submit-btn");
+const uploadCoverTrigger = document.getElementById("upload-cover-trigger");
+const uploadCoverCropModal = document.getElementById("upload-cover-crop-modal");
+const uploadCoverCropViewport = document.getElementById("upload-cover-crop-viewport");
+const uploadCoverCropImage = document.getElementById("upload-cover-crop-image");
+const uploadCoverCropPreview = document.getElementById("upload-cover-crop-preview");
+const uploadCoverCropZoom = document.getElementById("upload-cover-crop-zoom");
+const uploadCoverCropResetBtn = document.getElementById("upload-cover-crop-reset");
+const uploadCoverCropCancelBtn = document.getElementById("upload-cover-crop-cancel");
+const uploadCoverCropApplyBtn = document.getElementById("upload-cover-crop-apply");
+const uploadCoverCropCloseBtn = document.getElementById("upload-cover-crop-close");
 const detailEmpty = document.getElementById("detail-empty");
 const detailContent = document.getElementById("detail-content");
 const commentInput = document.getElementById("comment-input");
@@ -40,6 +56,30 @@ const detailFavoriteBtn = document.getElementById("detail-favorite-btn");
 const detailShareBtn = document.getElementById("detail-share-btn");
 
 let searchTimer = null;
+let selectedCoverFile = null;
+let coverCropState = createCoverCropState();
+
+function createCoverCropState() {
+    return {
+        file: null,
+        dataUrl: "",
+        image: null,
+        zoom: 1,
+        offsetX: 0,
+        offsetY: 0,
+        viewportWidth: 0,
+        viewportHeight: 0,
+        displayScale: 1,
+        displayWidth: 0,
+        displayHeight: 0,
+        dragging: false,
+        pointerId: null,
+        dragStartX: 0,
+        dragStartY: 0,
+        startOffsetX: 0,
+        startOffsetY: 0,
+    };
+}
 
 function setStatus(message, isError = false) {
     statusEl.textContent = message;
@@ -54,6 +94,277 @@ function setUploadStatus(message, isError = false) {
     }
     uploadStatus.className = `text-xs rounded-xl px-4 py-3 mb-4 ${isError ? "bg-red-50 text-red-600" : "bg-blue-50 text-blue-700"}`;
     uploadStatus.textContent = message;
+}
+function formatFileSize(file) {
+    if (!file) return "";
+    const size = file.size;
+    if (size < 1024) return `${file.name} (${size} B)`;
+    if (size < 1024 * 1024) return `${file.name} (${(size / 1024).toFixed(1)} KB)`;
+    return `${file.name} (${(size / (1024 * 1024)).toFixed(1)} MB)`;
+}
+
+function setCoverSelection(file) {
+    selectedCoverFile = file;
+    if (!file) {
+        uploadCoverInput.value = "";
+        uploadCoverName.textContent = "尚未选择封面";
+        uploadCoverPreview.src = "";
+        uploadCoverPreviewFrame.classList.add("hidden");
+        uploadCoverPlaceholderIcon.classList.remove("hidden");
+        if (uploadCoverHint) {
+            uploadCoverHint.innerHTML = '拖拽图片到这里 或 <span class="text-[#457b9d] font-bold">点击上传封面</span>';
+        }
+        return;
+    }
+
+    if (file.type && !file.type.startsWith("image/")) {
+        setUploadStatus("封面文件必须是图片格式。", true);
+        selectedCoverFile = null;
+        return;
+    }
+
+    uploadCoverName.textContent = formatFileSize(file);
+    if (uploadCoverHint) {
+        uploadCoverHint.innerHTML = '封面已准备好，可再次点击上传重新裁剪';
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+        uploadCoverPreview.src = String(reader.result || "");
+        uploadCoverPreviewFrame.classList.remove("hidden");
+        uploadCoverPlaceholderIcon.classList.add("hidden");
+    };
+    reader.readAsDataURL(file);
+}
+
+function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+}
+
+function resetCoverCropper() {
+    coverCropState = createCoverCropState();
+    uploadCoverCropImage.src = "";
+    uploadCoverCropImage.style.width = "";
+    uploadCoverCropImage.style.height = "";
+    uploadCoverCropImage.style.transform = "translate(-50%, -50%)";
+    uploadCoverCropZoom.value = "1";
+    const ctx = uploadCoverCropPreview.getContext("2d");
+    ctx.clearRect(0, 0, uploadCoverCropPreview.width, uploadCoverCropPreview.height);
+    uploadCoverCropViewport.classList.remove("is-dragging");
+}
+
+function closeCoverCropper() {
+    toggleModal("upload-cover-crop-modal", false);
+    resetCoverCropper();
+    uploadCoverInput.value = "";
+}
+
+function openCoverCropper(file) {
+    if (!file) {
+        return;
+    }
+    if (file.type && !file.type.startsWith("image/")) {
+        setUploadStatus("封面文件必须是图片格式。", true);
+        return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+        setUploadStatus("封面图片不能超过 5MB。", true);
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+        const dataUrl = String(reader.result || "");
+        const image = new Image();
+        image.onload = () => {
+            coverCropState = createCoverCropState();
+            coverCropState.file = file;
+            coverCropState.dataUrl = dataUrl;
+            coverCropState.image = image;
+            uploadCoverCropImage.src = dataUrl;
+            uploadCoverCropZoom.value = "1";
+            toggleModal("upload-cover-crop-modal", true);
+            window.requestAnimationFrame(() => syncCoverCropBounds(true));
+        };
+        image.onerror = () => setUploadStatus("封面图片读取失败，请换一张再试。", true);
+        image.src = dataUrl;
+    };
+    reader.onerror = () => setUploadStatus("封面图片读取失败，请换一张再试。", true);
+    reader.readAsDataURL(file);
+}
+
+function syncCoverCropBounds(resetPosition = false) {
+    if (!coverCropState.image) {
+        return;
+    }
+    const viewportWidth = uploadCoverCropViewport.clientWidth;
+    const viewportHeight = uploadCoverCropViewport.clientHeight;
+    if (!viewportWidth || !viewportHeight) {
+        return;
+    }
+
+    const baseScale = Math.max(
+        viewportWidth / coverCropState.image.naturalWidth,
+        viewportHeight / coverCropState.image.naturalHeight,
+    );
+    coverCropState.viewportWidth = viewportWidth;
+    coverCropState.viewportHeight = viewportHeight;
+    coverCropState.displayScale = baseScale * coverCropState.zoom;
+    coverCropState.displayWidth = coverCropState.image.naturalWidth * coverCropState.displayScale;
+    coverCropState.displayHeight = coverCropState.image.naturalHeight * coverCropState.displayScale;
+
+    if (resetPosition) {
+        coverCropState.offsetX = 0;
+        coverCropState.offsetY = 0;
+    }
+
+    const maxOffsetX = Math.max(0, (coverCropState.displayWidth - viewportWidth) / 2);
+    const maxOffsetY = Math.max(0, (coverCropState.displayHeight - viewportHeight) / 2);
+    coverCropState.offsetX = clamp(coverCropState.offsetX, -maxOffsetX, maxOffsetX);
+    coverCropState.offsetY = clamp(coverCropState.offsetY, -maxOffsetY, maxOffsetY);
+
+    uploadCoverCropImage.style.width = `${coverCropState.displayWidth}px`;
+    uploadCoverCropImage.style.height = `${coverCropState.displayHeight}px`;
+    uploadCoverCropImage.style.transform = `translate(-50%, -50%) translate(${coverCropState.offsetX}px, ${coverCropState.offsetY}px)`;
+    updateCoverCropPreview();
+}
+
+function getCoverCropSourceRect() {
+    const left = (coverCropState.viewportWidth - coverCropState.displayWidth) / 2 + coverCropState.offsetX;
+    const top = (coverCropState.viewportHeight - coverCropState.displayHeight) / 2 + coverCropState.offsetY;
+    return {
+        x: clamp((0 - left) / coverCropState.displayScale, 0, coverCropState.image.naturalWidth),
+        y: clamp((0 - top) / coverCropState.displayScale, 0, coverCropState.image.naturalHeight),
+        width: clamp(
+            coverCropState.viewportWidth / coverCropState.displayScale,
+            1,
+            coverCropState.image.naturalWidth,
+        ),
+        height: clamp(
+            coverCropState.viewportHeight / coverCropState.displayScale,
+            1,
+            coverCropState.image.naturalHeight,
+        ),
+    };
+}
+
+function updateCoverCropPreview() {
+    if (!coverCropState.image) {
+        return;
+    }
+    const ctx = uploadCoverCropPreview.getContext("2d");
+    const source = getCoverCropSourceRect();
+    ctx.clearRect(0, 0, uploadCoverCropPreview.width, uploadCoverCropPreview.height);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, uploadCoverCropPreview.width, uploadCoverCropPreview.height);
+    ctx.drawImage(
+        coverCropState.image,
+        source.x,
+        source.y,
+        source.width,
+        source.height,
+        0,
+        0,
+        uploadCoverCropPreview.width,
+        uploadCoverCropPreview.height,
+    );
+}
+
+function renameCoverFile(originalName, extension) {
+    const normalized = originalName || "community-cover";
+    if (/\.[^.]+$/.test(normalized)) {
+        return normalized.replace(/\.[^.]+$/, extension);
+    }
+    return `${normalized}${extension}`;
+}
+
+async function applyCoverCrop() {
+    if (!coverCropState.image || !coverCropState.file) {
+        return;
+    }
+
+    uploadCoverCropApplyBtn.disabled = true;
+    uploadCoverCropApplyBtn.textContent = "处理中...";
+
+    try {
+        const source = getCoverCropSourceRect();
+        const canvas = document.createElement("canvas");
+        canvas.width = 1200;
+        canvas.height = 900;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(
+            coverCropState.image,
+            source.x,
+            source.y,
+            source.width,
+            source.height,
+            0,
+            0,
+            canvas.width,
+            canvas.height,
+        );
+
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
+        if (!blob) {
+            throw new Error("封面裁剪失败");
+        }
+
+        const croppedFile = new File([blob], renameCoverFile(coverCropState.file.name, ".jpg"), {
+            type: "image/jpeg",
+        });
+        const transfer = new DataTransfer();
+        transfer.items.add(croppedFile);
+        uploadCoverInput.files = transfer.files;
+        setCoverSelection(croppedFile);
+        closeCoverCropper();
+        setUploadStatus("封面已裁剪完成，发布时会上传这张封面。");
+    } catch (error) {
+        setUploadStatus(error.message || "封面裁剪失败，请稍后重试。", true);
+    } finally {
+        uploadCoverCropApplyBtn.disabled = false;
+        uploadCoverCropApplyBtn.textContent = "使用封面";
+    }
+}
+
+function startCoverCropDrag(event) {
+    if (!coverCropState.image) {
+        return;
+    }
+    if (uploadCoverCropViewport.setPointerCapture) {
+        uploadCoverCropViewport.setPointerCapture(event.pointerId);
+    }
+    coverCropState.dragging = true;
+    coverCropState.pointerId = event.pointerId;
+    coverCropState.dragStartX = event.clientX;
+    coverCropState.dragStartY = event.clientY;
+    coverCropState.startOffsetX = coverCropState.offsetX;
+    coverCropState.startOffsetY = coverCropState.offsetY;
+    uploadCoverCropViewport.classList.add("is-dragging");
+    event.preventDefault();
+}
+
+function moveCoverCropDrag(event) {
+    if (!coverCropState.dragging || coverCropState.pointerId !== event.pointerId) {
+        return;
+    }
+    coverCropState.offsetX = coverCropState.startOffsetX + (event.clientX - coverCropState.dragStartX);
+    coverCropState.offsetY = coverCropState.startOffsetY + (event.clientY - coverCropState.dragStartY);
+    syncCoverCropBounds(false);
+}
+
+function stopCoverCropDrag(event) {
+    if (coverCropState.pointerId !== null && event.pointerId !== coverCropState.pointerId) {
+        return;
+    }
+    if (event.pointerId !== undefined && uploadCoverCropViewport.releasePointerCapture) {
+        try {
+            uploadCoverCropViewport.releasePointerCapture(event.pointerId);
+        } catch { }
+    }
+    coverCropState.dragging = false;
+    coverCropState.pointerId = null;
+    uploadCoverCropViewport.classList.remove("is-dragging");
 }
 
 async function saveHistory(payload) {
@@ -391,6 +702,7 @@ async function handleCommentSubmit() {
 
 async function handleUploadSubmit() {
     const file = uploadFileInput.files && uploadFileInput.files[0];
+    const coverFile = selectedCoverFile;
     const title = uploadTitleInput.value.trim();
     const style = uploadStyleInput.value.trim();
     const instrument = uploadInstrumentInput.value.trim();
@@ -423,6 +735,9 @@ async function handleUploadSubmit() {
     formData.append("price", String(Number.isFinite(price) ? price : 0));
     formData.append("description", description);
     formData.append("tags", tags);
+    if (coverFile) {
+        formData.append("cover_file", coverFile);
+    }
 
     uploadSubmitBtn.disabled = true;
     uploadSubmitBtn.textContent = "发布中...";
@@ -460,6 +775,7 @@ async function handleUploadSubmit() {
 function resetUploadForm() {
     uploadFileInput.value = "";
     uploadFileName.textContent = "尚未选择文件";
+    setCoverSelection(null);
     uploadTitleInput.value = "";
     uploadDescriptionInput.value = "";
     uploadStyleInput.value = "选择风格";
@@ -571,7 +887,14 @@ function bindEvents() {
 
     uploadFileInput.addEventListener("change", () => {
         const file = uploadFileInput.files && uploadFileInput.files[0];
-        uploadFileName.textContent = file ? `${file.name} (${Math.round(file.size / 1024)} KB)` : "尚未选择文件";
+        uploadFileName.textContent = file ? formatFileSize(file) : "尚未选择文件";
+    });
+
+    uploadCoverInput.addEventListener("change", () => {
+        const file = uploadCoverInput.files && uploadCoverInput.files[0];
+        if (file) {
+            openCoverCropper(file);
+        }
     });
 
     const uploadDropzone = document.getElementById("upload-dropzone").closest("div");
@@ -593,9 +916,55 @@ function bindEvents() {
         const transfer = new DataTransfer();
         transfer.items.add(file);
         uploadFileInput.files = transfer.files;
-        uploadFileName.textContent = `${file.name} (${Math.round(file.size / 1024)} KB)`;
+        uploadFileName.textContent = formatFileSize(file);
     });
 
+    const uploadCoverDropzone = document.getElementById("upload-cover-dropzone");
+    uploadCoverTrigger.addEventListener("click", () => uploadCoverInput.click());
+    uploadCoverDropzone.addEventListener("click", () => uploadCoverInput.click());
+    uploadCoverDropzone.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        uploadCoverDropzone.classList.add("border-[#a8dadc]");
+    });
+    uploadCoverDropzone.addEventListener("dragleave", () => {
+        uploadCoverDropzone.classList.remove("border-[#a8dadc]");
+    });
+    uploadCoverDropzone.addEventListener("drop", (event) => {
+        event.preventDefault();
+        uploadCoverDropzone.classList.remove("border-[#a8dadc]");
+        const file = event.dataTransfer.files && event.dataTransfer.files[0];
+        if (!file) {
+            return;
+        }
+        const transfer = new DataTransfer();
+        transfer.items.add(file);
+        uploadCoverInput.files = transfer.files;
+        openCoverCropper(file);
+    });
+
+    uploadCoverCropViewport.addEventListener("pointerdown", startCoverCropDrag);
+    uploadCoverCropViewport.addEventListener("pointermove", moveCoverCropDrag);
+    uploadCoverCropViewport.addEventListener("pointerup", stopCoverCropDrag);
+    uploadCoverCropViewport.addEventListener("pointercancel", stopCoverCropDrag);
+    uploadCoverCropViewport.addEventListener("lostpointercapture", stopCoverCropDrag);
+    uploadCoverCropZoom.addEventListener("input", () => {
+        coverCropState.zoom = Number(uploadCoverCropZoom.value || 1);
+        syncCoverCropBounds(false);
+    });
+    uploadCoverCropResetBtn.addEventListener("click", () => {
+        coverCropState.zoom = 1;
+        uploadCoverCropZoom.value = "1";
+        syncCoverCropBounds(true);
+    });
+    uploadCoverCropCancelBtn.addEventListener("click", closeCoverCropper);
+    uploadCoverCropCloseBtn.addEventListener("click", closeCoverCropper);
+    uploadCoverCropApplyBtn.addEventListener("click", applyCoverCrop);
+    uploadCoverCropModal.addEventListener("click", (event) => {
+        if (event.target === uploadCoverCropModal) {
+            closeCoverCropper();
+        }
+    });
+    window.addEventListener("resize", () => syncCoverCropBounds(false));
     uploadSubmitBtn.addEventListener("click", handleUploadSubmit);
 }
 

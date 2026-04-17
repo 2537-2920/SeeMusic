@@ -17,7 +17,7 @@ from fastapi import Header, HTTPException
 # ---------------------------------------------------------------------------
 # Mode toggle – flipped by conftest.py or application bootstrap
 # ---------------------------------------------------------------------------
-USE_DB: bool = False
+USE_DB: bool = True
 _session_factory = None  # set via set_db_session_factory()
 
 

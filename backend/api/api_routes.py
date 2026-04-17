@@ -31,6 +31,7 @@ from backend.api.schemas import (
     ScoreEditRequest,
     ScoreExportRequest,
     ScoreReExportRequest,
+    UserUpdatePayload,
     VariationSuggestionRequest,
 )
 from backend.core.generation.chord_generation import generate_chord_sequence
@@ -72,7 +73,7 @@ from backend.services.score_service import (
     undo_score,
 )
 from backend.user.history_manager import delete_history, list_history, save_history
-from backend.user.user_system import get_current_user, get_user_by_token, login_user, logout_user, register_user, get_preferences, update_preferences
+from backend.user.user_system import get_current_user, get_user_by_token, login_user, logout_user, register_user, get_preferences, update_preferences, update_user_info
 from backend.utils.audio_logger import record_audio_log, record_audio_processing_log, get_audio_logs, read_audio_logs_from_file
 
 # 引入节奏处理服务与项目配置项
@@ -1049,6 +1050,15 @@ def auth_logout(authorization: str = Header(default="")):
 @router.get("/users/me")
 def me(current_user: Dict[str, Any] = Depends(get_current_user)):
     return ok(current_user)
+
+
+@router.patch("/users/me")
+def update_me(payload: UserUpdatePayload, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """更新个人资料接口"""
+    # 提取有值的字段
+    updates = payload.model_dump(exclude_unset=True)
+    result = update_user_info(current_user["user_id"], updates)
+    return ok(result)
 
 
 @router.get("/users/me/history")

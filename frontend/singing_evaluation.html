@@ -95,13 +95,13 @@
             <p class="hidden text-sm rounded-2xl px-4 py-3 mb-8" id="evaluation-status"></p>
             
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div class="space-y-4">
+                <div class="space-y-4 evaluation-summary-container">
                     <h3 class="font-bold text-gray-700 flex items-center gap-2">
                         <iconify-icon class="text-green-500" icon="solar:document-text-bold"></iconify-icon>
                         评估摘要
                     </h3>
-                    <div class="pitch-graph p-4">
-                        <div class="space-y-4 relative z-10">
+                    <div class="pitch-graph summary-scroll-card p-4">
+                        <div class="summary-scroll-viewport space-y-4 relative z-10" style="height:100%;overflow-y:scroll;overflow-x:hidden;">
                             <div class="flex items-center justify-between">
                                 <span class="text-xs text-gray-400 uppercase tracking-wider font-bold">分析 ID</span>
                                 <span class="text-xs text-gray-600 font-medium" id="analysis-id-display">--</span>

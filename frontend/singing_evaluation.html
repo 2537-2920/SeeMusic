@@ -22,12 +22,12 @@
         <h1 class="text-xl font-bold text-[#1D3557]">歌唱评估与 AI 变奏</h1>
     </div>
     <div class="flex items-center gap-6">
-        <div class="text-sm text-gray-500 font-medium">当前日期：2026-04-01</div>
+        <div class="text-sm text-gray-500 font-medium">当前日期：<span id="current-date">--</span></div>
         <div class="flex items-center gap-2">
-            <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
-                <iconify-icon class="text-blue-500" icon="solar:user-circle-bold"></iconify-icon>
+            <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center overflow-hidden">
+                <img alt="avatar" class="w-full h-full object-cover" id="current-user-avatar" src="https://api.dicebear.com/7.x/avataaars/svg?seed=Music"/>
             </div>
-            <span class="text-sm font-semibold">音乐爱好者</span>
+            <span class="text-sm font-semibold" id="current-user-name">游客模式</span>
         </div>
     </div>
 </header>
@@ -40,35 +40,84 @@
             <div class="flex justify-between items-center mb-6">
                 <h2 class="text-xl font-bold flex items-center gap-2">
                     <iconify-icon class="text-blue-500" icon="solar:microphone-large-bold"></iconify-icon>
-                    上传演唱作品进行评估
+                    上传演唱音频进行评估
                 </h2>
-                <span class="text-xs text-gray-400">支持 MP4, MOV, MKV 格式</span>
+                <span class="text-xs text-gray-400">后端接口：`/api/v1/analyze/rhythm`</span>
             </div>
-            <div class="border-2 border-dashed border-gray-200 rounded-2xl h-48 flex flex-col items-center justify-center bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer group mb-6">
+
+            <input accept=".wav,.mp3,.ogg,.m4a,audio/*" hidden id="evaluation-file-input" type="file"/>
+            <div class="border-2 border-dashed border-gray-200 rounded-2xl h-48 flex flex-col items-center justify-center bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer group mb-6" id="evaluation-dropzone">
                 <iconify-icon class="text-4xl text-gray-300 group-hover:text-blue-400 transition-colors" icon="solar:upload-minimalistic-bold"></iconify-icon>
-                <p class="mt-2 text-sm text-gray-500">点击或拖拽视频文件到此处</p>
-                <p class="text-xs text-gray-400 mt-1">AI 将自动提取音频并分析音准与节奏</p>
+                <p class="mt-2 text-sm text-gray-500">点击或拖拽音频文件到此处</p>
+                <p class="text-xs text-gray-400 mt-1">当前后端评估接口读取音频文件并与参考音频 ID 做节奏比对</p>
+                <p class="text-xs text-[#457b9d] mt-3" id="evaluation-file-name">尚未选择文件</p>
             </div>
-            <button class="w-full py-4 rounded-xl action-btn font-bold text-lg mb-8">开始智能检测</button>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">参考音频 ID</label>
+                    <input class="w-full bg-gray-50 border-none rounded-xl py-3 px-4 text-sm outline-none" id="reference-id-input" placeholder="default_ref" type="text" value="default_ref"/>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">反馈语言</label>
+                    <select class="w-full bg-gray-50 border-none rounded-xl py-3 px-4 text-sm outline-none" id="evaluation-language">
+                        <option value="zh">中文</option>
+                        <option value="en">English</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">评分模型</label>
+                    <select class="w-full bg-gray-50 border-none rounded-xl py-3 px-4 text-sm outline-none" id="evaluation-model">
+                        <option value="balanced">balanced</option>
+                        <option value="strict">strict</option>
+                        <option value="lenient">lenient</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="flex items-end gap-4 mb-4">
+                <div class="w-48">
+                    <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">阈值 (ms)</label>
+                    <input class="w-full bg-gray-50 border-none rounded-xl py-3 px-4 text-sm outline-none" id="evaluation-threshold" min="1" step="1" type="number" value="50"/>
+                </div>
+                <button class="flex-1 py-4 rounded-xl action-btn font-bold text-lg mb-0" id="evaluation-submit-btn" type="button">开始智能检测</button>
+            </div>
+
+            <p class="hidden text-sm rounded-2xl px-4 py-3 mb-8" id="evaluation-status"></p>
             
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div class="space-y-4">
                     <h3 class="font-bold text-gray-700 flex items-center gap-2">
-                        <iconify-icon class="text-green-500" icon="solar:chart-square-bold"></iconify-icon>
-                        音准曲线分析
+                        <iconify-icon class="text-green-500" icon="solar:document-text-bold"></iconify-icon>
+                        评估摘要
                     </h3>
                     <div class="pitch-graph p-4">
-                        <div class="pitch-line"></div>
-                        <div class="user-pitch" style="width: 20%; left: 0; bottom: 42%;"></div>
-                        <div class="user-pitch bg-red-400" style="width: 10%; left: 20%; bottom: 50%;"></div>
-                        <div class="user-pitch" style="width: 30%; left: 30%; bottom: 40%;"></div>
-                        <div class="user-pitch bg-red-400" style="width: 15%; left: 60%; bottom: 35%;"></div>
-                        <div class="user-pitch" style="width: 25%; left: 75%; bottom: 41%;"></div>
-                        <div class="absolute bottom-2 left-4 text-[10px] text-gray-400 italic">红色区域表示音准偏移 &gt; 20 cents</div>
+                        <div class="space-y-4 relative z-10">
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs text-gray-400 uppercase tracking-wider font-bold">分析 ID</span>
+                                <span class="text-xs text-gray-600 font-medium" id="analysis-id-display">--</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs text-gray-400 uppercase tracking-wider font-bold">参考音频</span>
+                                <span class="text-xs text-gray-600 font-medium" id="analysis-ref-display">--</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs text-gray-400 uppercase tracking-wider font-bold">用户 BPM</span>
+                                <span class="text-xs text-gray-600 font-medium" id="analysis-user-bpm">--</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs text-gray-400 uppercase tracking-wider font-bold">参考 BPM</span>
+                                <span class="text-xs text-gray-600 font-medium" id="analysis-reference-bpm">--</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs text-gray-400 uppercase tracking-wider font-bold">缺失 / 多余拍点</span>
+                                <span class="text-xs text-gray-600 font-medium" id="analysis-beat-summary">--</span>
+                            </div>
+                        </div>
                     </div>
                     <div class="bg-blue-50 p-4 rounded-xl">
                         <h4 class="text-sm font-bold text-blue-700 mb-1">智能纠错建议</h4>
-                        <p class="text-xs text-blue-600 leading-relaxed">检测到在"<i>副歌第一句</i>"处存在半音偏高现象，建议练习时注意气息支撑，避免喉位过高。</p>
+                        <p class="text-xs text-blue-600 leading-relaxed" id="evaluation-feedback">等待后端返回分析结果。</p>
                     </div>
                 </div>
                 
@@ -76,36 +125,48 @@
                     <h3 class="font-bold text-gray-700 mb-4">综合评估报告</h3>
                     <div class="flex-1 border border-gray-100 rounded-2xl p-6 bg-gray-50/50">
                         <div class="flex items-end gap-2 mb-4">
-                            <span class="text-5xl font-bold text-[#457b9d]">88</span>
+                            <span class="text-5xl font-bold text-[#457b9d]" id="report-score">--</span>
                             <span class="text-xl font-bold text-gray-400 pb-1">/ 100</span>
-                            <span class="ml-auto px-3 py-1 bg-green-100 text-green-600 rounded-full text-xs font-bold">表现出色</span>
+                            <span class="ml-auto px-3 py-1 bg-gray-100 text-gray-500 rounded-full text-xs font-bold" id="report-grade">等待分析</span>
                         </div>
                         <div class="space-y-3 mb-6">
                             <div class="flex justify-between text-sm">
-                                <span class="text-gray-500">音准准确度</span>
-                                <span class="font-bold text-gray-700">92%</span>
+                                <span class="text-gray-500">音高准确度</span>
+                                <span class="font-bold text-gray-700" id="metric-pitch-accuracy">--</span>
                             </div>
                             <div class="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden">
-                                <div class="bg-blue-400 h-full" style="width: 92%"></div>
+                                <div class="bg-purple-400 h-full" id="bar-pitch-accuracy" style="width: 0%"></div>
                             </div>
                             <div class="flex justify-between text-sm">
-                                <span class="text-gray-500">节奏稳定性</span>
-                                <span class="font-bold text-gray-700">85%</span>
+                                <span class="text-gray-500">节奏准确度</span>
+                                <span class="font-bold text-gray-700" id="metric-accuracy">--</span>
                             </div>
                             <div class="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden">
-                                <div class="bg-yellow-400 h-full" style="width: 85%"></div>
+                                <div class="bg-blue-400 h-full" id="bar-accuracy" style="width: 0%"></div>
                             </div>
                             <div class="flex justify-between text-sm">
-                                <span class="text-gray-500">情感表达</span>
-                                <span class="font-bold text-gray-700">88%</span>
+                                <span class="text-gray-500">覆盖率</span>
+                                <span class="font-bold text-gray-700" id="metric-coverage">--</span>
                             </div>
                             <div class="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden">
-                                <div class="bg-purple-400 h-full" style="width: 88%"></div>
+                                <div class="bg-yellow-400 h-full" id="bar-coverage" style="width: 0%"></div>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-gray-500">一致性</span>
+                                <span class="font-bold text-gray-700" id="metric-consistency">--</span>
+                            </div>
+                            <div class="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden">
+                                <div class="bg-green-400 h-full" id="bar-consistency" style="width: 0%"></div>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-gray-500">平均偏差</span>
+                                <span class="font-bold text-gray-700" id="metric-deviation">--</span>
                             </div>
                         </div>
-                        <button class="w-full py-2 secondary-btn rounded-lg text-sm font-bold flex items-center justify-center gap-2">
+                        <button class="w-full py-2 secondary-btn rounded-lg text-sm font-bold flex items-center justify-center gap-2" id="report-export-btn" type="button">
                             <iconify-icon icon="solar:file-download-bold"></iconify-icon> 生成并导出完整 PDF 报告
                         </button>
+                        <p class="hidden text-xs rounded-xl px-4 py-3 mt-4" id="report-export-status"></p>
                     </div>
                 </div>
             </div>
@@ -113,29 +174,43 @@
 
         <section class="bg-white rounded-3xl p-8 card-shadow border border-gray-100">
             <h3 class="font-bold text-gray-700 mb-6 flex items-center gap-2">
-                <iconify-icon class="text-orange-500" icon="solar:music-notes-bold"></iconify-icon> 节奏可视化与错误高亮
+                <iconify-icon class="text-blue-500" icon="solar:graph-up-bold"></iconify-icon> 音高对比分析
             </h3>
-            <div class="flex flex-wrap gap-4 items-center">
-                <div class="p-4 rounded-xl border border-gray-100 bg-white flex-1 min-w-[200px]">
-                    <div class="text-xs text-gray-400 mb-2 uppercase tracking-wider font-bold">00:15 - 00:22</div>
-                    <div class="p-2 error-highlight rounded-lg">
-                        <span class="text-sm font-medium">切分音处理过快</span>
-                        <div class="text-[10px] text-red-500 mt-1">偏差: -120ms</div>
-                    </div>
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                <div class="border border-gray-100 rounded-xl p-4 bg-gray-50/50 text-center">
+                    <div class="text-xs text-gray-400 uppercase tracking-wider font-bold mb-1">音高准确度</div>
+                    <div class="text-2xl font-bold text-[#457b9d]" id="pitch-accuracy">--</div>
                 </div>
-                <div class="p-4 rounded-xl border border-gray-100 bg-white flex-1 min-w-[200px]">
-                    <div class="text-xs text-gray-400 mb-2 uppercase tracking-wider font-bold">01:05 - 01:10</div>
-                    <div class="p-2 error-highlight rounded-lg">
-                        <span class="text-sm font-medium">拖拍现象</span>
-                        <div class="text-[10px] text-red-500 mt-1">偏差: +85ms</div>
-                    </div>
+                <div class="border border-gray-100 rounded-xl p-4 bg-gray-50/50 text-center">
+                    <div class="text-xs text-gray-400 uppercase tracking-wider font-bold mb-1">平均偏差 (cents)</div>
+                    <div class="text-2xl font-bold text-[#457b9d]" id="pitch-avg-cents">--</div>
                 </div>
-                <div class="p-4 rounded-xl border border-gray-100 bg-white flex-1 min-w-[200px] opacity-50 grayscale">
-                    <div class="text-xs text-gray-400 mb-2 uppercase tracking-wider font-bold">02:30 - 02:45</div>
-                    <div class="p-2 bg-green-50 border border-green-200 rounded-lg">
-                        <span class="text-sm font-medium">节奏完美匹配</span>
-                        <div class="text-[10px] text-green-600 mt-1">偏差: &lt; 10ms</div>
-                    </div>
+                <div class="border border-gray-100 rounded-xl p-4 bg-gray-50/50 text-center">
+                    <div class="text-xs text-gray-400 uppercase tracking-wider font-bold mb-1">±25cents 命中率</div>
+                    <div class="text-2xl font-bold text-[#457b9d]" id="pitch-within-25">--</div>
+                </div>
+                <div class="border border-gray-100 rounded-xl p-4 bg-gray-50/50 text-center">
+                    <div class="text-xs text-gray-400 uppercase tracking-wider font-bold mb-1">±50cents 命中率</div>
+                    <div class="text-2xl font-bold text-[#457b9d]" id="pitch-within-50">--</div>
+                </div>
+            </div>
+            <div class="rounded-2xl border border-gray-100 bg-gray-50/50 p-4" style="min-height:220px">
+                <canvas id="pitch-curve-canvas" width="800" height="200" style="width:100%;height:200px;display:block;"></canvas>
+                <div class="flex gap-6 justify-center mt-3">
+                    <span class="flex items-center gap-1 text-xs text-gray-500"><span style="display:inline-block;width:16px;height:3px;background:#457b9d;border-radius:2px"></span> 参考音高</span>
+                    <span class="flex items-center gap-1 text-xs text-gray-500"><span style="display:inline-block;width:16px;height:3px;background:#e76f51;border-radius:2px"></span> 用户音高</span>
+                    <span class="flex items-center gap-1 text-xs text-gray-500"><span style="display:inline-block;width:16px;height:3px;background:#2a9d8f;border-radius:2px;opacity:0.5"></span> 偏差 (cents)</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="bg-white rounded-3xl p-8 card-shadow border border-gray-100">
+            <h3 class="font-bold text-gray-700 mb-6 flex items-center gap-2">
+                <iconify-icon class="text-orange-500" icon="solar:music-notes-bold"></iconify-icon> 节奏偏差明细
+            </h3>
+            <div class="flex flex-wrap gap-4 items-center" id="rhythm-error-list">
+                <div class="p-4 rounded-xl border border-dashed border-gray-200 bg-white flex-1 min-w-[200px] text-sm text-gray-400">
+                    完成一次评估后，这里会展示后端返回的节奏误差分类与说明。
                 </div>
             </div>
         </section>
@@ -148,60 +223,35 @@
             </h2>
             <div class="space-y-6">
                 <div>
-                    <label class="block text-sm font-bold text-gray-600 mb-3">上传原唱音视频</label>
-                    <div class="border-2 border-dashed border-gray-200 rounded-2xl p-6 flex flex-col items-center justify-center bg-gray-50/50 hover:bg-gray-100 transition-colors cursor-pointer group">
-                        <iconify-icon class="text-3xl text-gray-300 group-hover:text-purple-400 transition-colors" icon="solar:music-note-bold"></iconify-icon>
-                        <span class="text-xs text-gray-500 mt-2">点击或拖拽文件</span>
+                    <label class="block text-sm font-bold text-gray-600 mb-3">变奏风格</label>
+                    <div class="grid grid-cols-2 gap-3">
+                        <select class="bg-gray-50 border-none rounded-xl py-3 px-4 text-sm outline-none" id="variation-style-select">
+                            <option value="jazz">jazz</option>
+                            <option value="folk">folk</option>
+                            <option value="rock">rock</option>
+                            <option value="traditional">traditional</option>
+                        </select>
+                        <select class="bg-gray-50 border-none rounded-xl py-3 px-4 text-sm outline-none" id="variation-difficulty-select">
+                            <option value="medium">medium</option>
+                            <option value="easy">easy</option>
+                            <option value="hard">hard</option>
+                        </select>
                     </div>
-                    <button class="w-full mt-4 py-3 action-btn rounded-xl font-bold flex items-center justify-center gap-2 bg-[#1D3557]">
-                        <iconify-icon icon="solar:stars-minimalistic-bold"></iconify-icon> 分析原唱变奏
+                    <p class="text-xs text-gray-400 mt-3">当前用最近一次 `analysis_id` 作为建议请求的 `score_id` 占位。</p>
+                    <button class="w-full mt-4 py-3 action-btn rounded-xl font-bold flex items-center justify-center gap-2 bg-[#1D3557]" id="variation-submit-btn" type="button">
+                        <iconify-icon icon="solar:stars-minimalistic-bold"></iconify-icon> 生成变奏建议
                     </button>
+                    <p class="hidden text-xs rounded-xl px-4 py-3 mt-4" id="variation-status"></p>
                 </div>
                 <div class="h-[1px] bg-gray-100 w-full"></div>
                 <div>
                     <h4 class="font-bold text-gray-700 mb-4 flex items-center justify-between">
                         推荐变奏方案
-                        <span class="text-[10px] font-normal text-gray-400 bg-gray-100 px-2 py-0.5 rounded">基于 AI 情感分析</span>
+                        <span class="text-[10px] font-normal text-gray-400 bg-gray-100 px-2 py-0.5 rounded">基于后端建议接口</span>
                     </h4>
-                    <div class="space-y-4">
-                        <div class="p-4 rounded-2xl bg-[#FDF7FF] border border-purple-100 relative overflow-hidden group">
-                            <div class="relative z-10">
-                                <div class="flex justify-between items-start mb-2">
-                                    <h5 class="font-bold text-[#8E44AD]">爵士风格变奏</h5>
-                                    <iconify-icon class="text-2xl text-[#8E44AD] cursor-pointer hover:scale-110 transition-transform" icon="solar:play-circle-bold"></iconify-icon>
-                                </div>
-                                <p class="text-xs text-purple-800 leading-relaxed">在副歌部分加入切分音，并将部分长音改为颤音处理，增强慵懒与自由感。</p>
-                                <button class="mt-3 text-[10px] font-bold text-purple-600 hover:underline">查看详细乐谱建议</button>
-                            </div>
-                            <div class="absolute -right-4 -bottom-4 opacity-10 text-6xl text-purple-900 group-hover:scale-125 transition-transform">
-                                <iconify-icon icon="solar:music-note-bold"></iconify-icon>
-                            </div>
-                        </div>
-                        <div class="p-4 rounded-2xl bg-[#F0FFF4] border border-green-100 relative overflow-hidden group">
-                            <div class="relative z-10">
-                                <div class="flex justify-between items-start mb-2">
-                                    <h5 class="font-bold text-[#27AE60]">民谣简约变奏</h5>
-                                    <iconify-icon class="text-2xl text-[#27AE60] cursor-pointer hover:scale-110 transition-transform" icon="solar:play-circle-bold"></iconify-icon>
-                                </div>
-                                <p class="text-xs text-green-800 leading-relaxed">减弱背景伴奏，强调人声的清晰度与叙事感，结尾处可尝试降调渐弱处理。</p>
-                                <button class="mt-3 text-[10px] font-bold text-green-600 hover:underline">查看详细乐谱建议</button>
-                            </div>
-                            <div class="absolute -right-4 -bottom-4 opacity-10 text-6xl text-green-900 group-hover:scale-125 transition-transform">
-                                <iconify-icon icon="solar:music-note-2-bold"></iconify-icon>
-                            </div>
-                        </div>
-                        <div class="p-4 rounded-2xl bg-[#FFF9F0] border border-orange-100 relative overflow-hidden group">
-                            <div class="relative z-10">
-                                <div class="flex justify-between items-start mb-2">
-                                    <h5 class="font-bold text-[#D35400]">摇滚力量变奏</h5>
-                                    <iconify-icon class="text-2xl text-[#D35400] cursor-pointer hover:scale-110 transition-transform" icon="solar:play-circle-bold"></iconify-icon>
-                                </div>
-                                <p class="text-xs text-orange-800 leading-relaxed">增加真假声切换频率，提升高音区的爆发力，部分乐句可采用滑音过渡。</p>
-                                <button class="mt-3 text-[10px] font-bold text-orange-600 hover:underline">查看详细乐谱建议</button>
-                            </div>
-                            <div class="absolute -right-4 -bottom-4 opacity-10 text-6xl text-orange-900 group-hover:scale-125 transition-transform">
-                                <iconify-icon icon="solar:music-note-3-bold"></iconify-icon>
-                            </div>
+                    <div class="space-y-4" id="variation-list">
+                        <div class="p-4 rounded-2xl bg-gray-50 border border-gray-100 text-sm text-gray-400">
+                            先完成一次分析，再生成个性化变奏建议。
                         </div>
                     </div>
                 </div>
@@ -212,9 +262,10 @@
 
 <footer class="max-w-7xl mx-auto px-6 mt-12 text-center text-gray-400 text-xs">
     <p>© 2026 SeeMusic 智能音乐创作平台 - 评估引擎 v2.4.1</p>
-    <p class="mt-1">最后分析更新时间：2026-04-01 14:30</p>
+    <p class="mt-1">最后分析更新时间：<span id="last-analysis-time">--</span></p>
 </footer>
 
+<script src="app_common.js"></script>
 <script src="singing_evaluation.js"></script>
 </body>
 </html>

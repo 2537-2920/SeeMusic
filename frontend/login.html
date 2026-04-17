@@ -38,23 +38,31 @@
 <label class="text-xs font-bold text-gray-500 uppercase ml-1">用户名</label>
 <div class="relative">
 <iconify-icon class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" icon="solar:user-linear"></iconify-icon>
-<input class="input-field w-full py-4 pl-12 pr-6 rounded-2xl text-sm" placeholder="请输入您的用户名" required="" type="text"/>
+<input class="input-field w-full py-4 pl-12 pr-6 rounded-2xl text-sm" id="username-input" placeholder="请输入您的用户名" required="" type="text"/>
 </div>
 </div>
 <div class="space-y-2">
 <label class="text-xs font-bold text-gray-500 uppercase ml-1">密码</label>
 <div class="relative">
 <iconify-icon class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" icon="solar:lock-password-linear"></iconify-icon>
-<input class="input-field w-full py-4 pl-12 pr-6 rounded-2xl text-sm" placeholder="请输入您的密码" required="" type="password"/>
+<input class="input-field w-full py-4 pl-12 pr-6 rounded-2xl text-sm" id="password-input" placeholder="请输入您的密码" required="" type="password"/>
+</div>
+</div>
+<div class="space-y-2 hidden-section" id="email-container">
+<label class="text-xs font-bold text-gray-500 uppercase ml-1">邮箱（可选）</label>
+<div class="relative">
+<iconify-icon class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" icon="solar:letter-linear"></iconify-icon>
+<input class="input-field w-full py-4 pl-12 pr-6 rounded-2xl text-sm" id="email-input" placeholder="请输入您的邮箱" type="email"/>
 </div>
 </div>
 <div class="space-y-2 hidden-section" id="confirm-password-container">
 <label class="text-xs font-bold text-gray-500 uppercase ml-1">确认密码</label>
 <div class="relative">
 <iconify-icon class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" icon="solar:shield-check-linear"></iconify-icon>
-<input class="input-field w-full py-4 pl-12 pr-6 rounded-2xl text-sm" placeholder="请再次输入密码" type="password"/>
+<input class="input-field w-full py-4 pl-12 pr-6 rounded-2xl text-sm" id="confirm-password-input" placeholder="请再次输入密码" type="password"/>
 </div>
 </div>
+<p class="hidden text-xs rounded-xl px-4 py-3" id="auth-status"></p>
 
 <div class="pt-4 space-y-4">
 <button type="submit" class="btn-primary w-full py-4 rounded-2xl font-bold shadow-lg shadow-blue-100 flex items-center justify-center gap-2" id="submit-btn">
@@ -74,6 +82,7 @@
 </form>
 </div>
 
+<script src="app_common.js"></script>
 <script src="login.js"></script>
 </body>
 </html>

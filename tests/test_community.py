@@ -11,7 +11,6 @@ from backend.api.api_routes import (
     upload_community_score,
 )
 from backend.api.schemas import CommunityCommentCreateRequest, CommunityScorePublishRequest
-from backend.config.settings import settings
 from backend.db.models import CommunityComment, CommunityFavorite, CommunityLike, CommunityPost
 from backend.db.session import session_scope
 from starlette.datastructures import Headers, UploadFile

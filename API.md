@@ -188,11 +188,11 @@ Authorization: Bearer <token>
 
 ---
 
-## 3. B 模块：扒谱与乐谱编辑
+## 3. B 模块：乐谱生成、编辑与导出
 
-### 3.1 音高序列转乐谱
+### 3.1 从音高序列生成乐谱
 
-**接口用途**：输入音高序列，返回五线谱结构数据。
+**接口用途**：根据音高时间序列生成乐谱，同时创建 `project + sheet` 等持久化数据。
 
 * `POST /api/v1/score/from-pitch-sequence`
 
@@ -200,6 +200,9 @@ Authorization: Bearer <token>
 
 ```json
 {
+  "user_id": 1,
+  "title": "自动扒谱结果",
+  "analysis_id": "an_202604110001",
   "tempo": 120,
   "time_signature": "4/4",
   "key_signature": "C",
@@ -220,7 +223,13 @@ Authorization: Bearer <token>
   "code": 0,
   "message": "success",
   "data": {
+    "project_id": 12,
     "score_id": "score_1001",
+    "title": "自动扒谱结果",
+    "tempo": 120,
+    "time_signature": "4/4",
+    "key_signature": "C",
+    "version": 1,
     "measures": [
       {
         "measure_no": 1,
@@ -239,15 +248,15 @@ Authorization: Bearer <token>
 
 ---
 
-### 3.2 乐谱编辑接口
+### 3.2 乐谱编辑与版本控制
 
-**接口用途**：增删改音符、节拍、调号，支持撤销/重做。
+**接口用途**：对既有乐谱进行增删改操作，并支持撤销 / 重做。
 
 * `PATCH /api/v1/scores/{score_id}`
 * `POST /api/v1/scores/{score_id}/undo`
 * `POST /api/v1/scores/{score_id}/redo`
 
-#### 修改请求示例
+#### 请求示例
 
 ```json
 {
@@ -269,25 +278,11 @@ Authorization: Bearer <token>
 }
 ```
 
-#### 响应示例
-
-```json
-{
-  "code": 0,
-  "message": "success",
-  "data": {
-    "score_id": "score_1001",
-    "version": 12,
-    "updated_at": "2026-04-11T10:00:00+08:00"
-  }
-}
-```
-
 ---
 
-### 3.3 乐谱导出接口
+### 3.3 乐谱导出
 
-**接口用途**：导出 MIDI / 图片 / PDF。
+**接口用途**：导出 `MIDI / PNG / PDF` 文件，并创建 `export_record` 记录。
 
 * `POST /api/v1/scores/{score_id}/export`
 
@@ -301,11 +296,44 @@ Authorization: Bearer <token>
 }
 ```
 
-#### 响应说明
+#### 响应示例
 
-* `format=midi`：返回文件下载地址或二进制流
-* `format=png`：返回图片下载地址或文件流
-* `format=pdf`：返回 PDF 下载地址或文件流
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "project_id": 12,
+    "export_record_id": 8,
+    "score_id": "score_1001",
+    "format": "pdf",
+    "file_name": "score_1001_export_8.pdf",
+    "download_url": "/storage/exports/score_1001_export_8.pdf",
+    "detail_url": "/api/v1/scores/score_1001/exports/8",
+    "preview_url": "/api/v1/scores/score_1001/exports/8/preview",
+    "download_api_url": "/api/v1/scores/score_1001/exports/8/download",
+    "regenerate_url": "/api/v1/scores/score_1001/exports/8/regenerate",
+    "delete_url": "/api/v1/scores/score_1001/exports/8",
+    "content_type": "application/pdf",
+    "exists": true,
+    "size_bytes": 40960,
+    "manifest": {
+      "kind": "pdf",
+      "page_size": "A4",
+      "with_annotations": true
+    }
+  }
+}
+```
+
+---
+
+### 3.4 导出记录列表与详情
+
+**接口用途**：查询指定乐谱的全部导出记录，或某一条导出详情。
+
+* `GET /api/v1/scores/{score_id}/exports`
+* `GET /api/v1/scores/{score_id}/exports/{export_record_id}`
 
 #### 响应示例
 
@@ -314,8 +342,96 @@ Authorization: Bearer <token>
   "code": 0,
   "message": "success",
   "data": {
-    "download_url": "https://example.com/download/score_1001.pdf",
-    "expires_in": 3600
+    "score_id": "score_1001",
+    "project_id": 12,
+    "count": 2,
+    "items": [
+      {
+        "export_record_id": 9,
+        "format": "png",
+        "file_name": "score_1001_export_9.png",
+        "download_url": "/storage/exports/score_1001_export_9.png",
+        "preview_url": "/api/v1/scores/score_1001/exports/9/preview",
+        "download_api_url": "/api/v1/scores/score_1001/exports/9/download",
+        "regenerate_url": "/api/v1/scores/score_1001/exports/9/regenerate",
+        "delete_url": "/api/v1/scores/score_1001/exports/9",
+        "content_type": "image/png",
+        "exists": true,
+        "size_bytes": 182340
+      }
+    ]
+  }
+}
+```
+
+---
+
+### 3.5 导出文件下载与预览
+
+**接口用途**：下载导出文件，或在线预览可渲染内容。
+
+* `GET /api/v1/scores/{score_id}/exports/{export_record_id}/download`
+* `GET /api/v1/scores/{score_id}/exports/{export_record_id}/preview`
+
+#### 说明
+
+* `download` 接口返回附件下载响应，包含 `Content-Disposition: attachment`
+* `preview` 对 `pdf/png/jpg/webp/gif/text` 等可预览类型返回内联展示内容
+
+---
+
+### 3.6 重新生成与删除导出记录
+
+**接口用途**：基于已有 `export_record` 重新生成导出文件，或删除导出记录及其物理文件。
+
+* `POST /api/v1/scores/{score_id}/exports/{export_record_id}/regenerate`
+* `DELETE /api/v1/scores/{score_id}/exports/{export_record_id}`
+
+#### 重新生成请求示例
+
+```json
+{
+  "page_size": "LETTER",
+  "with_annotations": false
+}
+```
+
+#### 重新生成响应示例
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "project_id": 12,
+    "export_record_id": 8,
+    "format": "pdf",
+    "file_name": "score_1001_export_8.pdf",
+    "regenerated": true,
+    "download_url": "/storage/exports/score_1001_export_8.pdf",
+    "manifest": {
+      "kind": "pdf",
+      "page_size": "LETTER",
+      "with_annotations": false
+    }
+  }
+}
+```
+
+#### 删除响应示例
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "score_id": "score_1001",
+    "project_id": 12,
+    "export_record_id": 9,
+    "format": "png",
+    "file_name": "score_1001_export_9.png",
+    "deleted": true,
+    "file_deleted": true
   }
 }
 ```
@@ -862,15 +978,15 @@ Authorization: Bearer <token>
 
 ---
 
-## 8. 接口清单总览
+## 8. 接口汇总
 
 | 模块 | 接口 |
 | --- | --- |
-| A 音高识别 | `/pitch/detect`、`/ws/realtime-pitch`、`/pitch/compare` |
-| B 扒谱与乐谱 | `/score/from-pitch-sequence`、`/scores/{id}`、`/scores/{id}/export` |
-| C 节奏与社区 | `/rhythm/beat-detect`、`/audio/separate-tracks`、`/rhythm/score`、`/community/scores` |
-| D 日志与增强 | `/logs/audio`、`/charts/pitch-curve`、`/generation/chords`、`/generation/variation-suggestions` |
-| E 用户与数据 | `/auth/register`、`/auth/login`、`/users/me`、`/users/me/history`、`/reports/export` |
+| A 音高识别与对比 | `/pitch/detect`、`/ws/realtime-pitch`、`/pitch/compare` |
+| B 乐谱生成、编辑与导出 | `/score/from-pitch-sequence`、`/scores/{id}`、`/scores/{id}/undo`、`/scores/{id}/redo`、`/scores/{id}/export`、`/scores/{id}/exports`、`/scores/{id}/exports/{export_record_id}`、`/scores/{id}/exports/{export_record_id}/preview`、`/scores/{id}/exports/{export_record_id}/download`、`/scores/{id}/exports/{export_record_id}/regenerate`、`DELETE /scores/{id}/exports/{export_record_id}` |
+| C 节奏、多轨与社区 | `/rhythm/beat-detect`、`/audio/separate-tracks`、`/rhythm/score`、`/community/scores` |
+| D 日志、可视化与 AI 增强 | `/logs/audio`、`/charts/pitch-curve`、`/generation/chords`、`/generation/variation-suggestions` |
+| E 用户与数据管理 | `/auth/register`、`/auth/login`、`/users/me`、`/users/me/history`、`/reports/export` |
 
 ---
 
@@ -881,3 +997,7 @@ Authorization: Bearer <token>
 3. 导出类接口建议支持异步任务，文件生成完成后再返回下载地址。
 4. 如果后续需要，我可以继续把这份文档整理成 OpenAPI 3.0 / Swagger 版本。
 
+
+## 10. 后续说明
+
+如果后续需要继续补充前端导出面板的联调说明，可以进一步参考 `frontend/export_panel_integration.md`。

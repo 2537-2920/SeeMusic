@@ -1,4 +1,4 @@
-"""Request/response schemas for the API layer."""
+﻿"""Request/response schemas for the API layer."""
 
 from __future__ import annotations
 
@@ -20,12 +20,19 @@ class PitchSequenceItem(BaseModel):
 
 
 class PitchCompareRequest(BaseModel):
-    reference_id: str
-    user_recording_id: str
+    reference_id: Optional[str] = None
+    user_recording_id: Optional[str] = None
+    reference_pitch_path: Optional[str] = None
+    user_pitch_path: Optional[str] = None
+    reference_pitch_sequence: Optional[List[PitchSequenceItem]] = None
+    user_pitch_sequence: Optional[List[PitchSequenceItem]] = None
     range: Optional[TimeRange] = None
 
 
 class PitchToScoreRequest(BaseModel):
+    user_id: int = Field(..., ge=1)
+    title: Optional[str] = None
+    analysis_id: Optional[str] = None
     tempo: int = 120
     time_signature: str = "4/4"
     key_signature: str = "C"
@@ -58,6 +65,11 @@ class ScoreExportRequest(BaseModel):
     with_annotations: bool = True
 
 
+class ScoreReExportRequest(BaseModel):
+    page_size: Optional[str] = "A4"
+    with_annotations: bool = True
+
+
 class BeatDetectRequest(BaseModel):
     bpm_hint: Optional[int] = None
     sensitivity: Optional[float] = 0.5
@@ -66,20 +78,55 @@ class BeatDetectRequest(BaseModel):
 class RhythmScoreRequest(BaseModel):
     reference_beats: List[float]
     user_beats: List[float]
+    language: str = Field("en", description="Language for feedback ('en' or 'zh')")
+    scoring_model: str = Field("balanced", description="Scoring model: 'strict', 'balanced', or 'lenient'")
+    threshold_ms: float = Field(50.0, description="Time window for on-time classification (ms)")
+
+
+class AnalyzeRhythmRequest(BaseModel):
+    """Request for end-to-end rhythm audio analysis.
+    
+    Supports multilingual feedback and flexible scoring models.
+    """
+    language: str = Field("en", description="Language for feedback ('en' or 'zh')")
+    scoring_model: str = Field("balanced", description="Scoring model: 'strict', 'balanced', or 'lenient'")
+    threshold_ms: float = Field(50.0, description="Time window for on-time classification (ms)")
 
 
 class CommunityScorePublishRequest(BaseModel):
-    score_id: str
+    score_id: Optional[str] = None
     title: str
     description: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
+    style: Optional[str] = None
+    instrument: Optional[str] = None
+    price: Optional[float] = Field(default=0.0, ge=0)
+    cover_url: Optional[str] = None
+    subtitle: Optional[str] = None
+    author_name: Optional[str] = None
+    source_file_name: Optional[str] = None
     is_public: bool = True
+
+
+class CommunityCommentCreateRequest(BaseModel):
+    content: str
+    username: Optional[str] = None
+    avatar_url: Optional[str] = None
 
 
 class AudioLogRequest(BaseModel):
     file_name: str
     sample_rate: int
     duration: float
+    analysis_id: Optional[str] = None
+    channels: Optional[int] = None
+    frame_count: Optional[int] = None
+    byte_size: Optional[int] = None
+    audio_format: Optional[str] = None
+    file_extension: Optional[str] = None
+    subtype: Optional[str] = None
+    source: str = "api"
+    stage: str = "manual"
     params: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -123,3 +170,8 @@ class ReportExportRequest(BaseModel):
     analysis_id: str
     formats: List[Literal["pdf", "midi", "png"]]
     include_charts: bool = True
+
+
+class PreferencesUpdateRequest(BaseModel):
+    audio_engine: Optional[str] = None
+    export_formats: Optional[List[str]] = None

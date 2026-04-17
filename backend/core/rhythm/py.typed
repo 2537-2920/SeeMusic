@@ -1,0 +1,3 @@
+# This file marks the backend.core.rhythm package as type-checked.
+# It signals to mypy and other type checkers that this package contains
+# complete and correct type annotations.

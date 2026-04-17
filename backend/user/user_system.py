@@ -1,16 +1,19 @@
-"""Simple in-memory auth/user system."""
-
 from __future__ import annotations
+"""Dual-mode auth/user system: in-memory (default) or database-backed.
+
+Set ``USE_DB = True`` and call ``set_db_session_factory(factory)`` to switch
+to database mode.  When ``USE_DB`` is ``False`` the module falls back to
+plain Python dicts (``USERS`` / ``TOKENS``), which is ideal for unit tests
+that don't need a real database.
+"""
 
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from fastapi import Header, HTTPException
 
 
-<<<<<<< Updated upstream
-=======
 # ---------------------------------------------------------------------------
 # Mode toggle – flipped by conftest.py or application bootstrap
 # ---------------------------------------------------------------------------
@@ -33,55 +36,236 @@ def _get_session():
 # ---------------------------------------------------------------------------
 # In-memory stores – used when USE_DB is False
 # ---------------------------------------------------------------------------
->>>>>>> Stashed changes
 USERS: dict[str, dict] = {}
-TOKENS: dict[str, str] = {}
+TOKENS: dict[str, dict] = {}
 
 
 def _hash_password(password: str) -> str:
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
+# ===== register =====
 def register_user(username: str, password: str, email: str | None = None) -> dict:
-    if username in USERS:
-        raise HTTPException(status_code=400, detail="username already exists")
+    if USE_DB:
+        return _register_user_db(username, password, email)
+    return _register_user_mem(username, password, email)
+
+
+def _register_user_mem(username: str, password: str, email: str | None) -> dict:
+    for u in USERS.values():
+        if u["username"] == username:
+            raise HTTPException(status_code=400, detail="username already exists")
     user_id = f"u_{uuid4().hex[:8]}"
-    USERS[username] = {
+    USERS[user_id] = {
         "user_id": user_id,
         "username": username,
+        "password": _hash_password(password),
         "email": email,
-        "password_hash": _hash_password(password),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     return {"user_id": user_id}
 
 
+def _register_user_db(username: str, password: str, email: str | None) -> dict:
+    from backend.db.models import User
+    session = _get_session()
+    try:
+        if session.query(User).filter_by(username=username).first():
+            raise HTTPException(status_code=400, detail="username already exists")
+        new_user = User(username=username, password=_hash_password(password), email=email)
+        session.add(new_user)
+        session.commit()
+        return {"user_id": str(new_user.id)}
+    except HTTPException:
+        raise
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+# ===== login =====
 def login_user(username: str, password: str) -> dict:
-    user = USERS.get(username)
-    if not user or user["password_hash"] != _hash_password(password):
+    if USE_DB:
+        return _login_user_db(username, password)
+    return _login_user_mem(username, password)
+
+
+def _login_user_mem(username: str, password: str) -> dict:
+    matched = next((u for u in USERS.values() if u["username"] == username), None)
+    if not matched:
+        raise HTTPException(status_code=401, detail="invalid credentials")
+    if matched["password"] != _hash_password(password):
         raise HTTPException(status_code=401, detail="invalid credentials")
     token = f"tok_{uuid4().hex}"
-    TOKENS[token] = user["user_id"]
+    TOKENS[token] = {"user_id": matched["user_id"], "username": matched["username"]}
     return {
         "token": token,
         "expires_in": 7200,
-        "user": {"user_id": user["user_id"], "username": username},
+        "user": {"user_id": matched["user_id"], "username": matched["username"]},
     }
 
 
+def _login_user_db(username: str, password: str) -> dict:
+    from backend.db.models import User, UserToken
+    session = _get_session()
+    try:
+        user = session.query(User).filter_by(username=username).first()
+        if not user or user.password != _hash_password(password):
+            raise HTTPException(status_code=401, detail="invalid credentials")
+        token = f"tok_{uuid4().hex}"
+        expired_time = datetime.now(timezone.utc) + timedelta(seconds=7200)
+        session.add(UserToken(user_id=user.id, token=token, expired_time=expired_time))
+        session.commit()
+        return {
+            "token": token,
+            "expires_in": 7200,
+            "user": {"user_id": str(user.id), "username": user.username},
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+# ===== token lookup =====
 def get_user_by_token(token: str) -> dict:
-    user_id = TOKENS.get(token)
-    if not user_id:
-        raise HTTPException(status_code=401, detail="token invalid")
-    for user in USERS.values():
-        if user["user_id"] == user_id:
-            return {k: v for k, v in user.items() if k != "password_hash"}
-    raise HTTPException(status_code=401, detail="token invalid")
+    if USE_DB:
+        return _get_user_by_token_db(token)
+    return _get_user_by_token_mem(token)
 
 
+def _get_user_by_token_mem(token: str) -> dict:
+    record = TOKENS.get(token)
+    if not record:
+        raise HTTPException(status_code=401, detail="token invalid or expired")
+    user = USERS.get(record["user_id"])
+    if not user:
+        raise HTTPException(status_code=401, detail="user not found")
+    return {"user_id": user["user_id"], "username": user["username"], "email": user.get("email")}
+
+
+def _get_user_by_token_db(token: str) -> dict:
+    from backend.db.models import User, UserToken
+    session = _get_session()
+    try:
+        now = datetime.now(timezone.utc)
+        tok = session.query(UserToken).filter(UserToken.token == token, UserToken.expired_time > now).first()
+        if not tok:
+            raise HTTPException(status_code=401, detail="token invalid or expired")
+        user = session.get(User, tok.user_id)
+        if not user:
+            raise HTTPException(status_code=401, detail="user not found")
+        return {"user_id": str(user.id), "username": user.username, "email": user.email}
+    finally:
+        session.close()
+
+
+# ===== current user from header =====
 def get_current_user(authorization: str = Header(default="")) -> dict:
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="missing token")
     token = authorization.removeprefix("Bearer ").strip()
     return get_user_by_token(token)
 
+
+# ===== logout =====
+def logout_user(token: str) -> dict:
+    if USE_DB:
+        return _logout_user_db(token)
+    return _logout_user_mem(token)
+
+
+def _logout_user_mem(token: str) -> dict:
+    if token not in TOKENS:
+        raise HTTPException(status_code=400, detail="token not exists")
+    del TOKENS[token]
+    return {"message": "logged out"}
+
+
+def _logout_user_db(token: str) -> dict:
+    from backend.db.models import UserToken
+    session = _get_session()
+    try:
+        tok = session.query(UserToken).filter_by(token=token).first()
+        if not tok:
+            raise HTTPException(status_code=400, detail="token not exists")
+        session.delete(tok)
+        session.commit()
+        return {"message": "logged out"}
+    except HTTPException:
+        raise
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+# ===== preferences =====
+PREFERENCES: dict[str, dict] = {}
+
+_DEFAULT_PREFERENCES = {
+    "audio_engine": "default",
+    "export_formats": ["MIDI", "PNG", "PDF"],
+}
+
+
+def get_preferences(user_id: str) -> dict:
+    if USE_DB:
+        return _get_preferences_db(user_id)
+    return _get_preferences_mem(user_id)
+
+
+def _get_preferences_mem(user_id: str) -> dict:
+    return {**_DEFAULT_PREFERENCES, **PREFERENCES.get(user_id, {})}
+
+
+def _get_preferences_db(user_id: str) -> dict:
+    from backend.db.models import UserPreference
+    session = _get_session()
+    try:
+        row = session.query(UserPreference).filter_by(user_id=int(user_id)).first()
+        if not row:
+            return {**_DEFAULT_PREFERENCES}
+        return {**_DEFAULT_PREFERENCES, **(row.preferences or {})}
+    finally:
+        session.close()
+
+
+def update_preferences(user_id: str, prefs: dict) -> dict:
+    if USE_DB:
+        return _update_preferences_db(user_id, prefs)
+    return _update_preferences_mem(user_id, prefs)
+
+
+def _update_preferences_mem(user_id: str, prefs: dict) -> dict:
+    current = PREFERENCES.get(user_id, {})
+    current.update(prefs)
+    PREFERENCES[user_id] = current
+    return {**_DEFAULT_PREFERENCES, **current}
+
+
+def _update_preferences_db(user_id: str, prefs: dict) -> dict:
+    from backend.db.models import UserPreference
+    session = _get_session()
+    try:
+        row = session.query(UserPreference).filter_by(user_id=int(user_id)).first()
+        if row:
+            merged = {**(row.preferences or {}), **prefs}
+            row.preferences = merged
+        else:
+            merged = {**_DEFAULT_PREFERENCES, **prefs}
+            row = UserPreference(user_id=int(user_id), preferences=merged)
+            session.add(row)
+        session.commit()
+        return {**_DEFAULT_PREFERENCES, **merged}
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()

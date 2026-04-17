@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List
 from uuid import uuid4
 
+from backend.core.pitch.pitch_sequence_utils import is_note_event_item
 from backend.core.score.note_mapping import (
     beats_per_measure,
     beats_to_duration_label,
@@ -20,7 +21,10 @@ MERGE_TOLERANCE_SECONDS = 0.05
 
 
 def _normalize_pitch_items(pitch_sequence: List[Dict[str, Any]], tempo: int) -> List[Dict[str, Any]]:
-    items = sorted(pitch_sequence, key=lambda item: float(item.get("time", 0.0)))
+    items = sorted(
+        pitch_sequence,
+        key=lambda item: float(item.get("start", item.get("time", 0.0))),
+    )
     if not items:
         return []
 
@@ -29,6 +33,47 @@ def _normalize_pitch_items(pitch_sequence: List[Dict[str, Any]], tempo: int) -> 
     cursor_time = 0.0
 
     for index, item in enumerate(items):
+        if is_note_event_item(item):
+            start_time = round(float(item.get("start", 0.0)), 3)
+            end_time = round(float(item.get("end", start_time)), 3)
+            if end_time <= start_time:
+                end_time = round(start_time + beats_to_seconds(0.25, tempo), 3)
+            duration_seconds = round(max(end_time - start_time, beats_to_seconds(0.25, tempo)), 3)
+            frequency = round(float(item.get("frequency_avg", 0.0) or 0.0), 2)
+            pitch = str(item.get("note") or frequency_to_note(frequency))
+            is_rest = pitch == "Rest" or frequency <= 0.0
+
+            if start_time - cursor_time > GAP_TOLERANCE_SECONDS:
+                rest_duration = round(start_time - cursor_time, 3)
+                if events and events[-1]["is_rest"]:
+                    events[-1]["duration_seconds"] = round(events[-1]["duration_seconds"] + rest_duration, 3)
+                    events[-1]["end_time"] = start_time
+                else:
+                    events.append(
+                        {
+                            "pitch": "Rest",
+                            "frequency": 0.0,
+                            "duration_seconds": rest_duration,
+                            "is_rest": True,
+                            "start_time": cursor_time,
+                            "end_time": start_time,
+                        }
+                    )
+                cursor_time = start_time
+
+            events.append(
+                {
+                    "pitch": "Rest" if is_rest else pitch,
+                    "frequency": 0.0 if is_rest else frequency,
+                    "duration_seconds": duration_seconds,
+                    "is_rest": is_rest,
+                    "start_time": start_time,
+                    "end_time": end_time,
+                }
+            )
+            cursor_time = max(cursor_time, end_time)
+            continue
+
         start_time = round(float(item.get("time", 0.0)), 3)
         frequency = round(float(item.get("frequency", 0.0)), 2)
         next_time = None

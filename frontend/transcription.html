@@ -3,260 +3,426 @@
 <head>
     <meta charset="utf-8"/>
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-    <title>智能扒谱 - SeeMusic 2026</title>
-    <script src="https://modao.cc/agent-py/static/source/js/tailwindcss.3.4.3.js"></script>
+    <title>智能识谱 - SeeMusic</title>
     <script src="https://modao.cc/agent-py/static/source/js/iconify-icon.min.1.0.7.js"></script>
-    <link rel="stylesheet" href="transcription.css">
+    <link href="transcription.css" rel="stylesheet"/>
 </head>
-<body class="flex flex-col h-screen overflow-hidden">
-    <header class="h-16 acrylic flex items-center justify-between px-6 z-50 flex-shrink-0">
-        <div class="flex items-center gap-4">
-            <a class="flex items-center gap-2 group" href="index.html">
-                <div class="w-8 h-8 bg-[#457b9d] rounded flex items-center justify-center text-white transition-all duration-300 group-hover:rotate-12 group-hover:scale-110">
-                    <iconify-icon icon="solar:music-note-bold"></iconify-icon>
-                </div>
-                <span class="text-xl font-bold tracking-tight text-[#1d3557]">SeeMusic <span class="text-xs font-normal text-gray-400">v2026.4</span></span>
-            </a>
-            <div class="h-6 w-px bg-gray-200 mx-2"></div>
-            <div class="flex items-center gap-1 text-sm font-medium text-gray-600">
-                <iconify-icon class="text-lg text-[#457b9d]" icon="solar:document-music-bold-duotone"></iconify-icon>
-                <span>未命名项目.musicxml</span>
-            </div>
-        </div>
-        <div class="flex items-center gap-4">
-            <div class="flex bg-gray-100 p-1 rounded-lg">
-                <button class="px-3 py-1 bg-white rounded shadow-sm text-xs font-bold">编辑视图</button>
-                <button class="px-3 py-1 text-xs text-gray-500 font-bold hover:text-gray-700">混合视图</button>
-            </div>
-            <button class="bg-[#1d3557] text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-[#2c3e50] transition-colors">
-                <iconify-icon icon="solar:export-bold"></iconify-icon> 导出
-            </button>
-            <img alt="Avatar" class="w-8 h-8 rounded-full border border-gray-200" src="https://api.dicebear.com/7.x/avataaars/svg?seed=Felix"/>
-        </div>
-    </header>
-    <div class="flex flex-1 overflow-hidden">
-        <aside class="w-80 bg-white border-r border-gray-200 flex flex-col overflow-y-auto">
-            <div class="p-5">
-                <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">音频输入源</h3>
-                <div class="grid grid-cols-2 gap-3 mb-6">
-                    <button class="tool-btn active">
-                        <iconify-icon class="text-2xl mb-1" icon="solar:upload-bold-duotone"></iconify-icon>
-                        <span class="text-[10px] font-bold">本地音频</span>
-                    </button>
-                    <button class="tool-btn" onclick="toggleRecording()">
-                        <iconify-icon class="text-2xl mb-1" icon="solar:microphone-large-bold-duotone"></iconify-icon>
-                        <span class="text-[10px] font-bold">麦克风录音</span>
-                    </button>
-                    <button class="tool-btn">
-                        <iconify-icon class="text-2xl mb-1" icon="solar:videocamera-record-bold-duotone"></iconify-icon>
-                        <span class="text-[10px] font-bold">视频提取</span>
-                    </button>
-                    <button class="tool-btn">
-                        <iconify-icon class="text-2xl mb-1" icon="solar:library-bold-duotone"></iconify-icon>
-                        <span class="text-[10px] font-bold">内置示例</span>
-                    </button>
-                </div>
-                <div class="space-y-4">
-                    <div class="bg-blue-50/50 p-4 rounded-2xl border border-blue-100">
-                        <p class="text-xs font-bold text-[#457b9d] mb-2 flex items-center gap-1">
-                            <iconify-icon icon="solar:stars-minimalistic-bold-duotone"></iconify-icon> AI 智能分离引擎
-                        </p>
-                        <div class="space-y-2">
-                            <label class="flex items-center justify-between">
-                                <span class="text-xs text-gray-600">旋律分离</span>
-                                <input checked="" class="accent-[#457b9d]" type="checkbox"/>
-                            </label>
-                            <label class="flex items-center justify-between">
-                                <span class="text-xs text-gray-600">伴奏分离</span>
-                                <input checked="" class="accent-[#457b9d]" type="checkbox"/>
-                            </label>
-                            <label class="flex items-center justify-between">
-                                <span class="text-xs text-gray-600">节奏分析</span>
-                                <input checked="" class="accent-[#457b9d]" type="checkbox"/>
-                            </label>
-                        </div>
+<body>
+    <div class="page-shell">
+        <header class="topbar">
+            <div class="brand-block">
+                <a class="brand-link" href="index.html">
+                    <div class="brand-icon">
+                        <iconify-icon icon="solar:music-note-bold"></iconify-icon>
                     </div>
+                    <span class="brand">SeeMusic</span>
+                </a>
+                <div class="brand-divider"></div>
+                <div>
+                    <h1 class="page-title">智能识谱</h1>
+                    <p class="brand-subtitle">在工作台中完成识谱、编辑、分析、导出和结果预览。</p>
+                </div>
+            </div>
+            <div class="topbar-meta">
+                <div class="status-chip" id="backend-status-chip">
+                    <span class="status-dot" id="backend-status-dot"></span>
+                    <span id="backend-status-text">服务检查中</span>
+                </div>
+                <div class="status-chip">
+                    <span>当前乐谱</span>
+                    <strong id="score-linkage-status">未连接</strong>
+                </div>
+            </div>
+        </header>
+
+        <main class="workspace-grid">
+            <section class="panel left-panel">
+                <div class="panel-header">
                     <div>
-                        <span class="text-[10px] font-bold text-gray-400 uppercase">音乐风格判断</span>
-                        <div class="flex flex-wrap gap-2 mt-2">
-                            <span class="px-2 py-1 bg-gray-100 rounded text-[10px] font-bold text-gray-600">古典</span>
-                            <span class="px-2 py-1 bg-blue-100 rounded text-[10px] font-bold text-[#457b9d]">流行 (Pop)</span>
-                            <span class="px-2 py-1 bg-gray-100 rounded text-[10px] font-bold text-gray-600">爵士</span>
+                        <p class="eyebrow">识谱准备</p>
+                        <h2>基础信息</h2>
+                    </div>
+                    <button class="ghost-button" id="load-sample-btn" type="button">载入示例</button>
+                </div>
+
+                <input id="user-id-input" min="1" step="1" type="hidden"/>
+                <input id="analysis-id-input" type="hidden"/>
+
+                <label class="field-label" for="project-title-input">项目标题</label>
+                <div class="field-grid">
+                    <input id="project-title-input" placeholder="我的智能识谱项目" type="text"/>
+                </div>
+
+                <div class="meta-row">
+                    <label>
+                        <span class="field-label">速度</span>
+                        <input id="tempo-input" min="40" step="1" type="number"/>
+                    </label>
+                    <label>
+                        <span class="field-label">拍号</span>
+                        <input id="time-signature-input" placeholder="4/4" type="text"/>
+                    </label>
+                    <label>
+                        <span class="field-label">调号</span>
+                        <input id="key-signature-input" placeholder="C" type="text"/>
+                    </label>
+                </div>
+
+                <label class="field-label" for="pitch-sequence-input">音高序列 JSON</label>
+                <textarea id="pitch-sequence-input" rows="14"></textarea>
+                <p class="helper-text">请填写标准的音高序列 JSON，也可以直接使用上方示例快速开始。</p>
+
+                <div class="divider" style="margin:12px 0"></div>
+                <label class="field-label" for="pitch-detect-file-input">从音频自动识别音高</label>
+                <input accept=".wav,.mp3,.ogg,.m4a,audio/*" id="pitch-detect-file-input" type="file"/>
+                <p class="helper-text">支持 WAV、MP3、M4A、OGG。识别失败时会保留当前音高序列，方便继续排查或手动调整。</p>
+                <div class="pitch-tuning-grid">
+                    <label>
+                        <span class="field-label">识别算法</span>
+                        <select id="pitch-detect-algorithm-input">
+                            <option value="yin">YIN</option>
+                            <option value="autocorrelation">Autocorrelation</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span class="field-label">分析窗长（ms）</span>
+                        <input id="pitch-detect-frame-ms-input" min="5" step="1" type="number" value="20"/>
+                    </label>
+                    <label>
+                        <span class="field-label">步进间隔（ms）</span>
+                        <input id="pitch-detect-hop-ms-input" min="1" step="1" type="number" value="10"/>
+                    </label>
+                </div>
+                <div class="button-row">
+                    <button class="secondary-button" id="pitch-detect-btn" type="button">识别音高</button>
+                    <button class="secondary-button" id="pitch-detect-and-score-btn" type="button">识别并直接生成乐谱</button>
+                </div>
+                <p id="pitch-detect-status" class="helper-text status-text" style="min-height:1.4em"></p>
+
+                <div class="divider" style="margin:12px 0"></div>
+                <div class="button-row">
+                    <button class="secondary-button" id="clear-sequence-btn" type="button">清空</button>
+                    <button class="primary-button" id="create-score-btn" type="button">生成乐谱</button>
+                </div>
+
+                <details class="advanced-panel" id="analysis-tools-panel">
+                    <summary>高级功能与调试</summary>
+                    <div class="advanced-body">
+                        <p class="helper-text">主流程只保留识别与生成乐谱。服务连接、音频分析工具和手动节奏评分参数统一收纳在这里。</p>
+
+                        <div class="advanced-section">
+                            <h3>服务与调试</h3>
+                            <label class="field-label" for="api-base-input">服务地址</label>
+                            <div class="inline-field">
+                                <input id="api-base-input" placeholder="http://127.0.0.1:8000/api/v1" type="text"/>
+                                <button class="secondary-button" id="save-api-base-btn" type="button">保存</button>
+                            </div>
+                            <div class="button-row">
+                                <button class="ghost-button" id="ping-backend-btn" type="button">检查服务</button>
+                            </div>
+                        </div>
+
+                        <div class="advanced-section">
+                            <h3>高级分析工具</h3>
+                            <label class="field-label" for="analysis-file-input">音频文件</label>
+                            <input accept=".wav,.mp3,.ogg,.m4a,audio/*" id="analysis-file-input" type="file"/>
+
+                            <div class="field-grid">
+                                <label class="field-label" for="chord-style-input">和弦风格</label>
+                                <input id="chord-style-input" placeholder="例如：流行 / 爵士 / 民谣" type="text" value="pop"/>
+                            </div>
+                            <p class="helper-text">节拍检测、音轨分离、和弦生成和节奏评分都需要在这里选择音频或参数，结果会展示在中间分析面板。</p>
+
+                            <div class="field-grid">
+                                <label class="field-label" for="beat-bpm-hint-input">BPM 预估提示</label>
+                                <input id="beat-bpm-hint-input" min="0" placeholder="可选，帮助系统更快估计 BPM" step="1" type="number"/>
+
+                                <label class="field-label" for="beat-sensitivity-input">节拍检测灵敏度</label>
+                                <input id="beat-sensitivity-input" max="1" min="0" step="0.1" type="number" value="0.5"/>
+                            </div>
+
+                            <div class="field-grid">
+                                <label class="field-label" for="separation-model-input">分离模型</label>
+                                <input id="separation-model-input" placeholder="demucs" type="text" value="demucs"/>
+
+                                <label class="field-label" for="separation-stems-input">目标分轨数</label>
+                                <input id="separation-stems-input" min="2" step="1" type="number" value="2"/>
+                            </div>
+
+                            <div class="field-grid">
+                                <label class="field-label" for="rhythm-language-input">反馈语言</label>
+                                <select id="rhythm-language-input">
+                                    <option value="zh">中文</option>
+                                    <option value="en">英文</option>
+                                </select>
+
+                                <label class="field-label" for="rhythm-model-input">评分方式</label>
+                                <select id="rhythm-model-input">
+                                    <option value="balanced">平衡</option>
+                                    <option value="strict">严格</option>
+                                    <option value="lenient">宽松</option>
+                                </select>
+
+                                <label class="field-label" for="rhythm-threshold-input">判定阈值（毫秒）</label>
+                                <input id="rhythm-threshold-input" min="1" step="1" type="number" value="50"/>
+                            </div>
+
+                            <div class="button-row" style="margin-top:12px">
+                                <button class="secondary-button" id="beat-detect-btn" type="button">节拍检测</button>
+                                <button class="secondary-button" id="separate-tracks-btn" type="button">音轨分离</button>
+                                <button class="secondary-button" id="generate-chords-btn" type="button">生成和弦</button>
+                                <button class="secondary-button" id="rhythm-score-btn" type="button">节奏评分</button>
+                                <button class="ghost-button" id="refresh-audio-logs-btn" type="button">刷新日志</button>
+                            </div>
+                        </div>
+
+                        <div class="advanced-section">
+                            <h3>手动节奏评分</h3>
+                            <label class="field-label" for="reference-beats-input">参考拍点 JSON</label>
+                            <textarea id="reference-beats-input" rows="4">[0,1,2,3]</textarea>
+
+                            <label class="field-label" for="user-beats-input">用户拍点 JSON</label>
+                            <textarea id="user-beats-input" rows="4">[0,1.02,2.04,3.01]</textarea>
                         </div>
                     </div>
-                    <button class="w-full bg-[#457b9d] text-white py-3 rounded-xl font-bold text-sm shadow-lg shadow-blue-200/50 hover:bg-[#3d6d8a] transition-all">
-                        重新分析音频
-                    </button>
-                </div>
-            </div>
-            <div class="mt-auto border-t border-gray-100 p-5 bg-gray-50/50">
-                <h3 class="text-xs font-bold text-gray-400 uppercase mb-3">音轨管理</h3>
-                <div class="space-y-2">
-                    <div class="flex items-center gap-3 p-2 bg-white rounded-lg border border-gray-100">
-                        <iconify-icon class="text-[#457b9d]" icon="solar:music-note-bold"></iconify-icon>
-                        <span class="text-xs font-bold flex-1">主旋律 (Piano)</span>
-                        <iconify-icon class="text-gray-300" icon="solar:volume-loud-bold"></iconify-icon>
-                    </div>
-                    <div class="flex items-center gap-3 p-2 bg-white rounded-lg border border-gray-100 opacity-50">
-                        <iconify-icon class="text-gray-400" icon="solar:clapperboard-edit-bold"></iconify-icon>
-                        <span class="text-xs font-bold flex-1">伴奏音轨</span>
-                        <iconify-icon class="text-gray-300" icon="solar:volume-cross-bold"></iconify-icon>
-                    </div>
-                </div>
-            </div>
-        </aside>
-        <main class="flex-1 overflow-y-auto bg-gray-100 p-10 flex flex-col items-center">
-            <div class="w-[850px] mb-6 flex items-center justify-between">
-                <div class="flex items-center gap-2 bg-white p-1.5 rounded-xl shadow-sm border border-gray-200">
-                    <button class="p-2 hover:bg-gray-100 rounded-lg text-gray-600" title="撤销"><iconify-icon icon="solar:undo-left-round-bold"></iconify-icon></button>
-                    <button class="p-2 hover:bg-gray-100 rounded-lg text-gray-600" title="重做"><iconify-icon icon="solar:undo-right-round-bold"></iconify-icon></button>
-                    <div class="w-px h-4 bg-gray-200 mx-1"></div>
-                    <button class="p-2 bg-blue-50 text-[#457b9d] rounded-lg" title="选择工具"><iconify-icon icon="solar:cursor-bold"></iconify-icon></button>
-                    <button class="p-2 hover:bg-gray-100 rounded-lg text-gray-600" title="添加音符"><iconify-icon icon="solar:music-note-4-bold"></iconify-icon></button>
-                    <button class="p-2 hover:bg-gray-100 rounded-lg text-gray-600" title="删除"><iconify-icon icon="solar:trash-bin-trash-bold"></iconify-icon></button>
-                    <div class="w-px h-4 bg-gray-200 mx-1"></div>
-                    <button class="p-2 hover:bg-gray-100 rounded-lg text-gray-600" title="升调"><iconify-icon icon="solar:arrow-up-bold"></iconify-icon></button>
-                    <button class="p-2 hover:bg-gray-100 rounded-lg text-gray-600" title="降调"><iconify-icon icon="solar:arrow-down-bold"></iconify-icon></button>
-                </div>
-                <div class="flex items-center gap-2 bg-white p-1.5 rounded-xl shadow-sm border border-gray-200">
-                    <div class="flex items-center gap-1 px-3 py-1 bg-gray-50 rounded-lg border border-gray-100">
-                        <span class="text-xs font-bold text-gray-500">拍号</span>
-                        <span class="text-xs font-black text-[#1d3557]">4/4</span>
-                    </div>
-                    <div class="flex items-center gap-1 px-3 py-1 bg-gray-50 rounded-lg border border-gray-100">
-                        <span class="text-xs font-bold text-gray-500">BPM</span>
-                        <span class="text-xs font-black text-[#1d3557]">120</span>
-                    </div>
-                </div>
-            </div>
-            <div class="w-[850px] sheet-paper" id="sheet-paper">
-                <h1 class="text-center text-3xl font-serif mb-12">夜的钢琴曲 (AI 生成稿)</h1>
-                <div class="staff-line-group" id="staff-1">
-                    <div class="absolute -left-10 top-[-15px] flex flex-col items-center">
-                        <span class="text-[60px] text-gray-800 leading-none" style="font-family: 'Segoe UI Symbol', 'Arial Unicode MS', serif;">&#x1D11E;</span>
-                        <div class="flex flex-col items-center absolute" style="left: 35px; top: 25px;">
-                            <span class="text-[14px] font-bold leading-none mb-0.5">4</span>
-                            <span class="text-[14px] font-bold leading-none">4</span>
+                </details>
+            </section>
+
+            <section class="center-column">
+                <div class="panel summary-panel">
+                    <div class="summary-head">
+                        <div>
+                            <p class="eyebrow">当前关联</p>
+                            <h2 id="score-title-display">尚未载入乐谱</h2>
+                        </div>
+                        <div class="summary-badges">
+                            <span class="pill"><span>乐谱</span><strong id="score-id-badge">--</strong></span>
+                            <span class="pill"><span>项目</span><strong id="project-id-badge">--</strong></span>
+                            <span class="pill"><span>版本</span><strong id="score-version-badge">--</strong></span>
                         </div>
                     </div>
-                    <div class="staff-line"></div>
-                    <div class="staff-line"></div>
-                    <div class="staff-line"></div>
-                    <div class="staff-line"></div>
-                    <div class="staff-line"></div>
-
-                    <div class="note-wrapper" onclick="selectNote(this)" style="left: 100px; top: 18px;">
-                        <div class="note-head"></div>
-                        <div class="note-stem"></div>
+                    <div class="toolbar">
+                        <button class="tool-button" id="apply-score-settings-btn" type="button">同步速度 / 拍号 / 调号</button>
+                        <button class="tool-button" id="undo-btn" type="button">撤销</button>
+                        <button class="tool-button" id="redo-btn" type="button">重做</button>
+                        <button class="tool-button" id="pitch-up-btn" type="button">升高半音</button>
+                        <button class="tool-button" id="pitch-down-btn" type="button">降低半音</button>
+                        <button class="tool-button danger" id="delete-note-btn" type="button">删除音符</button>
                     </div>
-                    <div class="note-wrapper" onclick="selectNote(this)" style="left: 160px; top: 30px;">
-                        <div class="note-head"></div>
-                        <div class="note-stem"></div>
-                        <div class="note-tail"></div> 
-                    </div>
-                    <div class="note-wrapper" onclick="selectNote(this)" style="left: 220px; top: 42px;">
-                        <div class="note-head half"></div> 
-                        <div class="note-stem"></div>
-                    </div>
-
-                    <div class="absolute h-[49px] w-px bg-gray-400 right-[50%] top-0"></div>
-                    <div class="absolute h-[49px] w-px bg-gray-800 right-0 top-0 border-r-2 border-gray-800"></div>
                 </div>
 
-                <div class="staff-line-group" id="staff-2">
-                    <div class="staff-line"></div>
-                    <div class="staff-line"></div>
-                    <div class="staff-line"></div>
-                    <div class="staff-line"></div>
-                    <div class="staff-line"></div>
-                    <div class="absolute h-[49px] w-px bg-gray-400 right-[50%] top-0"></div>
-                    <div class="absolute h-[49px] w-px bg-gray-800 right-0 top-0 border-r-2 border-gray-800"></div>
+                <div class="editor-grid">
+                    <div class="panel note-panel">
+                        <div class="panel-header compact">
+                            <div>
+                                <p class="eyebrow">编辑音符</p>
+                                <h2>当前音符</h2>
+                            </div>
+                            <button class="ghost-button" id="clear-note-selection-btn" type="button">清除选中</button>
+                        </div>
+                        <p class="helper-text" id="selected-note-summary">请先在谱面中选择一个音符，或直接新增音符。</p>
+                        <div class="note-form-grid">
+                            <label>
+                                <span class="field-label">小节</span>
+                                <input id="note-measure-input" min="1" step="1" type="number"/>
+                            </label>
+                            <label>
+                                <span class="field-label">拍点</span>
+                                <input id="note-beat-input" min="1" step="0.25" type="number"/>
+                            </label>
+                            <label>
+                                <span class="field-label">音高</span>
+                                <input id="note-pitch-input" placeholder="例如 C4，休止符可写 Rest" type="text"/>
+                            </label>
+                            <label>
+                                <span class="field-label">时值</span>
+                                <input id="note-beats-input" min="0.25" step="0.25" type="number"/>
+                            </label>
+                        </div>
+                        <div class="button-row">
+                            <button class="secondary-button" id="add-note-btn" type="button">新增音符</button>
+                            <button class="primary-button" id="update-note-btn" type="button">更新选中音符</button>
+                        </div>
+                        <p class="helper-text">点击谱面中的某个小节可以自动带入小节与拍点，再结合音高与时值完成编辑。</p>
+                    </div>
+
+                    <div class="panel note-panel">
+                        <div class="panel-header compact">
+                            <div>
+                                <p class="eyebrow">当前状态</p>
+                                <h2>乐谱概览</h2>
+                            </div>
+                        </div>
+                        <div class="score-stat-grid">
+                            <div class="stat-card">
+                                <span class="stat-label">速度</span>
+                                <strong class="stat-value" id="tempo-display">--</strong>
+                            </div>
+                            <div class="stat-card">
+                                <span class="stat-label">拍号</span>
+                                <strong class="stat-value" id="time-display">--</strong>
+                            </div>
+                            <div class="stat-card">
+                                <span class="stat-label">调号</span>
+                                <strong class="stat-value" id="key-display">--</strong>
+                            </div>
+                            <div class="stat-card">
+                                <span class="stat-label">小节数</span>
+                                <strong class="stat-value" id="measure-count-display">--</strong>
+                            </div>
+                        </div>
+                        <p class="helper-text">左侧的速度、拍号和调号既能用于创建乐谱，也能用于当前乐谱的实时更新。</p>
+                    </div>
                 </div>
-                <div class="staff-line-group" id="staff-3">
-                    <div class="staff-line"></div>
-                    <div class="staff-line"></div>
-                    <div class="staff-line"></div>
-                    <div class="staff-line"></div>
-                    <div class="staff-line"></div>
+
+                <div class="panel score-panel">
+                    <div class="panel-header">
+                        <div>
+                            <p class="eyebrow">识谱结果</p>
+                            <h2>交互谱面</h2>
+                        </div>
+                        <button class="ghost-button" id="refresh-score-view-btn" type="button">刷新视图</button>
+                    </div>
+                    <div class="score-empty" id="score-empty">
+                        <h3>当前还没有关联乐谱</h3>
+                        <p>请先生成一份乐谱，随后就可以直接在谱面中编辑音符并实时保存。</p>
+                    </div>
+                    <div class="score-canvas" id="score-canvas"></div>
                 </div>
-                <p class="text-center text-gray-300 text-xs italic mt-20">--- 点击右侧面板选择时值，然后在五线谱上点击画音符 ---</p>
-            </div>
+
+                <div class="panel score-panel">
+                    <div class="panel-header">
+                        <div>
+                            <p class="eyebrow">分析结果</p>
+                            <h2>音频分析面板</h2>
+                        </div>
+                    </div>
+                    <div class="analysis-grid">
+                        <div class="analysis-card">
+                            <h3>节拍检测</h3>
+                            <div class="analysis-output" id="beat-detect-output">
+                                <p class="analysis-placeholder">暂时还没有结果。</p>
+                            </div>
+                        </div>
+                        <div class="analysis-card">
+                            <h3>音轨分离</h3>
+                            <div class="analysis-output" id="separate-tracks-output">
+                                <p class="analysis-placeholder">暂时还没有结果。</p>
+                            </div>
+                        </div>
+                        <div class="analysis-card">
+                            <h3>和弦生成</h3>
+                            <div class="analysis-output" id="generate-chords-output">
+                                <p class="analysis-placeholder">暂时还没有结果。</p>
+                            </div>
+                        </div>
+                        <div class="analysis-card">
+                            <h3>节奏评分</h3>
+                            <div class="analysis-output" id="rhythm-score-output">
+                                <p class="analysis-placeholder">暂时还没有结果。</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <aside class="panel right-panel">
+                <div class="panel-header">
+                    <div>
+                        <p class="eyebrow">导出工作台</p>
+                        <h2>导出中心</h2>
+                    </div>
+                    <button class="ghost-button" id="refresh-exports-btn" type="button">刷新记录</button>
+                </div>
+
+                <div class="export-controls">
+                    <label>
+                        <span class="field-label">格式</span>
+                        <select id="export-format-select">
+                            <option value="pdf">PDF</option>
+                            <option value="png">PNG</option>
+                            <option value="midi">MIDI</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span class="field-label">纸张大小</span>
+                        <select id="export-page-size-select">
+                            <option value="A4">A4</option>
+                            <option value="LETTER">LETTER</option>
+                        </select>
+                    </label>
+                    <label class="toggle-row" for="export-annotations-input">
+                        <span class="field-label">导出标注</span>
+                        <input checked id="export-annotations-input" type="checkbox"/>
+                    </label>
+                </div>
+
+                <div class="button-row">
+                    <button class="primary-button" id="create-export-btn" type="button">创建导出</button>
+                    <button class="secondary-button" id="regenerate-selected-export-btn" type="button">重新生成当前导出</button>
+                </div>
+
+                <div class="export-actions">
+                    <button class="tool-button" id="download-selected-export-btn" type="button">下载</button>
+                    <button class="tool-button danger" id="delete-selected-export-btn" type="button">删除</button>
+                </div>
+
+                <div class="divider"></div>
+
+                <div class="panel-header compact">
+                    <div>
+                        <p class="eyebrow">处理日志</p>
+                        <h2>音频日志</h2>
+                    </div>
+                    <span class="count-pill" id="audio-log-count-badge">0 条日志</span>
+                </div>
+                <div class="export-empty" id="audio-log-empty">
+                    <p>当前还没有音频日志。先执行节拍检测或音轨分离后，这里会出现处理记录。</p>
+                </div>
+                <div class="export-list" id="audio-log-list"></div>
+
+                <div class="divider"></div>
+
+                <div class="panel-header compact">
+                    <div>
+                        <p class="eyebrow">导出历史</p>
+                        <h2>导出记录</h2>
+                    </div>
+                    <span class="count-pill" id="export-count-badge">0 条记录</span>
+                </div>
+                <div class="export-empty" id="export-empty">
+                    <p>当前还没有导出记录。创建 PDF、PNG 或 MIDI 导出后，这里会自动显示。</p>
+                </div>
+                <div class="export-list" id="export-list"></div>
+
+                <div class="divider"></div>
+
+                <div class="panel-header compact">
+                    <div>
+                        <p class="eyebrow">结果预览</p>
+                        <h2 id="preview-title">尚未选择导出项</h2>
+                    </div>
+                </div>
+                <div class="detail-grid">
+                    <div class="detail-line"><span>格式</span><strong id="detail-format">--</strong></div>
+                    <div class="detail-line"><span>大小</span><strong id="detail-size">--</strong></div>
+                    <div class="detail-line"><span>更新时间</span><strong id="detail-updated">--</strong></div>
+                    <div class="detail-line"><span>状态</span><strong id="detail-status">--</strong></div>
+                </div>
+                <div class="preview-stage" id="preview-stage">
+                    <div class="preview-empty" id="preview-empty">
+                        <p>选择一条导出记录后，这里会展示 PDF 或图片的预览内容。</p>
+                    </div>
+                </div>
+            </aside>
         </main>
 
-        <aside class="w-72 bg-white border-l border-gray-200 flex flex-col p-6">
-            <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-6">导出格式</h3>
-            <div class="space-y-4">
-                <button class="w-full flex items-center justify-between p-4 bg-gray-50 rounded-2xl hover:bg-gray-100 transition-colors group">
-                    <div class="flex items-center gap-3">
-                        <div class="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center text-red-500 group-hover:scale-110 transition-transform">
-                            <iconify-icon class="text-2xl" icon="solar:file-pdf-bold-duotone"></iconify-icon>
-                        </div>
-                        <div class="text-left">
-                            <p class="text-sm font-bold">PDF 打印稿</p>
-                            <p class="text-[10px] text-gray-400">标准高质量乐谱</p>
-                        </div>
-                    </div>
-                    <iconify-icon class="text-gray-300" icon="solar:alt-arrow-right-bold"></iconify-icon>
-                </button>
-                <button class="w-full flex items-center justify-between p-4 bg-gray-50 rounded-2xl hover:bg-gray-100 transition-colors group">
-                    <div class="flex items-center gap-3">
-                        <div class="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center text-blue-500 group-hover:scale-110 transition-transform">
-                            <iconify-icon class="text-2xl" icon="solar:music-note-slider-bold-duotone"></iconify-icon>
-                        </div>
-                        <div class="text-left">
-                            <p class="text-sm font-bold">MIDI 数据</p>
-                            <p class="text-[10px] text-gray-400">用于 DAW 或编曲</p>
-                        </div>
-                    </div>
-                    <iconify-icon class="text-gray-300" icon="solar:alt-arrow-right-bold"></iconify-icon>
-                </button>
-                <button class="w-full flex items-center justify-between p-4 bg-gray-50 rounded-2xl hover:bg-gray-100 transition-colors group">
-                    <div class="flex items-center gap-3">
-                        <div class="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center text-green-500 group-hover:scale-110 transition-transform">
-                            <iconify-icon class="text-2xl" icon="solar:gallery-bold-duotone"></iconify-icon>
-                        </div>
-                        <div class="text-left">
-                            <p class="text-sm font-bold">PNG 图片</p>
-                            <p class="text-[10px] text-gray-400">快速分享预览图</p>
-                        </div>
-                    </div>
-                    <iconify-icon class="text-gray-300" icon="solar:alt-arrow-right-bold"></iconify-icon>
-                </button>
-            </div>
-            <div class="mt-10">
-                <h3 class="text-xs font-bold text-gray-400 uppercase mb-4">音符属性</h3>
-                <div class="bg-gray-50 p-4 rounded-2xl border border-gray-100">
-                    <div class="flex justify-between items-center mb-4">
-                        <span class="text-xs text-gray-500">当前音高</span>
-                        <span class="text-xs font-bold" id="selected-pitch">C4</span>
-                    </div>
-                    <div class="flex justify-between items-center mb-4">
-                        <span class="text-xs text-gray-500">时值</span>
-                        <select id="note-duration" class="text-xs font-bold bg-transparent outline-none">
-                            <option>四分音符</option>
-                            <option>八分音符</option>
-                            <option>二分音符</option>
-                        </select>
-                    </div>
-                    <div class="flex justify-between items-center">
-                        <span class="text-xs text-gray-500">力度</span>
-                        <input class="w-24 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#457b9d]" type="range"/>
-                    </div>
-                </div>
-            </div>
-        </aside>
+        <footer class="statusbar">
+            <span id="app-status">已就绪。先生成乐谱或上传音频，后续的编辑、分析与导出都会围绕当前内容继续进行。</span>
+        </footer>
     </div>
-    <footer class="h-8 bg-[#1d3557] text-white flex items-center px-4 justify-between text-[10px]">
-        <div class="flex gap-4">
-            <span>状态: AI 核心已连接</span>
-            <span>延迟: 12ms</span>
-        </div>
-        <div class="flex gap-4">
-            <span>SeeMusic Transcription Engine v4.2</span>
-            <span>2026-04-01</span>
-        </div>
-    </footer>
-    
+
+    <script src="app_common.js"></script>
     <script src="transcription.js"></script>
 </body>
 </html>

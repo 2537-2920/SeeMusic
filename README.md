@@ -42,6 +42,9 @@ API输出 / 用户系统 / 导出
 * API：对外接口
 * User：用户系统与数据管理
 
+> 说明：当前仓库里的 `backend/` 只提供 API 服务，不直接渲染网页。浏览器界面位于 `frontend/` 目录，B 模块的主要入口是 `frontend/transcription.html`。  
+> `python backend/main.py` 启动后，`0.0.0.0:8000` 只是监听地址，不是可以直接打开的页面；浏览器里请访问 `http://127.0.0.1:8000` 或 `http://localhost:8000`。
+
 ---
 
 ## 📁 项目结构
@@ -52,7 +55,9 @@ music-ai-system/
 ├── backend/
 │   ├── api/                      # 接口层（人E）
 │   │   ├── api_routes.py
-│   │
+│   ├── database/                 #数据库
+│   │   ├── models.py
+│   │   ├── db.py
 │   ├── core/                     # 核心算法层
 │   │   ├── pitch/                # 音高相关（人A）
 │   │   │   ├── pitch_detection.py
@@ -99,7 +104,7 @@ music-ai-system/
 │   │
 │   └── main.py                  # 后端入口
 │
-├── frontend/                    # 前端（可后续扩展）
+├── frontend/                    # 前端静态页面（需单独打开或用静态服务器）
 │
 ├── tests/                       # 测试
 │   ├── test_pitch.py
@@ -119,7 +124,7 @@ music-ai-system/
 * 音高识别（Pitch Detection）
 * 实时音准检测（Realtime Tuning）
 * 节奏分析（Beat Detection）
-* 多轨分离（Vocal / Accompaniment）
+* 多轨分离（Multi- track Separation）
 
 ### 🎼 乐谱系统
 
@@ -167,7 +172,7 @@ music-ai-system/
 * Audio Processing：librosa / torchaudio
 * ML / AI：PyTorch
 * Visualization：matplotlib / plotly
-* Frontend：React / Vue（可选）
+* Frontend：静态 HTML / CSS / JavaScript
 * Storage：SQLite / PostgreSQL
 
 ---
@@ -183,15 +188,16 @@ cd music-ai-system
 
 ---
 
-### 2. 安装依赖
+### 2. 激活运行环境并安装依赖
 
 ```bash
+conda activate SeeMusic
 pip install -r requirements.txt
 ```
 
 ---
 
-### 3. 启动服务
+### 3. 启动后端 API
 
 ```bash
 python backend/main.py
@@ -199,18 +205,81 @@ python backend/main.py
 
 ---
 
-### 4. 调用接口
+### 4. 打开前端界面
+
+推荐直接启动一个静态服务器，然后打开前端页面：
 
 ```bash
-POST /analyze
+python -m http.server 5173 --directory frontend
 ```
 
-上传音频文件，即可返回：
+注意：
+
+* 前端静态服务器请用 `5173` 或其他空闲端口，不要占用 `8000`
+* `8000` 已留给后端 API 服务使用
+* 如果页面右上角的健康检查显示离线，先检查 API base 是否仍然是 `http://127.0.0.1:8000/api/v1`
+* 如果你之前打开过旧版本页面，建议先强制刷新一次，或者清掉浏览器里 `seemusic.transcription.apiBase` 这条本地缓存
+
+然后在浏览器中打开：
+
+```text
+http://127.0.0.1:5173/index.html
+```
+
+如果你只负责B模块，直接打开：
+
+```text
+http://127.0.0.1:5173/transcription.html
+```
+
+前端页面默认读取的 API base 是：
+
+```text
+http://127.0.0.1:8000/api/v1
+```
+
+你也可以在页面里手动修改 API base，再点击 `Save`。
+
+---
+
+### 5. 调用接口
+
+后端提供的是 API，而不是网页首页。常用接口示例：
+
+```bash
+# 音频分析整体
+POST /analyze
+
+# 多轨分离（新增功能）
+POST /api/v1/audio/separate-tracks
+```
+
+上传音频文件示例：
+
+```bash
+# 基础分析
+curl -X POST http://localhost:8000/analyze \
+  -F "file=@song.mp3"
+
+# 多轨分离 - 4轨（人声+鼓+贝司+其他）
+curl -X POST http://localhost:8000/api/v1/audio/separate-tracks \
+  -F "file=@song.mp3" \
+  -F "stems=4"
+
+# 多轨分离 - 6轨（完整乐器分离）
+curl -X POST http://localhost:8000/api/v1/audio/separate-tracks \
+  -F "file=@song.mp3" \
+  -F "stems=6"
+```
+
+返回数据示例：
 
 * 音高数据
 * 节奏数据
 * 乐谱结构
 * 可视化分析结果
+* 分离的音频轨道 
+
 
 ---
 
@@ -294,4 +363,3 @@ bash scripts/clean_cache.sh
 * C：节奏分析与多轨分离
 * D：可视化与AI扩展
 * E：系统接口与用户系统
-

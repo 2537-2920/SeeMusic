@@ -14,103 +14,96 @@
 <div class="flex items-center gap-6">
 <a class="flex items-center gap-2 group" href="index.html">
 <div class="w-10 h-10 bg-[#457b9d] rounded flex items-center justify-center text-white transition-all duration-300 group-hover:rotate-12 group-hover:scale-110">
-<iconify-icon icon="solar:music-note-bold" class="text-xl"></iconify-icon>
+<iconify-icon class="text-xl" icon="solar:music-note-bold"></iconify-icon>
 </div>
 <span class="text-2xl font-bold tracking-tight text-[#1d3557] hidden sm:block">SeeMusic</span>
 </a>
 <div class="h-10 w-[1px] bg-gray-300 mx-2"></div>
 <div>
 <h1 class="text-4xl font-bold tracking-tight text-gray-800">个人中心</h1>
-<p class="text-sm text-gray-400 mt-1 uppercase tracking-widest">User Profile &amp; Settings</p>
+<p class="text-sm text-gray-400 mt-1 uppercase tracking-widest">User Profile &amp; History</p>
 </div>
 </div>
 <div class="text-right text-xs text-gray-400 font-medium">
 <p>LAST UPDATE</p>
-<p class="text-gray-600">2026-04-01</p>
+<p class="text-gray-600" id="profile-last-update">--</p>
 </div>
 </header>
 
-<main class="w-full px-12 mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8">
+<main class="w-full px-12 mx-auto">
+<p class="hidden mb-8 text-sm rounded-2xl px-5 py-4" id="profile-status"></p>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
 <div class="lg:col-span-1 flex flex-col gap-8">
 <section class="card flex flex-col items-center text-center">
 <div class="relative group">
-<img alt="Avatar" class="w-32 h-32 rounded-full border-4 border-white shadow-lg mb-4" src="https://api.dicebear.com/7.x/avataaars/svg?seed=Music"/>
-<button class="absolute bottom-4 right-0 bg-white p-2 rounded-full shadow-md text-gray-500 hover:text-[#457b9d] transition-colors">
-<iconify-icon icon="solar:camera-bold"></iconify-icon>
+<img alt="Avatar" class="w-32 h-32 rounded-full border-4 border-white shadow-lg mb-4" id="profile-avatar" src="https://api.dicebear.com/7.x/avataaars/svg?seed=Music"/>
+<button class="absolute bottom-4 right-0 bg-white p-2 rounded-full shadow-md text-gray-500 hover:text-[#457b9d] transition-colors" id="refresh-profile-btn" type="button">
+<iconify-icon icon="solar:refresh-bold"></iconify-icon>
 </button>
 </div>
-<h2 class="text-2xl font-bold">灵感创作者</h2>
-<p class="text-gray-400 text-sm mb-6">creator@seemusic.art</p>
+<h2 class="text-2xl font-bold" id="profile-name">未登录用户</h2>
+<p class="text-gray-400 text-sm mb-6" id="profile-email">登录后可查看数据库中的个人记录</p>
 <div class="w-full flex justify-around border-t border-gray-100 pt-6">
 <div>
-<p class="text-xl font-bold text-[#457b9d]">42</p>
-<p class="text-[10px] text-gray-400 uppercase">扒谱记录</p>
+<p class="text-xl font-bold text-[#457b9d]" id="stat-audio">0</p>
+<p class="text-[10px] text-gray-400 uppercase">音频分析</p>
 </div>
 <div>
-<p class="text-xl font-bold text-[#457b9d]">15h</p>
-<p class="text-[10px] text-gray-400 uppercase">评估时长</p>
+<p class="text-xl font-bold text-[#457b9d]" id="stat-report">0</p>
+<p class="text-[10px] text-gray-400 uppercase">报告导出</p>
 </div>
 <div>
-<p class="text-xl font-bold text-[#457b9d]">128</p>
-<p class="text-[10px] text-gray-400 uppercase">收藏曲目</p>
+<p class="text-xl font-bold text-[#457b9d]" id="stat-score">0</p>
+<p class="text-[10px] text-gray-400 uppercase">乐谱操作</p>
 </div>
 </div>
-<button class="mt-8 w-full py-3 rounded-xl bg-gray-50 text-gray-600 font-medium hover:bg-gray-100 transition-colors flex items-center justify-center gap-2">
-<iconify-icon icon="solar:settings-linear"></iconify-icon> 修改个人资料
+<button class="mt-8 w-full py-3 rounded-xl bg-gray-50 text-gray-600 font-medium hover:bg-gray-100 transition-colors flex items-center justify-center gap-2" id="session-action-btn" type="button">
+<iconify-icon icon="solar:login-2-linear"></iconify-icon> <span id="session-action-text">前往登录</span>
                 </button>
 </section>
+
 <section class="card">
 <h3 class="section-title text-lg">
 <iconify-icon icon="solar:shield-check-bold-duotone"></iconify-icon> 账号安全
                 </h3>
 <div class="space-y-4">
 <div class="flex justify-between items-center text-sm">
-<span class="text-gray-500">登录密码</span>
-<button class="text-[#457b9d] font-medium">修改</button>
+<span class="text-gray-500">登录状态</span>
+<span class="bg-gray-100 text-gray-500 px-2 py-0.5 rounded text-[10px]" id="security-login-state">未登录</span>
 </div>
 <div class="flex justify-between items-center text-sm">
-<span class="text-gray-500">隐私权限</span>
-<button class="text-[#457b9d] font-medium">管理</button>
+<span class="text-gray-500">当前用户 ID</span>
+<span class="text-[#457b9d] font-medium" id="security-user-id">--</span>
 </div>
 <div class="flex justify-between items-center text-sm">
-<span class="text-gray-500">双重验证</span>
-<span class="bg-gray-100 text-gray-400 px-2 py-0.5 rounded text-[10px]">未开启</span>
+<span class="text-gray-500">历史记录总数</span>
+<span class="text-[#457b9d] font-medium" id="security-history-count">0</span>
 </div>
 </div>
 </section>
 </div>
+
 <div class="lg:col-span-2 flex flex-col gap-8">
 <section class="card">
 <h3 class="section-title">
-<iconify-icon icon="solar:chart-square-bold-duotone"></iconify-icon> 使用数据统计
+<iconify-icon icon="solar:chart-square-bold-duotone"></iconify-icon> 最近 7 天活跃数据
                 </h3>
-<div class="h-48 flex items-end justify-between gap-4 px-4 bg-gray-50 rounded-2xl pt-8 pb-4">
-<div class="flex-1 flex flex-col items-center gap-2 h-full">
-<div class="chart-bar w-full opacity-30" style="height: 40%"></div>
-<span class="text-[10px] text-gray-400">Mon</span>
-</div>
-<div class="flex-1 flex flex-col items-center gap-2 h-full">
-<div class="chart-bar w-full opacity-50" style="height: 65%"></div>
-<span class="text-[10px] text-gray-400">Tue</span>
-</div>
-<div class="flex-1 flex flex-col items-center gap-2 h-full">
-<div class="chart-bar w-full" style="height: 90%"></div>
-<span class="text-[10px] text-gray-400 font-bold">Wed</span>
-</div>
-<div class="flex-1 flex flex-col items-center gap-2 h-full">
-<div class="chart-bar w-full opacity-40" style="height: 55%"></div>
-<span class="text-[10px] text-gray-400">Thu</span>
-</div>
-<div class="flex-1 flex flex-col items-center gap-2 h-full">
-<div class="chart-bar w-full opacity-60" style="height: 75%"></div>
-<span class="text-[10px] text-gray-400">Fri</span>
-</div>
-<div class="flex-1 flex flex-col items-center gap-2 h-full">
-<div class="chart-bar w-full opacity-20" style="height: 30%"></div>
-<span class="text-[10px] text-gray-400">Sat</span>
+<div class="h-48 flex items-end justify-between gap-4 px-4 bg-gray-50 rounded-2xl pt-8 pb-4" id="activity-chart"></div>
+<p class="mt-4 text-xs text-gray-400" id="activity-summary">登录后将从后端拉取个人历史并生成统计。</p>
+</section>
+
+<section class="card">
+<h3 class="section-title">
+<iconify-icon icon="solar:history-bold-duotone"></iconify-icon> 最近操作记录
+                </h3>
+<div class="space-y-4" id="history-list">
+<div class="rounded-2xl border border-dashed border-gray-200 p-6 text-center text-sm text-gray-400">
+尚未加载任何历史记录
 </div>
 </div>
 </section>
+
 <section class="card">
 <h3 class="section-title">
 <iconify-icon icon="solar:widget-3-bold-duotone"></iconify-icon> 系统偏好设置
@@ -119,38 +112,34 @@
 <div class="space-y-6">
 <div>
 <label class="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-2">音频引擎</label>
-<select class="w-full bg-gray-50 border-none rounded-lg p-2 text-sm focus:ring-2 focus:ring-[#457b9d]/20">
-<option>系统默认音频设备</option>
-<option>ASIO: External Interface</option>
-<option>DirectSound: Primary</option>
+<select id="pref-audio-engine" class="w-full bg-gray-50 border-none rounded-lg p-2 text-sm focus:ring-2 focus:ring-[#457b9d]/20">
+<option value="default">系统默认音频设备</option>
+<option value="asio">ASIO: External Interface</option>
+<option value="directsound">DirectSound: Primary</option>
 </select>
-</div>
-<div>
-<label class="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-2">界面主题</label>
-<div class="flex gap-4">
-<button class="flex-1 py-2 rounded-lg bg-[#457b9d] text-white text-xs">浅色音乐风</button>
-<button class="flex-1 py-2 rounded-lg bg-gray-100 text-gray-500 text-xs">深夜爵士风</button>
-</div>
 </div>
 </div>
 <div class="space-y-6">
 <div>
 <label class="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-2">默认导出格式</label>
-<div class="flex flex-wrap gap-3">
+<div id="pref-export-formats" class="flex flex-wrap gap-3">
 <label class="flex items-center gap-2 text-xs">
-<input checked="" class="rounded border-gray-300 text-[#457b9d]" type="checkbox"/> MIDI
+<input checked="" class="rounded border-gray-300 text-[#457b9d]" type="checkbox" value="MIDI"/> MIDI
                                 </label>
 <label class="flex items-center gap-2 text-xs">
-<input checked="" class="rounded border-gray-300 text-[#457b9d]" type="checkbox"/> XML
+<input checked="" class="rounded border-gray-300 text-[#457b9d]" type="checkbox" value="PNG"/> PNG
                                 </label>
 <label class="flex items-center gap-2 text-xs">
-<input class="rounded border-gray-300 text-[#457b9d]" type="checkbox"/> PDF
+<input checked="" class="rounded border-gray-300 text-[#457b9d]" type="checkbox" value="PDF"/> PDF
                                 </label>
 </div>
 </div>
-<div class="pt-2">
-<button class="text-red-400 text-sm font-medium hover:text-red-500 transition-colors flex items-center gap-2" onclick="clearCache(this)">
-<iconify-icon icon="solar:trash-bin-trash-bold"></iconify-icon> <span class="cache-text">清除系统缓存 (1.2GB)</span>
+<div class="pt-2 flex items-center gap-4">
+<button class="text-[#457b9d] text-sm font-medium hover:text-[#1d3557] transition-colors flex items-center gap-2" id="save-prefs-btn" type="button">
+<iconify-icon icon="solar:diskette-bold"></iconify-icon> <span>保存偏好设置</span>
+                            </button>
+<button class="text-red-400 text-sm font-medium hover:text-red-500 transition-colors flex items-center gap-2" id="clear-cache-btn" type="button">
+<iconify-icon icon="solar:trash-bin-trash-bold"></iconify-icon> <span class="cache-text">清理前端缓存配置</span>
                             </button>
 </div>
 </div>
@@ -165,11 +154,14 @@
 </div>
 </section>
 </div>
+</div>
 </main>
+
 <footer class="mt-12 text-center text-gray-300 text-xs pb-12">
 <p>© 2026 SeeMusic Studio. All Rights Reserved.</p>
 </footer>
 
+<script src="app_common.js"></script>
 <script src="profile.js"></script>
 </body>
 </html>

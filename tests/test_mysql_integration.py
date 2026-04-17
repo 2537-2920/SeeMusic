@@ -22,9 +22,11 @@ from backend.db.models import (
     UserHistory,
 )
 from backend.db.repositories import get_sheet_by_score_id
-from backend.db.session import get_engine, reset_database_state, resolve_database_url, session_scope
+from backend.db.session import get_engine, get_session_factory, reset_database_state, resolve_database_url, session_scope
+from backend.services import analysis_service, community_service, report_service
 from backend.services.analysis_service import clear_analysis_results, get_saved_pitch_sequence, save_analysis_result
 from backend.services.score_service import create_score_from_pitch_sequence
+from backend.user import history_manager, user_system
 
 
 MYSQL_INTEGRATION_DATABASE_URL_ENV = "MYSQL_INTEGRATION_DATABASE_URL"
@@ -77,11 +79,28 @@ def mysql_database(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     monkeypatch.setenv("DATABASE_URL", database_url)
     reset_database_state()
     _recreate_schema()
+    factory = get_session_factory()
+    user_system.set_db_session_factory(factory)
+    user_system.USE_DB = True
+    history_manager.set_db_session_factory(factory)
+    history_manager.USE_DB = True
+    analysis_service.set_db_session_factory(factory)
+    analysis_service.USE_DB = True
+    report_service.set_db_session_factory(factory)
+    report_service.USE_DB = True
+    community_service.set_db_session_factory(factory)
+    community_service.USE_DB = True
 
     try:
         yield {"database_url": resolve_database_url()}
     finally:
         try:
+            user_system.USE_DB = False
+            history_manager.USE_DB = False
+            analysis_service.USE_DB = False
+            report_service.USE_DB = False
+            community_service.USE_DB = False
+            clear_analysis_results()
             _recreate_schema()
         finally:
             reset_database_state()

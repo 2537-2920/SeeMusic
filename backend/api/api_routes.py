@@ -810,11 +810,8 @@ def publish_community_score(payload: CommunityScorePublishRequest, authorization
 @router.post("/community/scores/upload")
 async def upload_community_score(
     file: UploadFile = File(...),
-<<<<<<< HEAD
     file_content_base64: str = Form(...), 
-=======
     cover_file: UploadFile | None = File(default=None),
->>>>>>> main
     title: str = Form(...),
     style: str = Form("精选"),
     instrument: str = Form("乐谱"),

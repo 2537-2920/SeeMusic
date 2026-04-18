@@ -484,22 +484,34 @@ function renderDetail() {
     detailFavoriteBtn.innerHTML = `<iconify-icon class="text-xl" icon="${score.favorited ? "solar:bookmark-bold" : "solar:bookmark-outline"}"></iconify-icon>`;
 
     const commentsList = document.getElementById("detail-comments-list");
-    if (!state.selectedComments.length) {
-        commentsList.innerHTML = '<p class="text-xs text-gray-400">还没有评论，来成为第一个留言的人。</p>';
-    } else {
-        commentsList.innerHTML = state.selectedComments.map((comment) => `
+if (!state.selectedComments.length) {
+    commentsList.innerHTML = '<p class="text-xs text-gray-400">还没有评论，来成为第一个留言的人。</p>';
+} else {
+    commentsList.innerHTML = state.selectedComments.map((comment) => {
+        // 1. 先计算出应该显示的名字（优先昵称，其次用户名，最后保底）
+        const displayName = comment.nickname || comment.username || "社区用户";
+        
+        // 2. 构造 HTML
+        return `
             <div class="flex gap-3">
-                <img alt="${escapeHtml(comment.username || "社区用户")}" class="w-9 h-9 rounded-full bg-gray-100" src="${escapeHtml(avatarUrl({ avatar: comment.avatar_url, username: comment.username }))}"/>
+                <!-- 头像部分：使用我们之前优化过的对象传参 -->
+                <img alt="${escapeHtml(displayName)}" 
+                     class="w-9 h-9 rounded-full bg-gray-100" 
+                     src="${escapeHtml(avatarUrl({ avatar: comment.avatar_url, username: displayName }))}"/>
+                
                 <div class="min-w-0 flex-1">
                     <div class="flex items-center justify-between gap-3">
-                        <span class="text-sm font-medium text-gray-700 truncate">${escapeHtml(comment.username || "社区用户")}</span>
+                        <!-- 【核心修改】：这里一定要换成 displayName 变量 -->
+                        <span class="text-sm font-medium text-gray-700 truncate">${escapeHtml(displayName)}</span>
+                        
                         <span class="text-[10px] text-gray-400 whitespace-nowrap">${escapeHtml(comment.relative_time || "")}</span>
                     </div>
                     <p class="text-xs text-gray-500 leading-relaxed mt-1 break-words">${escapeHtml(comment.content || "")}</p>
                 </div>
             </div>
-        `).join("");
-    }
+        `;
+    }).join("");
+}
 }
 
 function syncItem(scoreId, patch) {

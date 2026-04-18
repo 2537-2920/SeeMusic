@@ -357,10 +357,13 @@ def _find_sheet_id(session: Any, score_id: str | None) -> int | None:
     return int(sheet.id) if sheet else None
 
 
-def _serialize_db_comment(row: Any) -> dict[str, Any]:
+def _serialize_db_comment(session: Any, row: Any) -> dict[str, Any]:
+    from backend.db.models import User
+    user = session.get(User, row.user_id)
     payload = {
         "comment_id": str(row.comment_id),
         "username": str(row.username),
+        "nickname": user.nickname if user and user.nickname else comment.username,
         "avatar_url": row.avatar_url,
         "content": str(row.content),
         "created_at": _to_community_iso(row.create_time),
@@ -370,13 +373,14 @@ def _serialize_db_comment(row: Any) -> dict[str, Any]:
 
 
 def _serialize_db_score(session: Any, post: Any, current_user: dict[str, Any] | None = None) -> dict[str, Any]:
-    from backend.db.models import CommunityComment, CommunityFavorite, CommunityLike
+    from backend.db.models import CommunityComment, CommunityFavorite, CommunityLike,User
 
     actor_key = _actor_key(current_user)
     comment_count = session.query(CommunityComment).filter_by(post_id=post.id).count()
     liked = session.query(CommunityLike).filter_by(post_id=post.id, actor_key=actor_key).first() is not None
     favorited = session.query(CommunityFavorite).filter_by(post_id=post.id, actor_key=actor_key).first() is not None
-    author = str(post.author_name or DEFAULT_AUTHOR)
+    user = session.get(User, post.user_id)
+    author = (user.nickname if user and user.nickname else str(post.author_name or DEFAULT_AUTHOR))
     style = str(post.style or "")
     instrument = str(post.instrument or "")
     score_id = str(post.score_id)
@@ -619,7 +623,7 @@ def get_community_score_detail(score_id: str, current_user: dict[str, Any] | Non
             )
             return {
                 "score": _serialize_db_score(session, post, current_user=current_user),
-                "comments": [_serialize_db_comment(comment) for comment in comments[:20]],
+                "comments": [_serialize_db_comment(session,comment) for comment in comments[:20]],
             }
 
     entry = _get_score_mem(score_id)
@@ -799,7 +803,7 @@ def list_community_comments(score_id: str, page: int = 1, page_size: int = 20) -
             return {
                 "score_id": score_id,
                 "total": total,
-                "items": [_serialize_db_comment(comment) for comment in paged],
+                "items": [_serialize_db_comment(session,comment) for comment in paged],
                 "page": page,
                 "page_size": page_size,
             }

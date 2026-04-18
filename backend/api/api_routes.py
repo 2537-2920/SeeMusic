@@ -1100,10 +1100,9 @@ def update_me(payload: UserUpdatePayload, current_user: Dict[str, Any] = Depends
 #         with open(save_path, "wb") as f:
 #             f.write(content)
         
-<<<<<<< HEAD
-        # 切换到更为稳健的静态路径方式，配合 main.py 中的 app.mount("/storage", ...)
-        avatar_url = f"/storage/avatars/{filename}"
-        update_user_info(current_user["user_id"], {"avatar": avatar_url})
+#         # 更新数据库中的头像路径 (假设前端可以通过 /api/v1/users/me/avatar/filename 访问，这里暂存相对路径)
+#         avatar_url = f"/api/v1/users/me/avatar/{filename}"
+#         update_user_info(current_user["user_id"], {"avatar": avatar_url})
         
 #         return ok({"avatar_url": avatar_url})
 #     except Exception as e:

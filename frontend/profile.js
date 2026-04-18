@@ -101,7 +101,9 @@ function renderUser(user) {
     const currentUser = user || getCurrentUser();
     const avatarElement = document.getElementById("profile-avatar");
     avatarElement.src = avatarUrl(currentUser);
-    document.getElementById("profile-name").textContent = (currentUser && currentUser.username) ? currentUser.username : "未登录用户";
+    document.getElementById("profile-name").textContent = (currentUser && (currentUser.nickname || currentUser.username)) 
+  ? (currentUser.nickname || currentUser.username) 
+  : "未登录用户";
     document.getElementById("profile-email").textContent = (currentUser && currentUser.email)
         ? currentUser.email
         : "登录后可查看数据库中的个人记录";

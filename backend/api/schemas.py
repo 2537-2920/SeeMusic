@@ -1,4 +1,4 @@
-﻿"""Request/response schemas for the API layer."""
+"""Request/response schemas for the API layer."""
 
 from __future__ import annotations
 
@@ -159,3 +159,12 @@ class ReportExportRequest(BaseModel):
 class PreferencesUpdateRequest(BaseModel):
     audio_engine: Optional[str] = None
     export_formats: Optional[List[str]] = None
+
+
+class UserUpdatePayload(BaseModel):
+    """个人资料更新请求体"""
+    nickname: Optional[str] = None
+    bio: Optional[str] = None
+    birthday: Optional[str] = None
+    music_taste: Optional[List[str]] = None
+    avatar: Optional[str] = None

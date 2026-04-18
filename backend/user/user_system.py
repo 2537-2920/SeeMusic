@@ -115,13 +115,20 @@ def _login_user_db(username: str, password: str) -> dict:
         if not user or user.password != _hash_password(password):
             raise HTTPException(status_code=401, detail="invalid credentials")
         token = f"tok_{uuid4().hex}"
-        expired_time = datetime.now(timezone.utc) + timedelta(seconds=7200)
+        expired_time = datetime.now() + timedelta(seconds=7200)
         session.add(UserToken(user_id=user.id, token=token, expired_time=expired_time))
         session.commit()
         return {
             "token": token,
             "expires_in": 7200,
-            "user": {"user_id": str(user.id), "username": user.username},
+            "user": {
+                "user_id": str(user.id),
+                "username": user.username,
+                "nickname": user.nickname,
+                "avatar": user.avatar,
+                "bio": user.bio,
+                "music_taste": user.music_taste
+            },
         }
     except HTTPException:
         raise
@@ -153,14 +160,54 @@ def _get_user_by_token_db(token: str) -> dict:
     from backend.db.models import User, UserToken
     session = _get_session()
     try:
-        now = datetime.now(timezone.utc)
+        now = datetime.now()
         tok = session.query(UserToken).filter(UserToken.token == token, UserToken.expired_time > now).first()
         if not tok:
             raise HTTPException(status_code=401, detail="token invalid or expired")
         user = session.get(User, tok.user_id)
         if not user:
             raise HTTPException(status_code=401, detail="user not found")
-        return {"user_id": str(user.id), "username": user.username, "email": user.email}
+        return {
+            "user_id": str(user.id),
+            "username": user.username,
+            "email": user.email,
+            "nickname": user.nickname,
+            "avatar": user.avatar,
+            "bio": user.bio,
+            "birthday": user.birthday,
+            "music_taste": user.music_taste,
+        }
+    finally:
+        session.close()
+
+
+def update_user_info(user_id: str, data: dict) -> dict:
+    """更新数据库中的用户信息"""
+    from backend.db.models import User
+    session = _get_session()
+    try:
+        user = session.get(User, int(user_id))
+        if not user:
+            raise HTTPException(status_code=404, detail="user not found")
+        
+        # 批量更新字段
+        allowed_fields = ["nickname", "bio", "birthday", "music_taste", "avatar"]
+        for field in allowed_fields:
+            if field in data and data[field] is not None:
+                setattr(user, field, data[field])
+        
+        session.commit()
+        return {
+            "user_id": str(user.id),
+            "nickname": user.nickname,
+            "bio": user.bio,
+            "birthday": user.birthday,
+            "music_taste": user.music_taste,
+            "avatar": user.avatar
+        }
+    except Exception as e:
+        session.rollback()
+        raise e
     finally:
         session.close()
 

@@ -864,7 +864,7 @@ def add_community_comment(score_id: str, payload: dict[str, Any], current_user: 
     COMMUNITY_COMMENTS.setdefault(score_id, []).append(comment)
     return {
         "score_id": score_id,
-        "comment": _serialize_comment(comment),
+        "comment": _serialize_comment(session,comment),
         "comments_count": len(COMMUNITY_COMMENTS[score_id]),
     }
 
@@ -986,9 +986,10 @@ def get_score_pdf_content(score_id: str) -> tuple[bytes, str]:
         post = db.query(CommunityPost).filter_by(score_id=score_id).first()
         
         # 乐谱不存在则报错
-        if not post or not post.file_content_base64:
-            raise HTTPException(status_code=404, detail="乐谱文件不存在")
-        
+        if not post:
+            raise HTTPException(status_code=404, detail="乐谱记录不存在")
+        content_str = post.file_content_base64 or "" 
+
         try:
             # Base64 解码 → 还原成PDF二进制文件
             pdf_bytes = base64.b64decode(post.file_content_base64)

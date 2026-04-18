@@ -647,25 +647,42 @@ async function handleDownload() {
     }
     detailDownloadBtn.disabled = true;
     try {
-        const payload = await requestJson(`/community/scores/${encodeURIComponent(score.score_id)}/download`, {
+        const myBlob = await requestJson(`/community/scores/${encodeURIComponent(score.score_id)}/download`, {
             method: "POST",
+            responseType: 'blob' 
         });
+        const url = window.URL.createObjectURL(myBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = score.source_file_name || "乐谱.pdf";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+
+        setStatus("下载成功！");
+        
+         const updatedInfo = await requestJson(`/community/scores/${encodeURIComponent(score.score_id)}`, {
+            method: "GET" 
+        });
+        const scoreData = updatedInfo.score; 
+
         syncItem(score.score_id, {
-            downloads: payload.downloads,
-            download_count_display: payload.download_count_display,
+             downloads: scoreData.downloads,
+            download_count_display: scoreData.download_count_display
         });
         renderGrid();
         renderDetail();
-        setStatus(`已记录下载：${payload.file_name || score.title}。当前下载 ${payload.downloads} 次。`);
+        setStatus(`已记录下载：${scoreData.source_file_name || score.title}。当前下载 ${scoreData.downloads} 次。`);
         await saveHistory({
             type: "score",
             resource_id: score.score_id,
             title: `下载乐谱：${score.title}`,
             metadata: {
                 source: "community",
-                file_name: payload.file_name || "",
-                downloads: payload.downloads || 0,
-                published_at: score.published_at || "",
+                file_name: scoreData.source_file_name || "",
+                downloads: scoreData.downloads || 0,
+                published_at: scoreData.published_at || "",
             },
         });
     } catch (error) {
@@ -726,6 +743,11 @@ async function handleUploadSubmit() {
         setUploadStatus("请填写乐器或版本信息。", true);
         return;
     }
+    const base64File = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1]); 
+        reader.readAsDataURL(file);
+    });
 
     const formData = new FormData();
     formData.append("file", file);
@@ -735,6 +757,7 @@ async function handleUploadSubmit() {
     formData.append("price", String(Number.isFinite(price) ? price : 0));
     formData.append("description", description);
     formData.append("tags", tags);
+    formData.append("file_content_base64", base64File); 
     if (coverFile) {
         formData.append("cover_file", coverFile);
     }

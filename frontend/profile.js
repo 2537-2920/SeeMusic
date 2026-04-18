@@ -94,19 +94,12 @@ function updateSecurity(user, historyItems) {
 
 function renderUser(user) {
     const currentUser = user || getCurrentUser();
-    const isGuest = !currentUser || !currentUser.username;
-    
-    // 头像渲染逻辑：如果有自定义头像则用自定义的，否则用生成的
-    const avatarImg = document.getElementById("profile-avatar");
-    if (currentUser && currentUser.avatar) {
-        // 如果是相对路径，补全基础路径
-        avatarImg.src = currentUser.avatar.startsWith("http") ? currentUser.avatar : `/api${currentUser.avatar}`;
-    } else {
-        avatarImg.src = avatarUrl(currentUser && currentUser.username ? currentUser.username : "SeeMusic");
-    }
-
-    document.getElementById("profile-name").textContent = currentUser && currentUser.username ? (currentUser.nickname || currentUser.username) : "未登录用户";
-    document.getElementById("profile-email").textContent = currentUser && currentUser.email ? currentUser.email : "登录后可查看记录";
+    const avatarElement = document.getElementById("profile-avatar");
+    avatarElement.src = avatarUrl(currentUser);
+    document.getElementById("profile-name").textContent = (currentUser && currentUser.username) ? currentUser.username : "未登录用户";
+    document.getElementById("profile-email").textContent = (currentUser && currentUser.email)
+        ? currentUser.email
+        : "登录后可查看数据库中的个人记录";
     
     // 渲染简介
     const bioEl = document.getElementById("profile-bio");
@@ -381,45 +374,7 @@ function setupEditProfileModal() {
 
     if (avatarTrigger && avatarInput) {
         avatarTrigger.addEventListener("click", () => avatarInput.click());
-        avatarInput.addEventListener("change", async (e) => {
-            const file = e.target.files[0];
-            if (file) {
-                // 1. 本地预览
-                const reader = new FileReader();
-                reader.onload = (event) => {
-                    avatarPreview.src = event.target.result;
-                };
-                reader.readAsDataURL(file);
-
-                // 2. 立即上传后端
-                try {
-                    setStatus("正在上传头像...");
-                    const formData = new FormData();
-                    formData.append("file", file);
-
-                    // 获取 Token
-                    const user = getCurrentUser();
-                    const token = localStorage.getItem("auth_token");
-
-                    const response = await fetch("/api/v1/users/me/avatar", {
-                        method: "POST",
-                        headers: { "Authorization": `Bearer ${token}` },
-                        body: formData
-                    });
-                    
-                    const result = await response.json();
-                    if (result.code === 0) {
-                        setStatus("头像上传成功！保存修改后生效。");
-                        // 暂存在预览状态中，供最后 submit 时同步
-                        profileState.tempAvatarUrl = result.data.avatar_url;
-                    } else {
-                        throw new Error(result.message);
-                    }
-                } catch (error) {
-                    setStatus("头像上传失败: " + error.message, true);
-                }
-            }
-        });
+        
     }
 
     if (!modal || !openBtn) return;
@@ -544,3 +499,38 @@ window.addEventListener("load", () => {
     loadProfile();
     loadPreferences();
 });
+
+async function uploadAvatar() {
+    const fileInput = document.getElementById("avatar-input");
+    const file = fileInput.files[0];
+    
+    if (!file) {
+        alert("请先选择图片！");
+        return;
+    }
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+        const response = await fetch("http://127.0.0.1:8000/api/v1/users/avatar", {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${localStorage.getItem("my_token")}`
+            },
+            body: formData 
+        });
+        const result = await response.json();
+        if (result.code === 0) {
+            alert("头像上传成功！");
+            const newAvatarUrl = "http://127.0.0.1:8000" + result.data.avatar_url;
+            document.getElementById("profile-avatar").src = newAvatarUrl;
+            const user = JSON.parse(localStorage.getItem("user_info") || "{}");
+            user.avatar = result.data.avatar_url;
+            localStorage.setItem("user_info", JSON.stringify(user));
+        } else {
+            alert("上传失败：" + result.message);
+        }
+    } catch (error) {
+        console.error("上传错误:", error);
+        alert("后端服务未启动或连接中断");
+    }
+}

@@ -94,6 +94,8 @@
         const headers = authHeaders(config.headers);
         let body = config.body;
 
+        const isBlob = config.responseType === 'blob';
+
         if (body && !(body instanceof FormData)) {
             headers["Content-Type"] = "application/json";
             body = JSON.stringify(body);
@@ -109,9 +111,13 @@
         const payload = contentType.includes("application/json") ? await response.json() : null;
 
         if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
             const detail = payload && (payload.detail || payload.message);
             throw new Error(detail || `Request failed (${response.status})`);
         }
+        if (isBlob) {
+             return await response.blob();
+         }
 
         if (payload && Object.prototype.hasOwnProperty.call(payload, "code")) {
             if (payload.code !== 0) {
@@ -124,8 +130,12 @@
     }
 
     function avatarUrl(seed) {
-        return `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed || "SeeMusic")}`;
+     if (user && user.avatar) {
+        const baseUrl = "http://127.0.0.1:8000";
+        return user.avatar.startsWith("http") ? user.avatar : `${baseUrl}${user.avatar}`;
     }
+    return `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed || "SeeMusic")}`;
+}
 
     window.SeeMusicApp = {
         STORAGE_KEYS,

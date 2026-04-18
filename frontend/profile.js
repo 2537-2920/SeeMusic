@@ -532,15 +532,25 @@ function setupEditProfileModal() {
             
             if (avatarResult.code === 0) {
                 // 上传成功后，把新的头像路径也加到资料更新的 payload 里
-                payload.avatar = avatarResult.data.avatar_url;
-                const timestamp = new Date().getTime();
-                const newUrl = `http://127.0.0.1:8000${avatarResult.data.avatar_url}?t=${timestamp}`;
-                if(document.getElementById("profile-avatar")) {
-                    document.getElementById("profile-avatar").src = fullUrl;
-                }
-                if(document.getElementById("header-avatar")) {
-                    document.getElementById("header-avatar").src = fullUrl; // 👈 同步更新右上角
-                }
+                const newRelativePath = avatarResult.data.avatar_url; 
+                payload.avatar = newRelativePath; 
+                // --- 核心修复：定义 fullUrl 并加上时间戳 ---
+                const API_BASE = "http://127.0.0.1:8000"; // 确保定义了后端地址
+                const timestamp = new Date().getTime();   // 生成当前时间戳
+            
+                // 拼接完整的、带“防缓存”标记的 URL
+                const fullUrl = `${API_BASE}${newRelativePath}?t=${timestamp}`;
+            
+                console.log("正在实时更新界面头像:", fullUrl);
+
+                // 实时更新页面上的所有头像框
+                const profileAvatar = document.getElementById("profile-avatar");
+                const headerAvatar = document.getElementById("header-avatar");
+                const editPreview = document.getElementById("edit-avatar-preview");
+
+                if (profileAvatar) profileAvatar.src = fullUrl;
+                if (headerAvatar) headerAvatar.src = fullUrl;
+                if (editPreview) editPreview.src = fullUrl;
             } else {
                 throw new Error("头像上传失败：" + avatarResult.message);
             }

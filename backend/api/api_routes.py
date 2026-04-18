@@ -1100,6 +1100,10 @@ async def update_avatar(
     file: UploadFile = File(...),
     authorization: str = Header(...)
 ):
+    print("====================================")
+    print("我进到了 update_avatar 接口里！！！")
+    print(f"收到的文件名是: {file.filename}")
+    print("====================================")
     token = authorization.removeprefix("Bearer ").strip()
     user_info = get_user_by_token(token)
     content = await file.read()

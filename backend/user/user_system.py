@@ -115,7 +115,7 @@ def _login_user_db(username: str, password: str) -> dict:
         if not user or user.password != _hash_password(password):
             raise HTTPException(status_code=401, detail="invalid credentials")
         token = f"tok_{uuid4().hex}"
-        expired_time = datetime.now(timezone.utc) + timedelta(seconds=7200)
+        expired_time = datetime.now() + timedelta(seconds=7200)
         session.add(UserToken(user_id=user.id, token=token, expired_time=expired_time))
         session.commit()
         return {
@@ -153,7 +153,7 @@ def _get_user_by_token_db(token: str) -> dict:
     from backend.db.models import User, UserToken
     session = _get_session()
     try:
-        now = datetime.now(timezone.utc)
+        now = datetime.now()
         tok = session.query(UserToken).filter(UserToken.token == token, UserToken.expired_time > now).first()
         if not tok:
             raise HTTPException(status_code=401, detail="token invalid or expired")

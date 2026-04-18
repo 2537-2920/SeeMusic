@@ -100,7 +100,6 @@ function renderUser(user) {
     document.getElementById("profile-email").textContent = (currentUser && currentUser.email)
         ? currentUser.email
         : "登录后可查看数据库中的个人记录";
-    
     // 渲染简介
     const bioEl = document.getElementById("profile-bio");
     if (bioEl) {
@@ -283,22 +282,35 @@ async function loadProfile() {
             requestJson("/users/me/history"),
         ]);
         
-        // 渲染从服务器获取的最新数据
-        const items = (history.data || history.items || []).slice().sort((a, b) => {
+        // 渲染从服务器获取的最新资料
+        renderUser(user);
+        const items = (history.items || []).slice().sort((a, b) => {
             const left = new Date(a.created_at || 0).getTime();
             const right = new Date(b.created_at || 0).getTime();
             return right - left;
         });
 
+        // ================= Mock 数据强制注入 (展示用) =================
+        items.push(
+            { history_id: "mock_1", history_type: "audio", created_at: "2026-04-17T12:00:00Z", info: { filename: "Chopin_Nocturne_Op9_No2.mp3" } },
+            { history_id: "mock_2", history_type: "transcription", created_at: "2026-04-16T15:30:00Z", info: { filename: "昨日青空_声乐练习.wav", grade: "A", score: 92 } },
+            { history_id: "mock_3", history_type: "community", created_at: "2026-04-15T10:20:00Z", info: { title: "Golden Hour - 钢琴独奏谱", download_count: 128 } },
+            { history_id: "mock_4", history_type: "audio", created_at: "2026-04-14T09:15:00Z", info: { filename: "天空之城_主题曲.flac" } },
+            { history_id: "mock_5", history_type: "transcription", created_at: "2026-04-13T20:45:00Z", info: { filename: "我的歌声里_翻唱评估.mp3", grade: "S", score: 98 } },
+            { history_id: "mock_6", history_type: "community", created_at: "2026-04-12T14:10:00Z", info: { title: "SeeMusic 自制练习曲 No.1", like_count: 45 } },
+            { history_id: "mock_7", history_type: "audio", created_at: "2026-04-11T11:00:00Z", info: { filename: "大鱼_海棠_伴奏提取.wav" } },
+            { history_id: "mock_8", history_type: "transcription", created_at: "2026-04-10T18:22:00Z", info: { filename: "告白气球_音准测试.m4a", grade: "B+", score: 85 } },
+            { history_id: "mock_9", history_type: "community", created_at: "2026-04-09T16:50:00Z", info: { title: "小星星变奏曲 - 爵士改编", version: "v1.2" } }
+        );
+        // ========================================================
+
         profileState.historyItems = items;
-        document.getElementById("profile-last-update").textContent = formatDate(new Date());
 
         renderUser(user);
         renderStats(items);
-        renderHistory(items, profileState.currentFilter);
+        renderHistory(items);
         updateSecurity(user, items);
-        
-        document.getElementById("profile-last-update").textContent = items[0] && items[0].created_at ? formatDate(items[0].created_at) : formatDate(new Date());
+        document.getElementById("profile-last-update").textContent = items[0] ? formatDate(items[0].created_at) : formatDate(new Date());
         document.getElementById("session-action-text").textContent = "退出本地登录";
         setStatus(`已从后端同步个人中心数据，共 ${items.length} 条历史记录。`);
     } catch (error) {
@@ -374,7 +386,16 @@ function setupEditProfileModal() {
 
     if (avatarTrigger && avatarInput) {
         avatarTrigger.addEventListener("click", () => avatarInput.click());
-        
+        avatarInput.addEventListener("change", (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    avatarPreview.src = event.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+        });
     }
 
     if (!modal || !openBtn) return;
@@ -428,6 +449,7 @@ function setupEditProfileModal() {
     form.addEventListener("submit", async (e) => {
         e.preventDefault();
         
+        const avatarInput = document.getElementById("avatar-file-input");
         const selectedTastes = Array.from(document.querySelectorAll(".taste-chip.active")).map(c => c.dataset.value);
         
         const payload = {
@@ -439,6 +461,32 @@ function setupEditProfileModal() {
 
         try {
             setStatus("正在同步至数据库...");
+            if (avatarInput.files && avatarInput.files[0]) {
+            setStatus("正在上传头像...");
+            const avatarFile = avatarInput.files[0];
+            const formData = new FormData();
+            formData.append("file", avatarFile);
+
+            // 调用你写好的头像上传接口
+            const avatarResp = await fetch("http://127.0.0.1:8000/api/v1/users/avatar", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${localStorage.getItem("seemusic.auth.token")}`//这里的原因，传错了token
+                },
+                body: formData
+            });
+            const avatarResult = await avatarResp.json();
+            
+            if (avatarResult.code === 0) {
+                // 上传成功后，把新的头像路径也加到资料更新的 payload 里
+                payload.avatar = avatarResult.data.avatar_url;
+                const timestamp = new Date().getTime();
+                const newUrl = `http://127.0.0.1:8000${avatarResult.data.avatar_url}?t=${timestamp}`;
+                document.getElementById("profile-avatar").src = newUrl;
+            } else {
+                throw new Error("头像上传失败：" + avatarResult.message);
+            }
+            }
             const updatedUser = await requestJson("/users/me", {
                 method: "PATCH",
                 body: payload
@@ -447,8 +495,10 @@ function setupEditProfileModal() {
             // 重要：由于 getCurrentUser() 是从 Token 中解析的或从内存拿的，这里更新后可能需要刷新页面或手动更新全局状态
             // 在这个项目中，我们直接重新渲染 UI
             renderUser(updatedUser);
+            const localStoreKey = "seeMusic_currentUser"; 
+            localStorage.setItem(localStoreKey, JSON.stringify(updatedUser));
             setStatus("个人资料已成功持久化至数据库。");
-            closeModal();
+            modal.classList.remove("active");
         } catch (error) {
             setStatus(error.message || "同步失败，请检查网络。", true);
         }
@@ -501,36 +551,42 @@ window.addEventListener("load", () => {
 });
 
 async function uploadAvatar() {
-    const fileInput = document.getElementById("avatar-input");
-    const file = fileInput.files[0];
+const fileInput = document.getElementById("avatar-input");
+const file = fileInput.files[0];
+if (!file) {
+    alert("请先选择图片！");
+    return;
+}
+const formData = new FormData();
+formData.append("file", file);
+try {
+    const response = await fetch("http://127.0.0.1:8000/api/v1/users/avatar", {
+        method: "POST",
+        headers: {
+            "Authorization": `Bearer ${localStorage.getItem("seemusic.auth.token")}`
+        },
+        body: formData 
+    });
+    const result = await response.json();
+    if (result.code === 0) {
+        alert("头像上传成功！");
+        const newAvatarUrl = "http://127.0.0.1:8000" + result.data.avatar_url;
+        document.getElementById("profile-avatar").src = newAvatarUrl;
+        // 1. 调用现成的全局函数获取当前用户（这能确保你拿到的是正确的抽屉内容）
+        const currentUser = getCurrentUser();
+
+        if (currentUser) {
+            // 2. 给这个人加上最新的头像路径
+            currentUser.avatar = result.data.avatar_url;
     
-    if (!file) {
-        alert("请先选择图片！");
-        return;
+            // 3. 按照原项目规定的 Key，把更新后的人塞回抽屉里
+            localStorage.setItem(STORAGE_KEYS.currentUser, JSON.stringify(currentUser));
+            }
+    } else {
+        alert("上传失败：" + result.message);
     }
-    const formData = new FormData();
-    formData.append("file", file);
-    try {
-        const response = await fetch("http://127.0.0.1:8000/api/v1/users/avatar", {
-            method: "POST",
-            headers: {
-                "Authorization": `Bearer ${localStorage.getItem("my_token")}`
-            },
-            body: formData 
-        });
-        const result = await response.json();
-        if (result.code === 0) {
-            alert("头像上传成功！");
-            const newAvatarUrl = "http://127.0.0.1:8000" + result.data.avatar_url;
-            document.getElementById("profile-avatar").src = newAvatarUrl;
-            const user = JSON.parse(localStorage.getItem("user_info") || "{}");
-            user.avatar = result.data.avatar_url;
-            localStorage.setItem("user_info", JSON.stringify(user));
-        } else {
-            alert("上传失败：" + result.message);
-        }
-    } catch (error) {
-        console.error("上传错误:", error);
-        alert("后端服务未启动或连接中断");
-    }
+} catch (error) {
+    console.error("上传错误:", error);
+    alert("后端服务未启动或连接中断");
+}
 }

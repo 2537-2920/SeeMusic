@@ -993,7 +993,7 @@ def get_score_pdf_content(score_id: str) -> tuple[bytes, str]:
             raise HTTPException(status_code=500, detail="文件解码失败")
         
 def save_user_avatar(user_id: str, file_content: bytes, filename: str) -> str:
-    from backend.db.models import User
+    from backend.db.models import User,CommunityPost, CommunityComment 
     # 头像保存路径：D:/SeeMusic_data/avatars/用户ID.png
     file_path = os.path.join(UPLOAD_DIR, f"{user_id}.png")
     
@@ -1004,9 +1004,27 @@ def save_user_avatar(user_id: str, file_content: bytes, filename: str) -> str:
     # 生成可访问的URL
     avatar_url = f"/static/avatars/{user_id}.png"
     
-    # 更新数据库中用户的头像地址
+    # 转换为数字 ID（确保匹配数据库类型）
+    uid = int(user_id)
+    
     with _session_scope() as db:
-        user = db.query(User).filter_by(id=user_id).first()
-        user.avatar = avatar_url  
+        # 1. 更新 User 表
+        user = db.query(User).get(uid)
+        if user:
+            user.avatar = avatar_url
+            
+        # 2. 【核心新增】同步更新评论表中的 avatar_url
+        # 这一步能解决你说的评论区头像不显示的问题
+        db.query(CommunityComment).filter(CommunityComment.user_id == uid).update({
+            "avatar_url": avatar_url
+        })
+        
+        # 3. 【核心新增】同步更新帖子表中的作者头像 (假设字段是 cover_url)
+        # 建议检查 CommunityPost 表中是否有类似 author_avatar 的字段，如果有也一并更新
+        db.query(CommunityPost).filter(CommunityPost.user_id == uid).update({
+            "cover_url": avatar_url 
+        })
+        
+        db.commit() # 👈 确保这几张表的改动全部生效
     
     return avatar_url

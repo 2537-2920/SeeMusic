@@ -129,12 +129,24 @@
         return payload;
     }
 
-    function avatarUrl(seed) {
-     if (user && user.avatar) {
+    function avatarUrl(inputData) {
+    if (typeof inputData === 'object' && inputData !== null && inputData.avatar) {
         const baseUrl = "http://127.0.0.1:8000";
-        return user.avatar.startsWith("http") ? user.avatar : `${baseUrl}${user.avatar}`;
+        const timestamp = new Date().getTime();
+        const path = inputData.avatar.startsWith("http") ? inputData.avatar : `${baseUrl}${inputData.avatar}`;
+        
+        return path.includes('?') ? `${path}&t=${timestamp}` : `${path}?t=${timestamp}`;
     }
-    return `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed || "SeeMusic")}`;
+
+    let seed = "SeeMusic"; 
+    
+    if (typeof inputData === 'string') {
+        seed = inputData; 
+    } else if (typeof inputData === 'object' && inputData !== null && inputData.username) {
+        seed = inputData.username; 
+    }
+
+    return `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed)}`;
 }
 
     window.SeeMusicApp = {

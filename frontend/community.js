@@ -467,7 +467,10 @@ function renderDetail() {
 
     document.getElementById("d-title").textContent = score.title || "未命名乐谱";
     document.getElementById("d-author").textContent = score.subtitle || score.author || "社区用户";
-    document.getElementById("d-cover").src = score.cover_url || avatarUrl(score.title || score.score_id);
+    document.getElementById("d-cover").src = avatarUrl({ 
+    avatar: score.cover_url, 
+    username: score.author || score.title 
+});
     document.getElementById("d-price").textContent = score.price_label || "免费";
     document.getElementById("d-downloads").textContent = String(score.downloads || 0);
     document.getElementById("d-likes").textContent = String(score.likes || 0);
@@ -486,7 +489,7 @@ function renderDetail() {
     } else {
         commentsList.innerHTML = state.selectedComments.map((comment) => `
             <div class="flex gap-3">
-                <img alt="${escapeHtml(comment.username || "社区用户")}" class="w-9 h-9 rounded-full bg-gray-100" src="${escapeHtml(comment.avatar_url || avatarUrl(comment.username || "SeeMusic"))}"/>
+                <img alt="${escapeHtml(comment.username || "社区用户")}" class="w-9 h-9 rounded-full bg-gray-100" src="${escapeHtml(avatarUrl({ avatar: comment.avatar_url, username: comment.username }))}"/>
                 <div class="min-w-0 flex-1">
                     <div class="flex items-center justify-between gap-3">
                         <span class="text-sm font-medium text-gray-700 truncate">${escapeHtml(comment.username || "社区用户")}</span>

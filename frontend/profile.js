@@ -96,7 +96,15 @@ function renderUser(user) {
     const currentUser = user || getCurrentUser();
     const isGuest = !currentUser || !currentUser.username;
     
-    document.getElementById("profile-avatar").src = avatarUrl(currentUser && currentUser.username ? currentUser.username : "SeeMusic");
+    // 头像渲染逻辑：如果有自定义头像则用自定义的，否则用生成的
+    const avatarImg = document.getElementById("profile-avatar");
+    if (currentUser && currentUser.avatar) {
+        // 如果是相对路径，补全基础路径
+        avatarImg.src = currentUser.avatar.startsWith("http") ? currentUser.avatar : `/api${currentUser.avatar}`;
+    } else {
+        avatarImg.src = avatarUrl(currentUser && currentUser.username ? currentUser.username : "SeeMusic");
+    }
+
     document.getElementById("profile-name").textContent = currentUser && currentUser.username ? (currentUser.nickname || currentUser.username) : "未登录用户";
     document.getElementById("profile-email").textContent = currentUser && currentUser.email ? currentUser.email : "登录后可查看记录";
     
@@ -282,35 +290,22 @@ async function loadProfile() {
             requestJson("/users/me/history"),
         ]);
         
-        // 渲染从服务器获取的最新资料
-        renderUser(user);
-        const items = (history.items || []).slice().sort((a, b) => {
+        // 渲染从服务器获取的最新数据
+        const items = (history.data || history.items || []).slice().sort((a, b) => {
             const left = new Date(a.created_at || 0).getTime();
             const right = new Date(b.created_at || 0).getTime();
             return right - left;
         });
 
-        // ================= Mock 数据强制注入 (展示用) =================
-        items.push(
-            { history_id: "mock_1", history_type: "audio", created_at: "2026-04-17T12:00:00Z", info: { filename: "Chopin_Nocturne_Op9_No2.mp3" } },
-            { history_id: "mock_2", history_type: "transcription", created_at: "2026-04-16T15:30:00Z", info: { filename: "昨日青空_声乐练习.wav", grade: "A", score: 92 } },
-            { history_id: "mock_3", history_type: "community", created_at: "2026-04-15T10:20:00Z", info: { title: "Golden Hour - 钢琴独奏谱", download_count: 128 } },
-            { history_id: "mock_4", history_type: "audio", created_at: "2026-04-14T09:15:00Z", info: { filename: "天空之城_主题曲.flac" } },
-            { history_id: "mock_5", history_type: "transcription", created_at: "2026-04-13T20:45:00Z", info: { filename: "我的歌声里_翻唱评估.mp3", grade: "S", score: 98 } },
-            { history_id: "mock_6", history_type: "community", created_at: "2026-04-12T14:10:00Z", info: { title: "SeeMusic 自制练习曲 No.1", like_count: 45 } },
-            { history_id: "mock_7", history_type: "audio", created_at: "2026-04-11T11:00:00Z", info: { filename: "大鱼_海棠_伴奏提取.wav" } },
-            { history_id: "mock_8", history_type: "transcription", created_at: "2026-04-10T18:22:00Z", info: { filename: "告白气球_音准测试.m4a", grade: "B+", score: 85 } },
-            { history_id: "mock_9", history_type: "community", created_at: "2026-04-09T16:50:00Z", info: { title: "小星星变奏曲 - 爵士改编", version: "v1.2" } }
-        );
-        // ========================================================
-
         profileState.historyItems = items;
+        document.getElementById("profile-last-update").textContent = formatDate(new Date());
 
         renderUser(user);
         renderStats(items);
-        renderHistory(items);
+        renderHistory(items, profileState.currentFilter);
         updateSecurity(user, items);
-        document.getElementById("profile-last-update").textContent = items[0] ? formatDate(items[0].created_at) : formatDate(new Date());
+        
+        document.getElementById("profile-last-update").textContent = items[0] && items[0].created_at ? formatDate(items[0].created_at) : formatDate(new Date());
         document.getElementById("session-action-text").textContent = "退出本地登录";
         setStatus(`已从后端同步个人中心数据，共 ${items.length} 条历史记录。`);
     } catch (error) {
@@ -386,14 +381,43 @@ function setupEditProfileModal() {
 
     if (avatarTrigger && avatarInput) {
         avatarTrigger.addEventListener("click", () => avatarInput.click());
-        avatarInput.addEventListener("change", (e) => {
+        avatarInput.addEventListener("change", async (e) => {
             const file = e.target.files[0];
             if (file) {
+                // 1. 本地预览
                 const reader = new FileReader();
                 reader.onload = (event) => {
                     avatarPreview.src = event.target.result;
                 };
                 reader.readAsDataURL(file);
+
+                // 2. 立即上传后端
+                try {
+                    setStatus("正在上传头像...");
+                    const formData = new FormData();
+                    formData.append("file", file);
+
+                    // 获取 Token
+                    const user = getCurrentUser();
+                    const token = localStorage.getItem("auth_token");
+
+                    const response = await fetch("/api/v1/users/me/avatar", {
+                        method: "POST",
+                        headers: { "Authorization": `Bearer ${token}` },
+                        body: formData
+                    });
+                    
+                    const result = await response.json();
+                    if (result.code === 0) {
+                        setStatus("头像上传成功！保存修改后生效。");
+                        // 暂存在预览状态中，供最后 submit 时同步
+                        profileState.tempAvatarUrl = result.data.avatar_url;
+                    } else {
+                        throw new Error(result.message);
+                    }
+                } catch (error) {
+                    setStatus("头像上传失败: " + error.message, true);
+                }
             }
         });
     }

@@ -244,7 +244,7 @@ def _materialize_measures(events: List[Dict[str, Any]], tempo: int, time_signatu
     global_position_beats = 0.0
 
     for event in events:
-        remaining_beats = quantize_beats(seconds_to_beats(event["duration_seconds"], tempo))
+        remaining_beats = round(seconds_to_beats(event["duration_seconds"], tempo), 3)
         event_group_id = f"evt_{uuid4().hex[:8]}"
         segment_index = 0
 

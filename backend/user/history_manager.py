@@ -12,8 +12,8 @@ from fastapi import HTTPException
 # ---------------------------------------------------------------------------
 # Mode toggle – flipped by conftest.py or application bootstrap
 # ---------------------------------------------------------------------------
-# 开启数据库持久化模式
-USE_DB: bool = True
+# 默认关闭数据库模式，由 application 或 conftest 手动开启
+USE_DB: bool = False
 _session_factory = None
 
 
@@ -95,9 +95,9 @@ def _list_history_mem(user_id: str) -> dict:
 
 
 def _list_history_db(user_id: str) -> dict:
-    from backend.db.models import UserHistory, Project, AudioAnalysis, CommunityPost
     session = _get_session()
     try:
+        from backend.db.models import UserHistory, Project, AudioAnalysis, CommunityPost
         db_user_id = _parse_db_user_id(user_id)
         all_items = []
         
@@ -105,8 +105,9 @@ def _list_history_db(user_id: str) -> dict:
         projects = session.query(Project).filter_by(user_id=db_user_id).all()
         for p in projects:
             all_items.append({
-                "history_id": f"p_{p.id}",
-                "history_type": "transcription",  # 统一为识谱类型
+                "history_id": str(p.id),
+                "type": "transcription",
+                "resource_id": p.analysis_id,
                 "info": {
                     "title": p.title or "音频转谱项目",
                     "duration": f"{p.duration:.1f}s" if p.duration else "未知",
@@ -149,8 +150,9 @@ def _list_history_db(user_id: str) -> dict:
                     info_data.update(a.result)
             
             all_items.append({
-                "history_id": f"a_{a.id}",
-                "history_type": h_type,
+                "history_id": str(a.id),
+                "type": h_type,
+                "resource_id": a.analysis_id,
                 "info": info_data,
                 "created_at": a.create_time.isoformat() if a.create_time else None
             })
@@ -159,8 +161,9 @@ def _list_history_db(user_id: str) -> dict:
         posts = session.query(CommunityPost).filter_by(user_id=db_user_id).all()
         for s in posts:
             all_items.append({
-                "history_id": f"c_{s.id}",
-                "history_type": "community",
+                "history_id": str(s.id),
+                "type": "community",
+                "resource_id": s.score_id,
                 "info": {
                     "title": s.title or "乐谱发布",
                     "likes": s.like_count, 
@@ -173,8 +176,10 @@ def _list_history_db(user_id: str) -> dict:
         rows = session.query(UserHistory).filter_by(user_id=db_user_id).all()
         for r in rows:
             all_items.append({
-                "history_id": f"h_{r.id}",
-                "history_type": r.type,
+                "history_id": str(r.id),
+                "type": r.type,
+                "resource_id": r.resource_id,
+                "metadata": r.metadata_ or {},
                 "info": {
                     "title": r.title,
                     **(r.metadata_ or {})

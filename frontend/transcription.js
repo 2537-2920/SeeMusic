@@ -3,14 +3,26 @@ const STORAGE_KEYS = {
     userId: "seemusic.transcription.userId",
     title: "seemusic.transcription.title",
     analysisId: "seemusic.transcription.analysisId",
+    scoreId: "seemusic.transcription.scoreId",
     tempo: "seemusic.transcription.tempo",
     timeSignature: "seemusic.transcription.timeSignature",
     keySignature: "seemusic.transcription.keySignature",
     pitchSequence: "seemusic.transcription.pitchSequence",
 };
 
+const TRANSCRIPTION_UI_BUILD = "2026-04-17-paper-score-viewer";
 const DEFAULT_BACKEND_ORIGIN = "http://127.0.0.1:8000";
 const DEFAULT_API_BASE = `${DEFAULT_BACKEND_ORIGIN}/api/v1`;
+const VIEWER_LAYOUT = window.SeeMusicScoreViewerLayout || {};
+const VIEWER_LAYOUT_DEFAULTS = VIEWER_LAYOUT.DEFAULT_VIEWER_LAYOUT_OPTIONS || {
+    minMeasuresPerSystem: 4,
+    maxMeasuresPerSystem: 6,
+    systemsPerPage: 5,
+};
+const VIEWER_A4_RATIO = 210 / 297;
+const VIEWER_PAGE_TURN_MS = 440;
+const VIEWER_DRAG_THRESHOLD = 0.18;
+const VIEWER_WHEEL_THRESHOLD = 120;
 
 const NOTE_INDEX = {
     C: 0,
@@ -29,10 +41,6 @@ const NOTE_INDEX = {
 
 const SEMITONE_SEQUENCE = Object.keys(NOTE_INDEX);
 const FLAT_TO_SHARP = { Db: "C#", Eb: "D#", Gb: "F#", Ab: "G#", Bb: "A#" };
-const STAFF_TOP = 42;
-const STAFF_SPACING = 15;
-const BOTTOM_LINE_Y = STAFF_TOP + STAFF_SPACING * 4;
-const STEP_HEIGHT = STAFF_SPACING / 2;
 const DEFAULT_SEQUENCE = [
     { time: 0.0, frequency: 440.0, duration: 0.5 },
     { time: 0.5, frequency: 493.88, duration: 0.5 },
@@ -45,7 +53,8 @@ const state = {
     apiBase: "",
     backendHealthy: false,
     currentScore: null,
-    selectedNoteId: null,
+    selectedScoreId: localStorage.getItem(STORAGE_KEYS.scoreId) || "",
+    selectedNotationElementId: null,
     exportList: [],
     selectedExportRecordId: null,
     selectedExportDetail: null,
@@ -56,6 +65,29 @@ const state = {
     audioLogs: [],
     analysisToolsOpen: false,
     busyKeys: new Set(),
+    scorePageIndex: 0,
+    scoreViewerOpen: false,
+    verovioReady: false,
+    verovioLoading: false,
+    verovioError: "",
+    notationRenderTicket: 0,
+    previewPageCount: 0,
+    viewerPageCount: 0,
+    viewerPageRanges: [],
+    viewerPreparedKey: "",
+    viewerPreparedMusicxml: "",
+    viewerPreparedLayout: null,
+    viewerPageCache: new Map(),
+    viewerTransition: {
+        phase: "idle",
+        direction: 0,
+        fromIndex: 0,
+        toIndex: 0,
+        progress: 0,
+    },
+    viewerGesture: null,
+    viewerWheelAccumX: 0,
+    viewerSuppressClickUntil: 0,
 };
 
 const els = {};
@@ -68,8 +100,14 @@ function init() {
     bindEvents();
     state.analysisToolsOpen = Boolean(els.analysisToolsPanel?.open);
     setApiBase(els.apiBaseInput.value || resolveDefaultApiBase(), false);
+    console.info(`[SeeMusic] transcription UI build: ${TRANSCRIPTION_UI_BUILD}`);
     renderAll();
-    checkBackendConnection();
+    void ensureVerovioRuntime();
+    void syncAuthenticatedUserId();
+    void checkBackendConnection();
+    if (state.selectedScoreId) {
+        void loadCurrentScore(state.selectedScoreId, { silent: true });
+    }
 }
 
 function cacheElements() {
@@ -125,24 +163,31 @@ function cacheElements() {
         "apply-score-settings-btn",
         "undo-btn",
         "redo-btn",
-        "pitch-up-btn",
-        "pitch-down-btn",
-        "delete-note-btn",
-        "clear-note-selection-btn",
+        "download-musicxml-btn",
+        "refresh-score-btn",
         "selected-note-summary",
-        "note-measure-input",
-        "note-beat-input",
-        "note-pitch-input",
-        "note-beats-input",
-        "add-note-btn",
-        "update-note-btn",
+        "score-musicxml-file-input",
+        "replace-score-from-file-btn",
+        "load-score-file-into-editor-btn",
+        "score-musicxml-input",
         "tempo-display",
         "time-display",
         "key-display",
         "measure-count-display",
         "score-empty",
-        "score-canvas",
-        "refresh-score-view-btn",
+        "score-viewer-entry",
+        "open-score-viewer-btn",
+        "score-viewer-overlay",
+        "close-score-viewer-btn",
+        "score-viewer-stage",
+        "score-viewer-page-prev-btn",
+        "score-viewer-page-next-btn",
+        "score-viewer-page-status",
+        "score-viewer-page-range",
+        "score-viewer-score-title",
+        "score-viewer-score-subtitle",
+        "score-viewer-empty",
+        "score-viewer-canvas",
         "export-format-select",
         "export-page-size-select",
         "export-annotations-input",
@@ -173,7 +218,7 @@ function cacheElements() {
 
 function hydrateInputs() {
     els.apiBaseInput.value = loadPreferredApiBase();
-    els.userIdInput.value = localStorage.getItem(STORAGE_KEYS.userId) || "1";
+    els.userIdInput.value = String(resolveCachedScoreOwnerUserId() || localStorage.getItem(STORAGE_KEYS.userId) || "");
     els.projectTitleInput.value = localStorage.getItem(STORAGE_KEYS.title) || "我的智能识谱项目";
     els.analysisIdInput.value = localStorage.getItem(STORAGE_KEYS.analysisId) || "";
     els.tempoInput.value = localStorage.getItem(STORAGE_KEYS.tempo) || "120";
@@ -184,10 +229,9 @@ function hydrateInputs() {
     els.pitchDetectAlgorithmInput.value = "yin";
     els.pitchDetectFrameMsInput.value = "20";
     els.pitchDetectHopMsInput.value = "10";
-    els.noteMeasureInput.value = "1";
-    els.noteBeatInput.value = "1";
-    els.notePitchInput.value = "C4";
-    els.noteBeatsInput.value = "1";
+    if (els.scoreMusicxmlInput) {
+        els.scoreMusicxmlInput.value = "";
+    }
 }
 
 function loadPreferredApiBase() {
@@ -209,6 +253,68 @@ function loadPreferredApiBase() {
     return normalizedStoredValue;
 }
 
+function resolveNumericUserId(value) {
+    const text = String(value || "").trim();
+    if (!/^\d+$/.test(text)) {
+        return null;
+    }
+    const parsed = Number.parseInt(text, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function resolveCachedScoreOwnerUserId() {
+    const appCommon = window.SeeMusicApp;
+    const cachedUser = appCommon && typeof appCommon.getCurrentUser === "function" ? appCommon.getCurrentUser() : null;
+    return resolveNumericUserId(cachedUser?.user_id);
+}
+
+function persistScoreOwnerUserId(userId) {
+    const normalizedUserId = resolveNumericUserId(userId);
+    if (!normalizedUserId) {
+        return null;
+    }
+    els.userIdInput.value = String(normalizedUserId);
+    localStorage.setItem(STORAGE_KEYS.userId, String(normalizedUserId));
+    return normalizedUserId;
+}
+
+async function syncAuthenticatedUserId() {
+    const cachedUserId = resolveCachedScoreOwnerUserId();
+    if (cachedUserId) {
+        persistScoreOwnerUserId(cachedUserId);
+        return cachedUserId;
+    }
+
+    const appCommon = window.SeeMusicApp;
+    if (!appCommon || typeof appCommon.getAuthToken !== "function" || !appCommon.getAuthToken()) {
+        return resolveNumericUserId(els.userIdInput.value);
+    }
+    if (typeof appCommon.requestJson !== "function") {
+        return resolveNumericUserId(els.userIdInput.value);
+    }
+
+    try {
+        const currentUser = await appCommon.requestJson("/users/me");
+        return persistScoreOwnerUserId(currentUser?.user_id);
+    } catch {
+        return resolveNumericUserId(els.userIdInput.value);
+    }
+}
+
+async function ensureScoreOwnerUserId() {
+    const syncedUserId = await syncAuthenticatedUserId();
+    if (syncedUserId) {
+        return syncedUserId;
+    }
+
+    const fallbackUserId = resolveNumericUserId(els.userIdInput.value || localStorage.getItem(STORAGE_KEYS.userId));
+    if (fallbackUserId) {
+        return persistScoreOwnerUserId(fallbackUserId);
+    }
+
+    throw new Error("当前未找到可用的登录用户，请先登录后再生成乐谱");
+}
+
 function bindEvents() {
     els.saveApiBaseBtn.addEventListener("click", handleSaveApiBase);
     els.pingBackendBtn.addEventListener("click", checkBackendConnection);
@@ -225,13 +331,18 @@ function bindEvents() {
     els.applyScoreSettingsBtn.addEventListener("click", handleApplyScoreSettings);
     els.undoBtn.addEventListener("click", handleUndo);
     els.redoBtn.addEventListener("click", handleRedo);
-    els.pitchUpBtn.addEventListener("click", () => handleTransposeSelected(1));
-    els.pitchDownBtn.addEventListener("click", () => handleTransposeSelected(-1));
-    els.deleteNoteBtn.addEventListener("click", handleDeleteSelectedNote);
-    els.clearNoteSelectionBtn.addEventListener("click", clearNoteSelection);
-    els.addNoteBtn.addEventListener("click", handleAddNote);
-    els.updateNoteBtn.addEventListener("click", handleUpdateSelectedNote);
-    els.refreshScoreViewBtn.addEventListener("click", renderAll);
+    els.downloadMusicxmlBtn.addEventListener("click", handleDownloadMusicxml);
+    els.refreshScoreBtn.addEventListener("click", handleRefreshScore);
+    els.replaceScoreFromFileBtn.addEventListener("click", handleReplaceScoreFromFile);
+    els.loadScoreFileIntoEditorBtn.addEventListener("click", handleLoadScoreFileIntoEditor);
+    els.openScoreViewerBtn.addEventListener("click", openScoreViewer);
+    els.closeScoreViewerBtn.addEventListener("click", closeScoreViewer);
+    els.scoreViewerPagePrevBtn.addEventListener("click", () => changeScorePage(-1));
+    els.scoreViewerPageNextBtn.addEventListener("click", () => changeScorePage(1));
+    els.scoreViewerCanvas.addEventListener("click", handleScoreCanvasInteraction);
+    els.scoreViewerEntry.addEventListener("click", handleScoreCanvasInteraction);
+    els.scoreViewerStage.addEventListener("pointerdown", handleViewerPointerDown);
+    els.scoreViewerStage.addEventListener("wheel", handleViewerWheel, { passive: false });
     els.createExportBtn.addEventListener("click", handleCreateExport);
     els.refreshExportsBtn.addEventListener("click", () => loadExportList(state.selectedExportRecordId));
     els.regenerateSelectedExportBtn.addEventListener("click", handleRegenerateSelectedExport);
@@ -241,6 +352,18 @@ function bindEvents() {
     els.analysisToolsPanel?.addEventListener("toggle", () => {
         state.analysisToolsOpen = els.analysisToolsPanel.open;
     });
+    window.addEventListener("resize", () => {
+        if (state.currentScore) {
+            scheduleNotationRender();
+            if (state.scoreViewerOpen) {
+                scheduleNotationRender({ viewerOnly: true });
+            }
+        }
+    });
+    window.addEventListener("pointermove", handleViewerPointerMove);
+    window.addEventListener("pointerup", handleViewerPointerUp);
+    window.addEventListener("pointercancel", handleViewerPointerUp);
+    document.addEventListener("keydown", handleViewerKeydown);
 
     [
         [els.apiBaseInput, STORAGE_KEYS.apiBase],
@@ -254,6 +377,25 @@ function bindEvents() {
     ].forEach(([element, key]) => {
         element.addEventListener("input", () => localStorage.setItem(key, element.value));
     });
+}
+
+function handleViewerKeydown(event) {
+    if (!state.scoreViewerOpen) {
+        return;
+    }
+    if (event.key === "Escape") {
+        closeScoreViewer();
+        return;
+    }
+    if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        changeScorePage(-1);
+        return;
+    }
+    if (event.key === "ArrowRight") {
+        event.preventDefault();
+        changeScorePage(1);
+    }
 }
 
 function resolveDefaultApiBase() {
@@ -599,7 +741,7 @@ async function handlePitchDetectAndScore() {
         setAppStatus("音高识别完成，正在生成乐谱。");
 
         const payload = {
-            user_id: parsePositiveInteger(els.userIdInput.value, "用户 ID"),
+            user_id: await ensureScoreOwnerUserId(),
             title: (els.projectTitleInput.value || "").trim() || null,
             analysis_id: detectResult.analysis_id || null,
             tempo: parsePositiveInteger(els.tempoInput.value, "速度"),
@@ -618,11 +760,11 @@ async function handlePitchDetectAndScore() {
         state.exportList = [];
         state.selectedExportRecordId = null;
         state.selectedExportDetail = null;
-        applyScoreResult(created, firstNoteId(created));
-        await loadExportList();
+        applyScoreResult(created);
         const msg = `音高识别与乐谱生成完成：乐谱 ${created.score_id} 已生成`;
         setPitchDetectStatus(msg);
         setAppStatus(`音频识谱完成，已关联乐谱 ${created.score_id}。`);
+        queueExportRefresh();
     } catch (error) {
         setPitchDetectStatus(`识谱失败：${error.message}`, true);
         setAppStatus("音频识谱未完成，请查看识别区域提示。", true);
@@ -638,7 +780,7 @@ async function handleCreateScore() {
     setBusy("create-score", true);
     try {
         const payload = {
-            user_id: parsePositiveInteger(els.userIdInput.value, "用户 ID"),
+            user_id: await ensureScoreOwnerUserId(),
             title: (els.projectTitleInput.value || "").trim() || null,
             analysis_id: (els.analysisIdInput.value || "").trim() || null,
             tempo: parsePositiveInteger(els.tempoInput.value, "速度"),
@@ -650,9 +792,9 @@ async function handleCreateScore() {
         state.exportList = [];
         state.selectedExportRecordId = null;
         state.selectedExportDetail = null;
-        applyScoreResult(created, firstNoteId(created));
-        await loadExportList();
+        applyScoreResult(created);
         setAppStatus(`乐谱已生成并关联：${created.score_id}`);
+        queueExportRefresh();
     } catch (error) {
         setAppStatus(`生成乐谱失败：${error.message}`, true);
     } finally {
@@ -767,25 +909,6 @@ async function handleRhythmScore() {
     }
 }
 
-function buildMelodyFromScore() {
-    const melody = [];
-    for (const measure of state.currentScore?.measures || []) {
-        for (const note of measure.notes || []) {
-            if (note.is_rest) {
-                continue;
-            }
-            melody.push({
-                measure_no: measure.measure_no,
-                start_beat: note.start_beat,
-                beats: note.beats,
-                pitch: note.pitch,
-                frequency: note.frequency,
-            });
-        }
-    }
-    return melody;
-}
-
 async function loadAudioLogs() {
     if (isBusy("audio-logs")) {
         return;
@@ -810,81 +933,79 @@ async function loadAudioLogs() {
 }
 
 async function handleApplyScoreSettings() {
+    if (!state.currentScore) {
+        setAppStatus("请先生成或载入一份乐谱。", true);
+        return;
+    }
+    const musicxml = (els.scoreMusicxmlInput.value || "").trim();
+    if (!musicxml) {
+        setAppStatus("MusicXML 不能为空。", true);
+        return;
+    }
+    await patchScoreMusicxml(musicxml, "score-settings", "MusicXML 已保存并重新渲染。");
+}
+
+async function handleLoadScoreFileIntoEditor() {
     try {
-        await patchScore(
-            [
-                { type: "update_tempo", value: parsePositiveInteger(els.tempoInput.value, "速度") },
-                { type: "update_time_signature", value: (els.timeSignatureInput.value || "").trim() || "4/4" },
-                { type: "update_key_signature", value: (els.keySignatureInput.value || "").trim() || "C" },
-            ],
-            "score-settings",
-            "乐谱设置已同步。"
-        );
+        const file = els.scoreMusicxmlFileInput.files?.[0];
+        if (!file) {
+            throw new Error("请先选择一个 MusicXML 文件。");
+        }
+        const text = await file.text();
+        els.scoreMusicxmlInput.value = text;
+        setAppStatus(`已将 ${file.name} 载入编辑区。`);
     } catch (error) {
         setAppStatus(error.message, true);
     }
 }
 
-async function handleAddNote() {
+async function handleReplaceScoreFromFile() {
+    if (!state.currentScore) {
+        setAppStatus("请先生成或载入一份乐谱，再执行替换。", true);
+        return;
+    }
     try {
-        const noteDraft = buildNotePayloadFromInputs();
-        await patchScore(
-            [{ type: "add_note", measure_no: noteDraft.measureNo, beat: noteDraft.note.start_beat, note: noteDraft.note }],
-            "note-add",
-            "音符已添加到乐谱。",
-            { mode: "new", note: noteDraft.note, measureNo: noteDraft.measureNo }
-        );
+        const file = els.scoreMusicxmlFileInput.files?.[0];
+        if (!file) {
+            throw new Error("请先选择一个 MusicXML 文件。");
+        }
+        const text = await file.text();
+        els.scoreMusicxmlInput.value = text;
+        await patchScoreMusicxml(text, "score-file-replace", `已使用 ${file.name} 替换当前乐谱。`);
     } catch (error) {
         setAppStatus(error.message, true);
     }
 }
 
-async function handleUpdateSelectedNote() {
-    if (!state.selectedNoteId) {
-        setAppStatus("请先选择一个音符。", true);
+function handleDownloadMusicxml() {
+    if (!state.currentScore?.musicxml) {
+        setAppStatus("当前没有可下载的 MusicXML。", true);
         return;
     }
-    try {
-        const noteDraft = buildNotePayloadFromInputs();
-        await patchScore(
-            [{ type: "update_note", note_id: state.selectedNoteId, beat: noteDraft.note.start_beat, note: noteDraft.note }],
-            "note-update",
-            "已更新选中的音符。",
-            state.selectedNoteId
-        );
-    } catch (error) {
-        setAppStatus(error.message, true);
-    }
+    const blob = new Blob([state.currentScore.musicxml], { type: "application/xml;charset=utf-8" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `${state.currentScore.score_id || "score"}.musicxml`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(link.href);
 }
 
-async function handleDeleteSelectedNote() {
-    if (!state.selectedNoteId) {
-        setAppStatus("删除前请先选择一个音符。", true);
+async function handleRefreshScore() {
+    if (!state.currentScore?.score_id && !state.selectedScoreId) {
+        setAppStatus("当前没有可刷新的乐谱。", true);
         return;
     }
-    await patchScore([{ type: "delete_note", note_id: state.selectedNoteId }], "note-delete", "已删除选中的音符。");
-}
-
-async function handleTransposeSelected(delta) {
-    const selected = getSelectedNoteContext();
-    if (!selected || selected.note.is_rest) {
-        setAppStatus("升降调前请先选择一个有音高的音符。", true);
-        return;
-    }
-    await patchScore(
-        [{ type: "update_note", note_id: selected.note.note_id, note: { pitch: transposePitch(selected.note.pitch, delta) } }],
-        delta > 0 ? "transpose-up" : "transpose-down",
-        `选中的音符已${delta > 0 ? "升高" : "降低"}半音。`,
-        selected.note.note_id
-    );
+    await loadCurrentScore(state.currentScore?.score_id || state.selectedScoreId);
 }
 
 async function handleUndo() {
-    await runScoreAction("undo", "undo-action", "已执行撤销。");
+    await runScoreAction("undo", "undo-action", "已撤销到上一个 MusicXML 快照。");
 }
 
 async function handleRedo() {
-    await runScoreAction("redo", "redo-action", "已执行重做。");
+    await runScoreAction("redo", "redo-action", "已重做到下一个 MusicXML 快照。");
 }
 
 async function runScoreAction(path, busyKey, message) {
@@ -894,16 +1015,16 @@ async function runScoreAction(path, busyKey, message) {
     setBusy(busyKey, true);
     try {
         const updated = await requestJson(`/scores/${state.currentScore.score_id}/${path}`, { method: "POST" });
-        applyScoreResult(updated, state.selectedNoteId);
+        applyScoreResult(updated);
         setAppStatus(message);
     } catch (error) {
-        setAppStatus(`${message} 操作失败：${error.message}`, true);
+        setAppStatus(`${message} 失败：${error.message}`, true);
     } finally {
         setBusy(busyKey, false);
     }
 }
 
-async function patchScore(operations, busyKey, successMessage, preferredNote = null) {
+async function patchScoreMusicxml(musicxml, busyKey, successMessage) {
     if (!state.currentScore || isBusy(busyKey)) {
         return;
     }
@@ -911,9 +1032,9 @@ async function patchScore(operations, busyKey, successMessage, preferredNote = n
     try {
         const updated = await requestJson(`/scores/${state.currentScore.score_id}`, {
             method: "PATCH",
-            body: { operations },
+            body: { musicxml },
         });
-        applyScoreResult(updated, preferredNote);
+        applyScoreResult(updated);
         setAppStatus(successMessage);
     } catch (error) {
         setAppStatus(`乐谱更新失败：${error.message}`, true);
@@ -922,97 +1043,1075 @@ async function patchScore(operations, busyKey, successMessage, preferredNote = n
     }
 }
 
-function applyScoreResult(score, preferredNote = null) {
-    state.currentScore = score;
-    els.tempoInput.value = score.tempo;
-    els.timeSignatureInput.value = score.time_signature;
-    els.keySignatureInput.value = score.key_signature;
-    state.selectedNoteId = resolveSelectedNoteId(score, preferredNote);
-    if (state.selectedNoteId) {
-        populateNoteInputsFromSelection();
-    }
-    renderAll();
-}
-
-function resolveSelectedNoteId(score, preferredNote) {
-    if (typeof preferredNote === "string" && findNoteById(score, preferredNote)) {
-        return preferredNote;
-    }
-    if (preferredNote && preferredNote.mode === "new") {
-        const match = findMatchingNote(score, preferredNote.measureNo, preferredNote.note);
-        if (match) {
-            return match.note_id;
-        }
-    }
-    if (state.selectedNoteId && findNoteById(score, state.selectedNoteId)) {
-        return state.selectedNoteId;
-    }
-    return firstNoteId(score);
-}
-
-function findMatchingNote(score, measureNo, noteDraft) {
-    const measure = (score.measures || []).find((item) => Number(item.measure_no) === Number(measureNo));
-    return (measure?.notes || []).find((note) => {
-        return (
-            note.pitch === noteDraft.pitch &&
-            Number(note.start_beat) === Number(noteDraft.start_beat) &&
-            Number(note.beats) === Number(noteDraft.beats)
-        );
-    });
-}
-
-function firstNoteId(score) {
-    for (const measure of score?.measures || []) {
-        if (measure.notes && measure.notes.length > 0) {
-            return measure.notes[0].note_id;
-        }
-    }
-    return null;
-}
-
-function clearNoteSelection() {
-    state.selectedNoteId = null;
-    renderAll();
-    setAppStatus("已清除音符选中状态。你可以点击某个小节来预填新音符。");
-}
-
-function getSelectedNoteContext() {
-    return findNoteById(state.currentScore, state.selectedNoteId);
-}
-
-function findNoteById(score, noteId) {
-    if (!score || !noteId) {
+async function loadCurrentScore(scoreId, { silent = false } = {}) {
+    if (!scoreId) {
         return null;
     }
-    for (const measure of score.measures || []) {
-        const note = (measure.notes || []).find((item) => item.note_id === noteId);
-        if (note) {
-            return { measure, note };
-        }
+    const busyKey = `score-load-${scoreId}`;
+    if (isBusy(busyKey)) {
+        return null;
     }
-    return null;
+    setBusy(busyKey, true);
+    try {
+        const score = await requestJson(`/scores/${scoreId}`);
+        applyScoreResult(score);
+        if (!silent) {
+            setAppStatus(`已刷新乐谱 ${score.score_id}。`);
+        }
+        return score;
+    } catch (error) {
+        if (!silent) {
+            setAppStatus(`乐谱加载失败：${error.message}`, true);
+        }
+        return null;
+    } finally {
+        setBusy(busyKey, false);
+    }
 }
 
-function populateNoteInputsFromSelection() {
-    const selected = getSelectedNoteContext();
-    if (!selected) {
-        return;
-    }
-    els.noteMeasureInput.value = selected.measure.measure_no;
-    els.noteBeatInput.value = formatBeat(selected.note.start_beat);
-    els.notePitchInput.value = selected.note.pitch;
-    els.noteBeatsInput.value = formatBeat(selected.note.beats);
+function applyScoreResult(score) {
+    const previousScoreId = state.currentScore?.score_id || null;
+    const previousScoreVersion = state.currentScore?.version || null;
+    const preservePageIndex =
+        Boolean(previousScoreId) &&
+        previousScoreId === score?.score_id &&
+        previousScoreVersion === score?.version;
+
+    state.currentScore = score;
+    state.selectedScoreId = score?.score_id || "";
+    state.selectedNotationElementId = null;
+    localStorage.setItem(STORAGE_KEYS.scoreId, state.selectedScoreId);
+
+    els.tempoInput.value = String(score.tempo || els.tempoInput.value || "120");
+    els.timeSignatureInput.value = score.time_signature || els.timeSignatureInput.value || "4/4";
+    els.keySignatureInput.value = score.key_signature || els.keySignatureInput.value || "C";
+    els.scoreMusicxmlInput.value = score.musicxml || "";
+
+    invalidateViewerRenderState({ preservePageIndex });
+    state.scorePageIndex = preservePageIndex ? Math.max(state.scorePageIndex || 0, 0) : 0;
+
+    renderAll();
+    queueExportRefresh();
+}
+
+function invalidateViewerRenderState({ preservePageIndex = false } = {}) {
+    state.viewerPreparedKey = "";
+    state.viewerPreparedMusicxml = "";
+    state.viewerPreparedLayout = null;
+    state.viewerPageCache = new Map();
+    state.viewerPageRanges = [];
+    state.viewerPageCount = 0;
+    state.viewerWheelAccumX = 0;
+    state.viewerSuppressClickUntil = 0;
+    state.viewerGesture = null;
+    state.viewerTransition = {
+        phase: "idle",
+        direction: 0,
+        fromIndex: preservePageIndex ? state.scorePageIndex || 0 : 0,
+        toIndex: preservePageIndex ? state.scorePageIndex || 0 : 0,
+        progress: 0,
+    };
+}
+
+function resolveMeasureCount(score) {
+    return Number(score?.summary?.measure_count || 0) || 0;
+}
+
+function defaultSelectionHint() {
+    return "当前谱面以 MusicXML 为唯一真源。点击谱面中的音符可高亮查看；如需修改，请直接编辑下方 MusicXML 或上传新的 `.musicxml/.xml` 文件整体替换。";
 }
 
 function renderAll() {
     renderBackendState();
     renderScoreSummary();
-    renderScoreCanvas();
     renderAnalysisOutputs();
     renderExportList();
     renderAudioLogs();
     renderExportDetail();
     renderControlState();
+    scheduleNotationRender();
+}
+
+async function ensureVerovioRuntime() {
+    if (state.verovioReady) {
+        return true;
+    }
+    if (state.verovioLoading) {
+        return false;
+    }
+    const verovioApi = window.verovio;
+    if (!verovioApi || typeof verovioApi.toolkit !== "function") {
+        state.verovioError = "Verovio 资源未正确加载。";
+        scheduleNotationRender();
+        return false;
+    }
+
+    const tryConstruct = () => {
+        const moduleRef = verovioApi.module;
+        return new verovioApi.toolkit(moduleRef);
+    };
+
+    try {
+        tryConstruct();
+        state.verovioReady = true;
+        state.verovioError = "";
+        scheduleNotationRender();
+        return true;
+    } catch {
+        state.verovioLoading = true;
+        return await new Promise((resolve) => {
+            const previousInit = verovioApi.module?.onRuntimeInitialized;
+            if (verovioApi.module) {
+                verovioApi.module.onRuntimeInitialized = () => {
+                    if (typeof previousInit === "function") {
+                        previousInit();
+                    }
+                    state.verovioLoading = false;
+                    try {
+                        tryConstruct();
+                        state.verovioReady = true;
+                        state.verovioError = "";
+                        scheduleNotationRender();
+                        resolve(true);
+                    } catch (error) {
+                        state.verovioError = `Verovio 初始化失败：${error.message}`;
+                        scheduleNotationRender();
+                        resolve(false);
+                    }
+                };
+            } else {
+                state.verovioLoading = false;
+                state.verovioError = "Verovio 模块未准备就绪。";
+                scheduleNotationRender();
+                resolve(false);
+            }
+        });
+    }
+}
+
+function createVerovioToolkit() {
+    if (!state.verovioReady || !window.verovio || typeof window.verovio.toolkit !== "function") {
+        return null;
+    }
+    return new window.verovio.toolkit(window.verovio.module);
+}
+
+function buildVerovioOptions(mode = "preview") {
+    const measureCount = Math.max(resolveMeasureCount(state.currentScore), 1);
+    if (mode === "viewer") {
+        return {
+            breaks: "encoded",
+            pageWidth: 2100,
+            pageHeight: Math.round(2100 / VIEWER_A4_RATIO),
+            pageMarginLeft: 118,
+            pageMarginRight: 118,
+            pageMarginTop: 102,
+            pageMarginBottom: 128,
+            scale: 43,
+            svgViewBox: true,
+            adjustPageWidth: false,
+            adjustPageHeight: false,
+            scaleToPageSize: true,
+            justifyVertically: true,
+            systemMaxPerPage: VIEWER_LAYOUT_DEFAULTS.systemsPerPage || 5,
+            spacingSystem: 24,
+            spacingStaff: 14,
+            header: "none",
+            footer: "none",
+        };
+    }
+    return {
+        breaks: "auto",
+        pageWidth: Math.max(2800, measureCount * 380),
+        pageHeight: 1600,
+        scale: 92,
+        svgViewBox: true,
+        adjustPageWidth: false,
+        adjustPageHeight: true,
+    };
+}
+
+function scheduleNotationRender({ viewerOnly = false } = {}) {
+    const ticket = ++state.notationRenderTicket;
+    queueMicrotask(async () => {
+        if (ticket !== state.notationRenderTicket) {
+            return;
+        }
+        if (!viewerOnly) {
+            await renderScoreEntry();
+        }
+        await renderScoreViewer();
+    });
+}
+
+async function renderScoreEntry() {
+    const score = state.currentScore;
+    els.scoreEmpty.hidden = Boolean(score);
+    els.scoreViewerEntry.hidden = !score;
+    if (!score) {
+        els.scoreViewerEntry.innerHTML = "";
+        state.previewPageCount = 0;
+        return;
+    }
+
+    const rendered = await renderNotationTarget(els.scoreViewerEntry, { mode: "preview", pageIndex: 0 });
+    state.previewPageCount = rendered.pageCount;
+    const measureCount = resolveMeasureCount(score);
+    const renderStateText = rendered.error
+        ? escapeHtmlText(rendered.error)
+        : `Verovio 预览已更新。全屏查看器会以 A4 纸张分页显示，当前预计 ${rendered.pageCount} 页。`;
+    els.scoreViewerEntry.innerHTML = `
+        <div class="score-entry-copy">
+            <span class="score-entry-kicker">Verovio + MusicXML</span>
+            <h3 class="score-entry-title">${escapeHtmlText(score.title || "未命名乐谱")}</h3>
+            <p class="score-entry-text">谱面已经切换为 Verovio 渲染，五线谱、连音线、延音线与休止符都由 MusicXML 真源统一驱动。点击右上角查看器后，会以更接近真实纸质乐谱的 A4 分页方式浏览整份谱面。</p>
+        </div>
+        <div class="score-entry-stats">
+            <span class="score-entry-chip">共 ${escapeHtmlText(String(measureCount))} 小节</span>
+            <span class="score-entry-chip">预计 ${escapeHtmlText(String(rendered.pageCount))} 页</span>
+            <span class="score-entry-chip">${rendered.error ? "渲染失败" : "全屏查看器支持纸张翻页"}</span>
+        </div>
+        ${rendered.markup}
+        <p class="helper-text">${renderStateText}</p>
+    `;
+}
+
+async function renderNotationTarget(targetElement, { mode = "preview", pageIndex = 0 } = {}) {
+    if (!targetElement || !state.currentScore) {
+        return { pageCount: 0, markup: "", error: "" };
+    }
+    const runtimeReady = await ensureVerovioRuntime();
+    if (!runtimeReady) {
+        const message = state.verovioError || "Verovio 仍在初始化，请稍候重试。";
+        const markup = `<div class="verovio-stage"><div class="score-empty"><h3>暂时无法渲染谱面</h3><p>${escapeHtmlText(message)}</p></div></div>`;
+        targetElement.innerHTML = markup;
+        return { pageCount: 0, markup, error: message };
+    }
+
+    try {
+        const toolkit = createVerovioToolkit();
+        toolkit.setOptions(buildVerovioOptions(mode));
+        const loaded = toolkit.loadData(state.currentScore.musicxml || "");
+        if (!loaded) {
+            throw new Error("Verovio 未能载入当前 MusicXML。");
+        }
+        const pageCount = Math.max(Number(toolkit.getPageCount() || 0), 1);
+        const clampedPage = Math.min(Math.max(Number(pageIndex || 0), 0), pageCount - 1);
+        if (mode === "viewer") {
+            state.scorePageIndex = clampedPage;
+        }
+        const svgMarkup = toolkit.renderToSVG(clampedPage + 1);
+        const markup = `<div class="verovio-stage ${mode === "viewer" ? "viewer" : "preview"}"><div class="verovio-pane">${svgMarkup}</div></div>`;
+        targetElement.innerHTML = markup;
+        targetElement.querySelectorAll(".note, .rest").forEach((element) => {
+            element.classList.remove("is-selected");
+        });
+        return { pageCount, markup, error: "" };
+    } catch (error) {
+        const message = error?.message || "未知渲染错误";
+        const markup = `<div class="verovio-stage"><div class="score-empty"><h3>谱面渲染失败</h3><p>${escapeHtmlText(message)}</p></div></div>`;
+        targetElement.innerHTML = markup;
+        return { pageCount: 0, markup, error: message };
+    }
+}
+
+function isReducedMotionPreferred() {
+    return Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
+}
+
+function buildViewerPreparedKey(score) {
+    return `${score?.score_id || "score"}:${score?.version || 0}:${score?.musicxml?.length || 0}`;
+}
+
+function xmlLocalName(node) {
+    return node?.localName || String(node?.nodeName || "").split(":").pop();
+}
+
+function getNamedChildren(parent, tagName) {
+    return Array.from(parent?.children || []).filter((child) => xmlLocalName(child) === tagName);
+}
+
+function getFirstNamedChild(parent, tagName) {
+    return getNamedChildren(parent, tagName)[0] || null;
+}
+
+function getNamedDescendants(parent, tagName) {
+    return Array.from(parent?.getElementsByTagName("*") || []).filter((child) => xmlLocalName(child) === tagName);
+}
+
+function getFirstNamedDescendant(parent, tagName) {
+    return getNamedDescendants(parent, tagName)[0] || null;
+}
+
+function childText(parent, tagName, fallback = "") {
+    return getFirstNamedChild(parent, tagName)?.textContent || fallback;
+}
+
+function descendantText(parent, tagName, fallback = "") {
+    return getFirstNamedDescendant(parent, tagName)?.textContent || fallback;
+}
+
+function createXmlChild(doc, tagName, text = null) {
+    const element = doc.createElement(tagName);
+    if (text !== null && text !== undefined) {
+        element.textContent = String(text);
+    }
+    return element;
+}
+
+function setNamedChildText(parent, tagName, text, { prepend = false } = {}) {
+    let child = getFirstNamedChild(parent, tagName);
+    if (!child) {
+        child = createXmlChild(parent.ownerDocument, tagName, text);
+        if (prepend && parent.firstChild) {
+            parent.insertBefore(child, parent.firstChild);
+        } else {
+            parent.appendChild(child);
+        }
+    } else {
+        child.textContent = String(text);
+    }
+    return child;
+}
+
+function parsePitchFromNote(noteEl) {
+    if (getFirstNamedChild(noteEl, "rest")) {
+        return "Rest";
+    }
+    const pitchEl = getFirstNamedChild(noteEl, "pitch");
+    if (!pitchEl) {
+        return "Rest";
+    }
+    const step = childText(pitchEl, "step", "C");
+    const alter = Number.parseInt(childText(pitchEl, "alter", "0"), 10) || 0;
+    const octave = childText(pitchEl, "octave", "4");
+    const accidental = alter === 1 ? "#" : alter === -1 ? "b" : "";
+    return `${step}${accidental}${octave}`;
+}
+
+function extractViewerMeasureModels(partEl) {
+    const measureElements = getNamedChildren(partEl, "measure");
+    let divisions = 8;
+
+    return measureElements.map((measureEl, measureIndex) => {
+        const attributesEl = getFirstNamedChild(measureEl, "attributes");
+        if (attributesEl) {
+            divisions = Number.parseInt(descendantText(attributesEl, "divisions", String(divisions)), 10) || divisions;
+        }
+        const notes = getNamedChildren(measureEl, "note").map((noteEl) => {
+            const pitch = parsePitchFromNote(noteEl);
+            const isRest = pitch === "Rest";
+            const duration = Number.parseFloat(childText(noteEl, "duration", "0")) || 0;
+            const beats = divisions > 0 ? duration / divisions : 0;
+            const pitchEl = getFirstNamedChild(noteEl, "pitch");
+            const alter = pitchEl ? Number.parseInt(childText(pitchEl, "alter", "0"), 10) || 0 : 0;
+            return {
+                pitch,
+                isRest,
+                beats,
+                alter,
+                hasAccidental: Boolean(getFirstNamedChild(noteEl, "accidental")),
+                tieCount: getNamedChildren(noteEl, "tie").length,
+                slurCount: getNamedDescendants(noteEl, "slur").length,
+                dotCount: getNamedChildren(noteEl, "dot").length,
+            };
+        });
+        return {
+            measureNo: Number(measureEl.getAttribute("number") || measureIndex + 1),
+            notes,
+        };
+    });
+}
+
+function canUseGrandStaffDisplayTransform(parts) {
+    if ((parts || []).length !== 1) {
+        return false;
+    }
+    const partEl = parts[0];
+    const measures = getNamedChildren(partEl, "measure");
+    if (!measures.length) {
+        return false;
+    }
+    const firstAttributes = getFirstNamedChild(measures[0], "attributes");
+    if (Number.parseInt(descendantText(firstAttributes, "staves", "1"), 10) > 1) {
+        return false;
+    }
+    const hasMultipleClefs = getNamedChildren(firstAttributes, "clef").length > 1;
+    if (hasMultipleClefs) {
+        return false;
+    }
+
+    return !measures.some((measureEl) =>
+        getNamedChildren(measureEl, "note").some(
+            (noteEl) =>
+                Boolean(getFirstNamedChild(noteEl, "staff")) ||
+                Boolean(getFirstNamedChild(noteEl, "chord"))
+        ) ||
+        Boolean(getFirstNamedChild(measureEl, "backup")) ||
+        Boolean(getFirstNamedChild(measureEl, "forward"))
+    );
+}
+
+function ensurePrintElement(measureEl) {
+    let printEl = getFirstNamedChild(measureEl, "print");
+    if (printEl) {
+        return printEl;
+    }
+
+    printEl = measureEl.ownerDocument.createElement("print");
+    const insertBeforeEl = Array.from(measureEl.children).find((child) => xmlLocalName(child) !== "attributes");
+    if (insertBeforeEl) {
+        measureEl.insertBefore(printEl, insertBeforeEl);
+    } else {
+        measureEl.appendChild(printEl);
+    }
+    return printEl;
+}
+
+function applyViewerBreaksToPart(partEl, pagination) {
+    const measures = getNamedChildren(partEl, "measure");
+    const systemStarts = new Set((pagination?.systems || []).map((system) => system.measureIndices[0]).filter((value) => value > 0));
+    const pageStarts = new Set((pagination?.pages || []).map((page) => page.measureIndices[0]).filter((value) => value > 0));
+
+    measures.forEach((measureEl, measureIndex) => {
+        const printEl = getFirstNamedChild(measureEl, "print");
+        const isPageStart = pageStarts.has(measureIndex);
+        const isSystemStart = isPageStart || systemStarts.has(measureIndex);
+
+        if (!isPageStart && !isSystemStart) {
+            if (printEl) {
+                printEl.removeAttribute("new-page");
+                printEl.removeAttribute("new-system");
+                if (!printEl.attributes.length && !printEl.children.length) {
+                    printEl.remove();
+                }
+            }
+            return;
+        }
+
+        const ensuredPrintEl = printEl || ensurePrintElement(measureEl);
+        if (isPageStart) {
+            ensuredPrintEl.setAttribute("new-page", "yes");
+        } else {
+            ensuredPrintEl.removeAttribute("new-page");
+        }
+        if (isSystemStart) {
+            ensuredPrintEl.setAttribute("new-system", "yes");
+        } else {
+            ensuredPrintEl.removeAttribute("new-system");
+        }
+    });
+}
+
+function upsertGrandStaffAttributes(measureEl, { includeBrace = false } = {}) {
+    let attributesEl = getFirstNamedChild(measureEl, "attributes");
+    if (!attributesEl) {
+        attributesEl = measureEl.ownerDocument.createElement("attributes");
+        measureEl.insertBefore(attributesEl, measureEl.firstChild);
+    }
+
+    setNamedChildText(attributesEl, "staves", "2");
+    getNamedChildren(attributesEl, "clef").forEach((clefEl) => clefEl.remove());
+
+    if (includeBrace) {
+        let partSymbolEl = getFirstNamedChild(attributesEl, "part-symbol");
+        if (!partSymbolEl) {
+            partSymbolEl = attributesEl.ownerDocument.createElement("part-symbol");
+            attributesEl.appendChild(partSymbolEl);
+        }
+        partSymbolEl.setAttribute("type", "brace");
+    }
+
+    const trebleClef = attributesEl.ownerDocument.createElement("clef");
+    trebleClef.setAttribute("number", "1");
+    trebleClef.appendChild(createXmlChild(attributesEl.ownerDocument, "sign", "G"));
+    trebleClef.appendChild(createXmlChild(attributesEl.ownerDocument, "line", "2"));
+
+    const bassClef = attributesEl.ownerDocument.createElement("clef");
+    bassClef.setAttribute("number", "2");
+    bassClef.appendChild(createXmlChild(attributesEl.ownerDocument, "sign", "F"));
+    bassClef.appendChild(createXmlChild(attributesEl.ownerDocument, "line", "4"));
+
+    attributesEl.appendChild(trebleClef);
+    attributesEl.appendChild(bassClef);
+}
+
+function upsertNoteStaff(noteEl, staffNumber) {
+    let staffEl = getFirstNamedChild(noteEl, "staff");
+    if (!staffEl) {
+        staffEl = noteEl.ownerDocument.createElement("staff");
+        const anchor =
+            getFirstNamedChild(noteEl, "voice") ||
+            getFirstNamedChild(noteEl, "duration") ||
+            getFirstNamedChild(noteEl, "type");
+        if (anchor?.nextSibling) {
+            noteEl.insertBefore(staffEl, anchor.nextSibling);
+        } else {
+            noteEl.appendChild(staffEl);
+        }
+    }
+    staffEl.textContent = String(staffNumber);
+}
+
+function applyGrandStaffDisplayTransform(partEl) {
+    const measureElements = getNamedChildren(partEl, "measure");
+    const noteEntries = [];
+
+    measureElements.forEach((measureEl) => {
+        upsertGrandStaffAttributes(measureEl, { includeBrace: measureEl === measureElements[0] });
+        getNamedChildren(measureEl, "note").forEach((noteEl) => {
+            noteEntries.push({
+                noteEl,
+                pitch: parsePitchFromNote(noteEl),
+                isRest: Boolean(getFirstNamedChild(noteEl, "rest")),
+            });
+        });
+    });
+
+    const assignedStaffs = VIEWER_LAYOUT.assignStaffSequence
+        ? VIEWER_LAYOUT.assignStaffSequence(noteEntries)
+        : noteEntries.map((entry) => (entry.isRest ? "treble" : "treble"));
+
+    noteEntries.forEach((entry, index) => {
+        upsertNoteStaff(entry.noteEl, assignedStaffs[index] === "bass" ? 2 : 1);
+    });
+
+    const partNameEl = getFirstNamedDescendant(partEl.ownerDocument, "part-name");
+    if (partNameEl) {
+        partNameEl.textContent = "Piano";
+    }
+}
+
+function serializeXmlDocument(xmlDoc) {
+    return `<?xml version="1.0" encoding="UTF-8"?>\n${new XMLSerializer().serializeToString(xmlDoc)}`;
+}
+
+function prepareViewerDocument() {
+    if (!state.currentScore?.musicxml) {
+        return null;
+    }
+
+    const cacheKey = buildViewerPreparedKey(state.currentScore);
+    if (state.viewerPreparedKey === cacheKey && state.viewerPreparedLayout && state.viewerPreparedMusicxml) {
+        return {
+            cacheKey,
+            musicxml: state.viewerPreparedMusicxml,
+            layout: state.viewerPreparedLayout,
+            pageCount: state.viewerPreparedLayout.pages.length,
+            pageRanges: state.viewerPreparedLayout.pageRanges,
+        };
+    }
+
+    try {
+        const xmlDoc = new DOMParser().parseFromString(state.currentScore.musicxml, "application/xml");
+        if (xmlDoc.querySelector("parsererror")) {
+            throw new Error("MusicXML 解析失败");
+        }
+
+        const parts = Array.from(xmlDoc.getElementsByTagName("*")).filter((element) => xmlLocalName(element) === "part");
+        const primaryPart = parts[0] || null;
+        const measureModels = primaryPart ? extractViewerMeasureModels(primaryPart) : [];
+        const layout = VIEWER_LAYOUT.buildViewerPagination
+            ? VIEWER_LAYOUT.buildViewerPagination(measureModels, VIEWER_LAYOUT_DEFAULTS)
+            : { systems: [], pages: [], pageRanges: [] };
+
+        parts.forEach((partEl) => applyViewerBreaksToPart(partEl, layout));
+        if (primaryPart && canUseGrandStaffDisplayTransform(parts)) {
+            applyGrandStaffDisplayTransform(primaryPart);
+        }
+
+        state.viewerPreparedKey = cacheKey;
+        state.viewerPreparedMusicxml = serializeXmlDocument(xmlDoc);
+        state.viewerPreparedLayout = layout;
+        state.viewerPageRanges = layout.pageRanges || [];
+        state.viewerPageCache = new Map();
+
+        return {
+            cacheKey,
+            musicxml: state.viewerPreparedMusicxml,
+            layout,
+            pageCount: layout.pages.length,
+            pageRanges: layout.pageRanges,
+        };
+    } catch (error) {
+        const measureCount = resolveMeasureCount(state.currentScore);
+        const fallbackLayout = {
+            systems: [],
+            pages: [{ index: 0, systems: [], measureIndices: [], startMeasureNo: 1, endMeasureNo: measureCount || 1 }],
+            pageRanges: [{ pageIndex: 0, startMeasureNo: 1, endMeasureNo: measureCount || 1 }],
+        };
+        state.viewerPreparedKey = cacheKey;
+        state.viewerPreparedMusicxml = state.currentScore.musicxml;
+        state.viewerPreparedLayout = fallbackLayout;
+        state.viewerPageRanges = fallbackLayout.pageRanges;
+        state.viewerPageCache = new Map();
+        return {
+            cacheKey,
+            musicxml: state.viewerPreparedMusicxml,
+            layout: fallbackLayout,
+            pageCount: 1,
+            pageRanges: fallbackLayout.pageRanges,
+            fallbackError: error.message,
+        };
+    }
+}
+
+async function resolveViewerPageMarkup(pageIndex) {
+    const prepared = prepareViewerDocument();
+    if (!prepared) {
+        return null;
+    }
+    const cacheKey = `${prepared.cacheKey}:${pageIndex}`;
+    const cached = state.viewerPageCache.get(cacheKey);
+    if (cached) {
+        return cached;
+    }
+
+    const toolkit = createVerovioToolkit();
+    if (!toolkit) {
+        throw new Error(state.verovioError || "Verovio 查看器尚未初始化完成。");
+    }
+    toolkit.setOptions(buildVerovioOptions("viewer"));
+    const loaded = toolkit.loadData(prepared.musicxml || "");
+    if (!loaded) {
+        throw new Error("Verovio 未能载入查看器分页数据。");
+    }
+
+    const actualPageCount = Math.max(Number(toolkit.getPageCount() || 0), prepared.pageCount || 1, 1);
+    state.viewerPageCount = actualPageCount;
+    const resolvedIndex = VIEWER_LAYOUT.clamp
+        ? VIEWER_LAYOUT.clamp(pageIndex, 0, actualPageCount - 1)
+        : Math.min(Math.max(pageIndex, 0), actualPageCount - 1);
+    const payload = {
+        pageIndex: resolvedIndex,
+        svgMarkup: toolkit.renderToSVG(resolvedIndex + 1),
+    };
+    state.viewerPageCache.set(cacheKey, payload);
+    return payload;
+}
+
+function primeViewerPageCache(pageIndex) {
+    const prepared = prepareViewerDocument();
+    if (!prepared || pageIndex < 0 || pageIndex >= Math.max(prepared.pageCount || 0, state.viewerPageCount || 0, 1)) {
+        return;
+    }
+    void resolveViewerPageMarkup(pageIndex).catch(() => {});
+}
+
+function buildViewerSheetMarkup(pagePayload, role, { interactive = false } = {}) {
+    if (!pagePayload) {
+        return "";
+    }
+    return `
+        <section class="score-paper-sheet ${role}${interactive ? " is-live" : ""}" data-page-index="${pagePayload.pageIndex}">
+            <div class="score-paper-surface">
+                <div class="score-paper-canvas">
+                    <div class="score-paper-svg">
+                        <div class="verovio-pane">${pagePayload.svgMarkup}</div>
+                    </div>
+                </div>
+                <span class="score-paper-sheet-number">${pagePayload.pageIndex + 1}</span>
+            </div>
+        </section>
+    `;
+}
+
+function buildViewerStackMarkup(currentPage, incomingPage) {
+    const transition = state.viewerTransition;
+    const classes = ["score-paper-stack"];
+
+    if (transition.phase === "animating") {
+        classes.push("is-animated");
+        classes.push(transition.direction >= 0 ? "is-turning-forward" : "is-turning-backward");
+    } else if (transition.phase === "dragging") {
+        classes.push(transition.direction >= 0 ? "is-dragging-forward" : "is-dragging-backward");
+    }
+
+    const progress = Math.min(Math.max(Number(transition.progress || 0), 0), 1);
+    return `
+        <div class="score-paper-viewport">
+            <div class="${classes.join(" ")}" style="--turn-progress:${progress}">
+                ${buildViewerSheetMarkup(currentPage, "current", { interactive: !incomingPage })}
+                ${buildViewerSheetMarkup(incomingPage, "incoming")}
+            </div>
+        </div>
+    `;
+}
+
+function reapplySelectedNotationState() {
+    if (!state.selectedNotationElementId) {
+        return;
+    }
+    const safeId = window.CSS?.escape
+        ? window.CSS.escape(state.selectedNotationElementId)
+        : String(state.selectedNotationElementId).replace(/"/g, '\\"');
+    els.scoreViewerCanvas
+        .querySelectorAll(`.note.is-selected, .rest.is-selected, [id="${safeId}"].is-selected`)
+        .forEach((element) => element.classList.remove("is-selected"));
+
+    const target = els.scoreViewerCanvas.querySelector(`#${safeId}, [id="${safeId}"]`);
+    if (target?.classList) {
+        target.classList.add("is-selected");
+    }
+}
+
+async function renderScoreViewer() {
+    const score = state.currentScore;
+    const isOpen = Boolean(state.scoreViewerOpen);
+    els.scoreViewerOverlay.hidden = !isOpen;
+    document.body.classList.toggle("score-viewer-open", isOpen);
+    if (!isOpen) {
+        return;
+    }
+
+    els.scoreViewerEmpty.hidden = Boolean(score);
+    els.scoreViewerCanvas.hidden = !score;
+    if (!score) {
+        els.scoreViewerStage.classList.remove("is-dragging");
+        els.scoreViewerScoreTitle.textContent = "未加载乐谱";
+        els.scoreViewerScoreSubtitle.textContent = "请先在工作台生成乐谱，然后再打开这里查看 A4 纸质乐谱风格的分页谱面。";
+        els.scoreViewerCanvas.innerHTML = "";
+        state.viewerPageCount = 0;
+        state.viewerPageRanges = [];
+        renderScoreViewerPagination(0);
+        renderControlState();
+        return;
+    }
+
+    els.scoreViewerScoreTitle.textContent = score.title || `乐谱 ${score.score_id}`;
+    els.scoreViewerScoreSubtitle.textContent = `共 ${resolveMeasureCount(score)} 小节。纸张按 A4 五行钢琴大谱表查看，支持左右滑动翻页，点击音符可高亮当前符号。`;
+
+    const runtimeReady = await ensureVerovioRuntime();
+    if (!runtimeReady) {
+        els.scoreViewerStage.classList.remove("is-dragging");
+        els.scoreViewerCanvas.innerHTML = `<div class="score-empty"><h3>暂时无法渲染谱面</h3><p>${escapeHtmlText(
+            state.verovioError || "Verovio 仍在初始化，请稍候重试。"
+        )}</p></div>`;
+        renderScoreViewerPagination(0);
+        renderControlState();
+        return;
+    }
+
+    try {
+        const prepared = prepareViewerDocument();
+        const pageCount = Math.max(Number(prepared?.pageCount || 0), 1);
+        state.viewerPageRanges = prepared?.pageRanges || [];
+        state.viewerPageCount = pageCount;
+        state.scorePageIndex = Math.min(Math.max(state.scorePageIndex || 0, 0), pageCount - 1);
+
+        const transition = state.viewerTransition;
+        const currentIndex =
+            transition.phase === "idle"
+                ? state.scorePageIndex
+                : Math.min(Math.max(transition.fromIndex || 0, 0), pageCount - 1);
+        const incomingIndex =
+            transition.phase === "idle"
+                ? null
+                : Math.min(Math.max(transition.toIndex || 0, 0), pageCount - 1);
+
+        const currentPage = await resolveViewerPageMarkup(currentIndex);
+        const incomingPage = incomingIndex !== null ? await resolveViewerPageMarkup(incomingIndex) : null;
+
+        els.scoreViewerStage.classList.toggle("is-dragging", transition.phase === "dragging");
+        els.scoreViewerCanvas.innerHTML = buildViewerStackMarkup(currentPage, incomingPage);
+        reapplySelectedNotationState();
+        renderScoreViewerPagination(pageCount);
+        renderControlState();
+        primeViewerPageCache(state.scorePageIndex + 1);
+        primeViewerPageCache(state.scorePageIndex - 1);
+    } catch (error) {
+        els.scoreViewerStage.classList.remove("is-dragging");
+        els.scoreViewerCanvas.innerHTML = `<div class="score-empty"><h3>谱面渲染失败</h3><p>${escapeHtmlText(
+            error?.message || "未知渲染错误"
+        )}</p></div>`;
+        renderScoreViewerPagination(0);
+        renderControlState();
+    }
+}
+
+function renderScoreSummary() {
+    const score = state.currentScore;
+    els.scoreLinkageStatus.textContent = score ? "已连接" : "未连接";
+    els.scoreTitleDisplay.textContent = score ? score.title || "未命名乐谱" : "尚未载入乐谱";
+    els.scoreIdBadge.textContent = score ? score.score_id : "--";
+    els.projectIdBadge.textContent = score ? score.project_id : "--";
+    els.scoreVersionBadge.textContent = score ? score.version : "--";
+    els.tempoDisplay.textContent = score ? score.tempo : "--";
+    els.timeDisplay.textContent = score ? score.time_signature : "--";
+    els.keyDisplay.textContent = score ? score.key_signature : "--";
+    els.measureCountDisplay.textContent = score ? resolveMeasureCount(score) : "--";
+    els.selectedNoteSummary.textContent = state.selectedNotationElementId
+        ? "当前已在谱面中高亮一个音符或休止符。若需修改，请在下方 MusicXML 中编辑后保存。"
+        : defaultSelectionHint();
+}
+
+function renderScoreViewerPagination(pageCount) {
+    const resolvedCount = Math.max(Number(pageCount || 0), 0);
+    if (!resolvedCount) {
+        els.scoreViewerPageStatus.textContent = "第 0 / 0 页";
+        els.scoreViewerPageRange.textContent = "共 0 小节";
+        return;
+    }
+    const visibleIndex =
+        state.viewerTransition.phase === "idle"
+            ? state.scorePageIndex
+            : Math.min(Math.max(state.viewerTransition.toIndex || 0, 0), resolvedCount - 1);
+    els.scoreViewerPageStatus.textContent = `第 ${visibleIndex + 1} / ${resolvedCount} 页`;
+    const range =
+        state.viewerPageRanges[visibleIndex] ||
+        state.viewerPageRanges[resolvedCount - 1] ||
+        { startMeasureNo: 1, endMeasureNo: resolveMeasureCount(state.currentScore) };
+    els.scoreViewerPageRange.textContent = `第 ${range.startMeasureNo}-${range.endMeasureNo} 小节`;
+}
+
+function openScoreViewer() {
+    if (!state.currentScore) {
+        setAppStatus("请先生成乐谱，再打开查看器。", true);
+        return;
+    }
+    state.scoreViewerOpen = true;
+    state.viewerTransition = {
+        phase: "idle",
+        direction: 0,
+        fromIndex: state.scorePageIndex || 0,
+        toIndex: state.scorePageIndex || 0,
+        progress: 0,
+    };
+    scheduleNotationRender({ viewerOnly: true });
+    els.scoreViewerStage.focus({ preventScroll: true });
+    renderControlState();
+}
+
+function closeScoreViewer() {
+    state.viewerGesture = null;
+    state.viewerSuppressClickUntil = 0;
+    state.viewerTransition = {
+        phase: "idle",
+        direction: 0,
+        fromIndex: state.scorePageIndex || 0,
+        toIndex: state.scorePageIndex || 0,
+        progress: 0,
+    };
+    state.scoreViewerOpen = false;
+    renderScoreViewer();
+    renderControlState();
+}
+
+function finishViewerPageTurn(nextIndex) {
+    state.scorePageIndex = nextIndex;
+    state.viewerTransition = {
+        phase: "idle",
+        direction: 0,
+        fromIndex: nextIndex,
+        toIndex: nextIndex,
+        progress: 0,
+    };
+    scheduleNotationRender({ viewerOnly: true });
+}
+
+function beginViewerPageTurn(nextIndex, direction, { immediate = false } = {}) {
+    if (immediate || isReducedMotionPreferred()) {
+        finishViewerPageTurn(nextIndex);
+        return;
+    }
+    state.viewerTransition = {
+        phase: "animating",
+        direction,
+        fromIndex: state.scorePageIndex,
+        toIndex: nextIndex,
+        progress: 1,
+    };
+    scheduleNotationRender({ viewerOnly: true });
+    window.setTimeout(() => finishViewerPageTurn(nextIndex), VIEWER_PAGE_TURN_MS);
+}
+
+function changeScorePage(delta, options = {}) {
+    if (state.viewerTransition.phase !== "idle") {
+        return;
+    }
+    const pageCount = Math.max(state.viewerPageCount || 1, 1);
+    const nextIndex = Math.min(Math.max((state.scorePageIndex || 0) + Number(delta || 0), 0), pageCount - 1);
+    if (nextIndex === state.scorePageIndex) {
+        return;
+    }
+    beginViewerPageTurn(nextIndex, Math.sign(delta || nextIndex - state.scorePageIndex || 1), options);
+}
+
+function handleViewerPointerDown(event) {
+    if (!state.scoreViewerOpen || !state.currentScore || state.viewerTransition.phase !== "idle") {
+        return;
+    }
+    if (event.pointerType === "mouse" && event.button !== 0) {
+        return;
+    }
+    state.viewerGesture = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        currentX: event.clientX,
+        dragging: false,
+    };
+}
+
+function handleViewerPointerMove(event) {
+    const gesture = state.viewerGesture;
+    if (!gesture || gesture.pointerId !== event.pointerId || !state.scoreViewerOpen) {
+        return;
+    }
+
+    const deltaX = event.clientX - gesture.startX;
+    const deltaY = event.clientY - gesture.startY;
+    if (!gesture.dragging) {
+        if (Math.abs(deltaX) < 10 || Math.abs(deltaX) <= Math.abs(deltaY) * 1.15) {
+            return;
+        }
+        gesture.dragging = true;
+    }
+
+    event.preventDefault();
+    gesture.currentX = event.clientX;
+    const width = els.scoreViewerStage.getBoundingClientRect().width || window.innerWidth || 1;
+    const direction = deltaX < 0 ? 1 : -1;
+    const candidateIndex = Math.min(
+        Math.max((state.scorePageIndex || 0) + direction, 0),
+        Math.max((state.viewerPageCount || 1) - 1, 0)
+    );
+    if (candidateIndex === state.scorePageIndex) {
+        state.viewerTransition = {
+            phase: "dragging",
+            direction,
+            fromIndex: state.scorePageIndex,
+            toIndex: state.scorePageIndex,
+            progress: 0,
+        };
+        scheduleNotationRender({ viewerOnly: true });
+        return;
+    }
+
+    state.viewerTransition = {
+        phase: "dragging",
+        direction,
+        fromIndex: state.scorePageIndex,
+        toIndex: candidateIndex,
+        progress: Math.min(Math.abs(deltaX) / width, 1),
+    };
+    scheduleNotationRender({ viewerOnly: true });
+}
+
+function handleViewerPointerUp(event) {
+    const gesture = state.viewerGesture;
+    if (!gesture || gesture.pointerId !== event.pointerId) {
+        return;
+    }
+
+    const deltaX = (gesture.currentX || event.clientX) - gesture.startX;
+    const width = els.scoreViewerStage.getBoundingClientRect().width || window.innerWidth || 1;
+    const direction = deltaX < 0 ? 1 : -1;
+    const nextIndex = Math.min(
+        Math.max((state.scorePageIndex || 0) + direction, 0),
+        Math.max((state.viewerPageCount || 1) - 1, 0)
+    );
+    const progress = Math.abs(deltaX) / width;
+    const shouldTurn = gesture.dragging && nextIndex !== state.scorePageIndex && progress >= VIEWER_DRAG_THRESHOLD;
+
+    state.viewerGesture = null;
+    if (gesture.dragging) {
+        state.viewerSuppressClickUntil = Date.now() + 220;
+    }
+    if (shouldTurn) {
+        beginViewerPageTurn(nextIndex, direction);
+        return;
+    }
+
+    state.viewerTransition = {
+        phase: "idle",
+        direction: 0,
+        fromIndex: state.scorePageIndex || 0,
+        toIndex: state.scorePageIndex || 0,
+        progress: 0,
+    };
+    scheduleNotationRender({ viewerOnly: true });
+}
+
+function handleViewerWheel(event) {
+    if (!state.scoreViewerOpen || Math.abs(event.deltaX) <= Math.abs(event.deltaY) || state.viewerTransition.phase !== "idle") {
+        return;
+    }
+    event.preventDefault();
+    state.viewerWheelAccumX += event.deltaX;
+    if (Math.abs(state.viewerWheelAccumX) < VIEWER_WHEEL_THRESHOLD) {
+        return;
+    }
+    const direction = state.viewerWheelAccumX > 0 ? 1 : -1;
+    state.viewerWheelAccumX = 0;
+    changeScorePage(direction);
+}
+
+function handleScoreCanvasInteraction(event) {
+    if (
+        state.viewerGesture?.dragging ||
+        state.viewerTransition.phase === "dragging" ||
+        Date.now() < (state.viewerSuppressClickUntil || 0)
+    ) {
+        return;
+    }
+    const clickedSymbol = event.target.closest(".note, .rest");
+    const host = event.currentTarget;
+    host.querySelectorAll(".note.is-selected, .rest.is-selected").forEach((element) => {
+        element.classList.remove("is-selected");
+    });
+    if (clickedSymbol) {
+        clickedSymbol.classList.add("is-selected");
+        state.selectedNotationElementId = clickedSymbol.id || "selected-symbol";
+        els.selectedNoteSummary.textContent = "当前已在谱面中高亮一个音符或休止符。若需修改，请在下方 MusicXML 中编辑后保存。";
+    } else {
+        state.selectedNotationElementId = null;
+        els.selectedNoteSummary.textContent = defaultSelectionHint();
+    }
+}
+
+function buildMelodyFromScore() {
+    if (!state.currentScore?.musicxml) {
+        return [];
+    }
+    const xml = new DOMParser().parseFromString(state.currentScore.musicxml, "application/xml");
+    if (xml.querySelector("parsererror")) {
+        return [];
+    }
+
+    const measures = Array.from(xml.querySelectorAll("part > measure"));
+    const melody = [];
+    measures.forEach((measure, index) => {
+        const divisions = Number(measure.querySelector("attributes > divisions")?.textContent || 8);
+        let cursor = 0;
+        Array.from(measure.children).forEach((child) => {
+            if (child.tagName !== "note") {
+                return;
+            }
+            const duration = Number(child.querySelector("duration")?.textContent || 0);
+            const beats = duration > 0 ? duration / divisions : 0;
+            const startBeat = cursor / divisions + 1;
+            cursor += duration;
+            if (child.querySelector("rest")) {
+                return;
+            }
+            const pitch = child.querySelector("pitch");
+            if (!pitch) {
+                return;
+            }
+            const step = pitch.querySelector("step")?.textContent || "C";
+            const alter = Number(pitch.querySelector("alter")?.textContent || 0);
+            const octave = pitch.querySelector("octave")?.textContent || "4";
+            const accidental = alter === 1 ? "#" : alter === -1 ? "b" : "";
+            melody.push({
+                measure_no: index + 1,
+                start_beat: startBeat,
+                beats,
+                pitch: `${step}${accidental}${octave}`,
+            });
+        });
+    });
+    return melody;
 }
 
 function renderAnalysisOutputs() {
@@ -1430,242 +2529,6 @@ function flattenFeedback(feedback) {
     return "";
 }
 
-function renderScoreSummary() {
-    const score = state.currentScore;
-    const selected = getSelectedNoteContext();
-
-    els.scoreLinkageStatus.textContent = score ? "已连接" : "未连接";
-    els.scoreTitleDisplay.textContent = score ? score.title || "未命名乐谱" : "尚未载入乐谱";
-    els.scoreIdBadge.textContent = score ? score.score_id : "--";
-    els.projectIdBadge.textContent = score ? score.project_id : "--";
-    els.scoreVersionBadge.textContent = score ? score.version : "--";
-    els.tempoDisplay.textContent = score ? score.tempo : "--";
-    els.timeDisplay.textContent = score ? score.time_signature : "--";
-    els.keyDisplay.textContent = score ? score.key_signature : "--";
-    els.measureCountDisplay.textContent = score ? score.measure_count || score.measures.length : "--";
-    els.selectedNoteSummary.textContent = selected
-        ? `第 ${selected.measure.measure_no} 小节，第 ${formatBeat(selected.note.start_beat)} 拍，${selected.note.pitch}，时值 ${formatBeat(selected.note.beats)} 拍`
-        : "请先在谱面上选择一个音符，或直接新增一个音符。";
-}
-
-function renderScoreCanvas() {
-    const score = state.currentScore;
-    els.scoreEmpty.hidden = Boolean(score);
-    els.scoreCanvas.hidden = !score;
-    els.scoreCanvas.innerHTML = "";
-    if (!score) {
-        return;
-    }
-
-    score.measures.forEach((measure) => {
-        const card = document.createElement("article");
-        card.className = "measure-card";
-
-        const header = document.createElement("div");
-        header.className = "measure-header";
-        header.innerHTML = `<span class="measure-index">第 ${measure.measure_no} 小节</span><span>${formatBeat(measure.used_beats)} / ${formatBeat(measure.total_beats)} 拍</span>`;
-
-        const board = document.createElement("div");
-        board.className = "measure-staff-board";
-        board.dataset.measureNo = measure.measure_no;
-        board.dataset.totalBeats = measure.total_beats;
-        board.addEventListener("click", handleScoreCanvasClick);
-
-        for (let index = 0; index < 5; index += 1) {
-            const rule = document.createElement("div");
-            rule.className = "staff-rule";
-            board.appendChild(rule);
-        }
-
-        const hint = document.createElement("div");
-        hint.className = "click-hint";
-        hint.textContent = "点击可预填音符";
-        board.appendChild(hint);
-
-        const bar = document.createElement("div");
-        bar.className = "measure-bar";
-        board.appendChild(bar);
-
-        (measure.notes || []).forEach((note) => board.appendChild(buildNoteElement(note, measure.total_beats)));
-
-        const labels = document.createElement("div");
-        labels.className = "score-note-labels";
-        (measure.notes || []).forEach((note) => {
-            const tag = document.createElement("span");
-            tag.className = "note-tag";
-            tag.textContent = `${note.pitch} · 第 ${formatBeat(note.start_beat)} 拍`;
-            labels.appendChild(tag);
-        });
-
-        card.append(header, board, labels);
-        els.scoreCanvas.appendChild(card);
-    });
-}
-
-function buildNoteElement(note, totalBeats) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "score-note";
-    button.dataset.noteId = note.note_id;
-    if (note.note_id === state.selectedNoteId) {
-        button.classList.add("selected");
-    }
-    button.style.left = `${noteLeftPosition(note, totalBeats)}%`;
-    button.style.top = note.is_rest ? `${BOTTOM_LINE_Y - 22}px` : `${noteTopPosition(note.pitch)}px`;
-    button.title = `${note.pitch}，第 ${formatBeat(note.start_beat)} 拍，时值 ${formatBeat(note.beats)} 拍`;
-    button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        state.selectedNoteId = note.note_id;
-        populateNoteInputsFromSelection();
-        renderAll();
-    });
-
-    if (note.is_rest) {
-        button.appendChild(buildRestElement(note));
-        return button;
-    }
-
-    const step = pitchToStaffStep(note.pitch);
-    const stemDirection = step >= 4 ? "down" : "up";
-    appendLedgerLines(button, step);
-
-    const head = document.createElement("span");
-    head.className = "score-note-head";
-    if (note.beats >= 2) {
-        head.classList.add("hollow");
-    }
-    button.appendChild(head);
-
-    if (note.beats < 4) {
-        const stem = document.createElement("span");
-        stem.className = `score-note-stem ${stemDirection}`;
-        button.appendChild(stem);
-    }
-
-    for (let flag = 0; flag < flagCountForBeats(note.beats); flag += 1) {
-        const tail = document.createElement("span");
-        tail.className = `score-note-tail ${stemDirection}`;
-        tail.style.top = `${stemDirection === "up" ? -6 + flag * 8 : 20 - flag * 8}px`;
-        button.appendChild(tail);
-    }
-    return button;
-}
-
-function appendLedgerLines(button, step) {
-    const steps = [];
-    for (let current = -2; current >= step; current -= 2) {
-        steps.push(current);
-    }
-    for (let current = 9; current <= step; current += 2) {
-        steps.push(current);
-    }
-    steps.forEach((ledgerStep) => {
-        const line = document.createElement("span");
-        line.style.position = "absolute";
-        line.style.left = "2px";
-        line.style.width = "20px";
-        line.style.height = "1px";
-        line.style.background = "var(--line-strong)";
-        line.style.top = `${BOTTOM_LINE_Y - ledgerStep * STEP_HEIGHT + 13}px`;
-        button.appendChild(line);
-    });
-}
-
-function buildRestElement(note) {
-    const variant = restVariantForBeats(note.beats);
-    const container = document.createElement("span");
-    container.className = "rest-symbol";
-
-    const body = document.createElement("span");
-    body.className = `rest-body ${variant}`;
-    container.appendChild(body);
-
-    if (variant === "eighth" || variant === "sixteenth") {
-        const hook = document.createElement("span");
-        hook.className = `rest-hook ${variant}`;
-        container.appendChild(hook);
-    }
-    if (variant === "sixteenth") {
-        const secondHook = document.createElement("span");
-        secondHook.className = "rest-hook sixteenth-two";
-        container.appendChild(secondHook);
-    }
-    return container;
-}
-
-function noteLeftPosition(note, totalBeats) {
-    const progress = ((Number(note.start_beat) - 1) + Number(note.beats) / 2) / Math.max(totalBeats, 1);
-    return 14 + Math.min(Math.max(progress, 0.04), 0.96) * 72;
-}
-
-function noteTopPosition(pitch) {
-    return BOTTOM_LINE_Y - pitchToStaffStep(pitch) * STEP_HEIGHT + 12;
-}
-
-function pitchToStaffStep(pitch) {
-    if (!pitch || pitch === "Rest") {
-        return 2;
-    }
-    const letterMatch = pitch.match(/^([A-G])/);
-    const octaveMatch = pitch.match(/(-?\d+)$/);
-    if (!letterMatch || !octaveMatch) {
-        return 2;
-    }
-    const letters = ["C", "D", "E", "F", "G", "A", "B"];
-    return Number(octaveMatch[1]) * 7 + letters.indexOf(letterMatch[1]) - (4 * 7 + 2);
-}
-
-function staffStepToPitch(step) {
-    const letters = ["C", "D", "E", "F", "G", "A", "B"];
-    const absoluteStep = step + (4 * 7 + 2);
-    const letterIndex = ((absoluteStep % 7) + 7) % 7;
-    return `${letters[letterIndex]}${Math.floor(absoluteStep / 7)}`;
-}
-
-function guessPitchFromBoardY(y) {
-    return staffStepToPitch(Math.round((BOTTOM_LINE_Y - y) / STEP_HEIGHT));
-}
-
-function flagCountForBeats(beats) {
-    if (beats <= 0.25) {
-        return 2;
-    }
-    if (beats <= 0.5) {
-        return 1;
-    }
-    return 0;
-}
-
-function restVariantForBeats(beats) {
-    if (beats >= 4) {
-        return "whole";
-    }
-    if (beats >= 2) {
-        return "half";
-    }
-    if (beats >= 1) {
-        return "quarter";
-    }
-    if (beats >= 0.5) {
-        return "eighth";
-    }
-    return "sixteenth";
-}
-
-function handleScoreCanvasClick(event) {
-    const board = event.currentTarget;
-    const rect = board.getBoundingClientRect();
-    const usableWidth = Math.max(rect.width - 24, 1);
-    const x = Math.min(Math.max(event.clientX - rect.left - 12, 0), usableWidth);
-    const totalBeats = Number(board.dataset.totalBeats) || 4;
-
-    els.noteMeasureInput.value = board.dataset.measureNo;
-    els.noteBeatInput.value = formatBeat(quantizeBeat(1 + (x / usableWidth) * Math.max(totalBeats - 1, 0)));
-    els.notePitchInput.value = guessPitchFromBoardY(event.clientY - rect.top);
-    state.selectedNoteId = null;
-    renderAll();
-}
-
 async function handleCreateExport() {
     if (!state.currentScore || isBusy("create-export")) {
         return;
@@ -1691,10 +2554,16 @@ async function handleCreateExport() {
     }
 }
 
-async function loadExportList(preferredId = null) {
+function queueExportRefresh(preferredId = null) {
+    void loadExportList(preferredId, { suppressStatusError: true, suppressDetailStatusError: true });
+}
+
+async function loadExportList(preferredId = null, options = {}) {
     if (!state.currentScore || isBusy("load-exports")) {
         return;
     }
+    const suppressStatusError = Boolean(options.suppressStatusError);
+    const suppressDetailStatusError = Boolean(options.suppressDetailStatusError);
     setBusy("load-exports", true);
     try {
         const listing = await requestJson(`/scores/${state.currentScore.score_id}/exports`);
@@ -1708,23 +2577,28 @@ async function loadExportList(preferredId = null) {
         state.selectedExportDetail = state.exportList.find((item) => item.export_record_id === nextId) || null;
         renderAll();
         if (nextId) {
-            await loadExportDetail(nextId);
+            await loadExportDetail(nextId, { suppressStatusError: suppressDetailStatusError });
         }
     } catch (error) {
         state.exportList = [];
         state.selectedExportRecordId = null;
         state.selectedExportDetail = null;
         renderAll();
-        setAppStatus(`导出历史加载失败：${error.message}`, true);
+        if (!suppressStatusError) {
+            setAppStatus(`导出历史加载失败：${error.message}`, true);
+        } else {
+            console.warn("[SeeMusic] export list refresh skipped status update:", error);
+        }
     } finally {
         setBusy("load-exports", false);
     }
 }
 
-async function loadExportDetail(exportRecordId) {
+async function loadExportDetail(exportRecordId, options = {}) {
     if (!state.currentScore || !exportRecordId) {
         return;
     }
+    const suppressStatusError = Boolean(options.suppressStatusError);
     try {
         state.selectedExportDetail = await requestJson(
             `/scores/${state.currentScore.score_id}/exports/${exportRecordId}`
@@ -1732,7 +2606,11 @@ async function loadExportDetail(exportRecordId) {
         state.selectedExportRecordId = exportRecordId;
         renderAll();
     } catch (error) {
-        setAppStatus(`导出详情加载失败：${error.message}`, true);
+        if (!suppressStatusError) {
+            setAppStatus(`导出详情加载失败：${error.message}`, true);
+        } else {
+            console.warn("[SeeMusic] export detail refresh skipped status update:", error);
+        }
     }
 }
 
@@ -1878,9 +2756,19 @@ async function handleDeleteSelectedExport() {
 
 function renderControlState() {
     const hasScore = Boolean(state.currentScore);
-    const hasSelectedNote = Boolean(getSelectedNoteContext());
     const hasExport = Boolean(state.selectedExportDetail);
     const hasAnalysisFile = Boolean(els.analysisFileInput.files?.length);
+    const hasScoreFile = Boolean(els.scoreMusicxmlFileInput.files?.length);
+    const scorePageCount = Math.max(state.viewerPageCount || 0, 0);
+    const canTurnPage = state.viewerTransition.phase === "idle";
+    const canGoPrevPage =
+        canTurnPage && state.scoreViewerOpen && hasScore && scorePageCount > 1 && (state.scorePageIndex || 0) > 0;
+    const canGoNextPage =
+        canTurnPage &&
+        state.scoreViewerOpen &&
+        hasScore &&
+        scorePageCount > 1 &&
+        (state.scorePageIndex || 0) < scorePageCount - 1;
 
     els.pingBackendBtn.disabled = isBusy("ping");
     els.createScoreBtn.disabled = isBusy("create-score");
@@ -1892,12 +2780,14 @@ function renderControlState() {
     els.applyScoreSettingsBtn.disabled = !hasScore || isBusy("score-settings");
     els.undoBtn.disabled = !hasScore || isBusy("undo-action");
     els.redoBtn.disabled = !hasScore || isBusy("redo-action");
-    els.pitchUpBtn.disabled = !hasSelectedNote || isBusy("transpose-up");
-    els.pitchDownBtn.disabled = !hasSelectedNote || isBusy("transpose-down");
-    els.deleteNoteBtn.disabled = !hasSelectedNote || isBusy("note-delete");
-    els.updateNoteBtn.disabled = !hasSelectedNote || isBusy("note-update");
-    els.addNoteBtn.disabled = !hasScore || isBusy("note-add");
-    els.refreshScoreViewBtn.disabled = !hasScore;
+    els.downloadMusicxmlBtn.disabled = !hasScore;
+    els.refreshScoreBtn.disabled = !hasScore || isBusy(`score-load-${state.currentScore?.score_id || state.selectedScoreId}`);
+    els.replaceScoreFromFileBtn.disabled = !hasScore || !hasScoreFile || isBusy("score-file-replace");
+    els.loadScoreFileIntoEditorBtn.disabled = !hasScoreFile;
+    els.openScoreViewerBtn.disabled = !hasScore;
+    els.closeScoreViewerBtn.disabled = !state.scoreViewerOpen;
+    els.scoreViewerPagePrevBtn.disabled = !canGoPrevPage;
+    els.scoreViewerPageNextBtn.disabled = !canGoNextPage;
     els.createExportBtn.disabled = !hasScore || isBusy("create-export");
     els.refreshExportsBtn.disabled = !hasScore || isBusy("load-exports");
     els.regenerateSelectedExportBtn.disabled = !hasExport || isBusy("regenerate-export");

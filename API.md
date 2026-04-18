@@ -192,7 +192,7 @@ Authorization: Bearer <token>
 
 ### 3.1 从音高序列生成乐谱
 
-**接口用途**：根据音高时间序列生成乐谱，同时创建 `project + sheet` 等持久化数据。
+**接口用途**：根据音高时间序列生成单声部 canonical MusicXML 乐谱，同时创建 `project + sheet` 等持久化数据。
 
 * `POST /api/v1/score/from-pitch-sequence`
 
@@ -230,59 +230,93 @@ Authorization: Bearer <token>
     "time_signature": "4/4",
     "key_signature": "C",
     "version": 1,
-    "measures": [
-      {
-        "measure_no": 1,
-        "notes": [
-          {
-            "pitch": "A4",
-            "duration": "quarter",
-            "start_beat": 1
-          }
-        ]
-      }
-    ]
+    "musicxml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<score-partwise version=\"4.0\">...</score-partwise>",
+    "summary": {
+      "measure_count": 1,
+      "page_hint": 1
+    }
   }
 }
 ```
 
 ---
 
-### 3.2 乐谱编辑与版本控制
+### 3.2 乐谱查询、整谱更新与版本控制
 
-**接口用途**：对既有乐谱进行增删改操作，并支持撤销 / 重做。
+**接口用途**：查询既有乐谱，或用一整份 MusicXML 替换当前乐谱，并支持按整份 MusicXML 快照执行撤销 / 重做。
 
+* `GET /api/v1/scores/{score_id}`
 * `PATCH /api/v1/scores/{score_id}`
 * `POST /api/v1/scores/{score_id}/undo`
 * `POST /api/v1/scores/{score_id}/redo`
 
-#### 请求示例
+> 破坏性变更：旧的 `operations[]`、`add_note` / `delete_note` / `update_note` / `update_tempo` / `update_key_signature` / `update_time_signature` 协议已移除。当前仅接受整份 `musicxml` 文本。
+
+#### `GET` 响应示例
 
 ```json
 {
-  "operations": [
-    {
-      "type": "add_note",
-      "measure_no": 1,
-      "beat": 2,
-      "note": {
-        "pitch": "E4",
-        "duration": "eighth"
-      }
-    },
-    {
-      "type": "update_time_signature",
-      "value": "3/4"
+  "code": 0,
+  "message": "success",
+  "data": {
+    "project_id": 12,
+    "score_id": "score_1001",
+    "title": "自动扒谱结果",
+    "tempo": 120,
+    "time_signature": "4/4",
+    "key_signature": "C",
+    "version": 1,
+    "musicxml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<score-partwise version=\"4.0\">...</score-partwise>",
+    "summary": {
+      "measure_count": 1,
+      "page_hint": 1
     }
-  ]
+  }
 }
 ```
+
+#### `PATCH` 请求示例
+
+```json
+{
+  "musicxml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<score-partwise version=\"4.0\">...</score-partwise>"
+}
+```
+
+#### `PATCH` 响应示例
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "project_id": 12,
+    "score_id": "score_1001",
+    "title": "自动扒谱结果",
+    "tempo": 72,
+    "time_signature": "4/4",
+    "key_signature": "C",
+    "version": 2,
+    "musicxml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<score-partwise version=\"4.0\">...</score-partwise>",
+    "summary": {
+      "measure_count": 1,
+      "page_hint": 1
+    }
+  }
+}
+```
+
+#### 说明
+
+* 服务端会先校验 XML 和 MusicXML 合法性；非法内容返回 `400`。
+* `undo/redo` 的粒度是整份 MusicXML 快照，而不是单音符 patch。
+* `PATCH` 成功后会生成新的 canonical score 响应，并推进 `version`。
 
 ---
 
 ### 3.3 乐谱导出
 
-**接口用途**：导出 `MIDI / PNG / PDF` 文件，并创建 `export_record` 记录。
+**接口用途**：基于 canonical MusicXML，通过 Verovio 导出 `MIDI / PNG / PDF / SVG` 文件，并创建 `export_record` 记录。
 
 * `POST /api/v1/scores/{score_id}/export`
 
@@ -290,7 +324,7 @@ Authorization: Bearer <token>
 
 ```json
 {
-  "format": "pdf",
+  "format": "svg",
   "page_size": "A4",
   "with_annotations": true
 }
@@ -306,21 +340,22 @@ Authorization: Bearer <token>
     "project_id": 12,
     "export_record_id": 8,
     "score_id": "score_1001",
-    "format": "pdf",
-    "file_name": "score_1001_export_8.pdf",
-    "download_url": "/storage/exports/score_1001_export_8.pdf",
+    "format": "svg",
+    "file_name": "score_1001_export_8.svg",
+    "download_url": "/storage/exports/score_1001_export_8.svg",
     "detail_url": "/api/v1/scores/score_1001/exports/8",
     "preview_url": "/api/v1/scores/score_1001/exports/8/preview",
     "download_api_url": "/api/v1/scores/score_1001/exports/8/download",
     "regenerate_url": "/api/v1/scores/score_1001/exports/8/regenerate",
     "delete_url": "/api/v1/scores/score_1001/exports/8",
-    "content_type": "application/pdf",
+    "content_type": "image/svg+xml",
     "exists": true,
-    "size_bytes": 40960,
+    "size_bytes": 16384,
     "manifest": {
-      "kind": "pdf",
+      "kind": "svg",
       "page_size": "A4",
-      "with_annotations": true
+      "with_annotations": true,
+      "page_count": 1
     }
   }
 }
@@ -376,7 +411,7 @@ Authorization: Bearer <token>
 #### 说明
 
 * `download` 接口返回附件下载响应，包含 `Content-Disposition: attachment`
-* `preview` 对 `pdf/png/jpg/webp/gif/text` 等可预览类型返回内联展示内容
+* `preview` 对 `pdf/png/svg/jpg/webp/gif/text` 等可预览类型返回内联展示内容
 
 ---
 

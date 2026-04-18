@@ -207,6 +207,8 @@ class TestMySQLScoreService:
             assert sheet.time_sign == "3/4"
             assert isinstance(sheet.note_data, dict)
             assert sheet.note_data["title"] == "MySQL Integration Score"
+            assert isinstance(sheet.musicxml, str)
+            assert sheet.musicxml.startswith("<?xml")
 
 
 class TestMySQLDomainPersistence:
@@ -282,6 +284,14 @@ class TestMySQLDomainPersistence:
                 project_id=int(project.id),
                 score_id="score_mysql_001",
                 note_data={"score_id": "score_mysql_001", "tempo": 120, "key_signature": "C", "time_signature": "4/4"},
+                musicxml=(
+                    "<?xml version='1.0' encoding='utf-8'?>"
+                    "<score-partwise version='4.0'>"
+                    "<part-list><score-part id='P1'><part-name>Music</part-name></score-part></part-list>"
+                    "<part id='P1'><measure number='1'><attributes><divisions>8</divisions><key><fifths>0</fifths></key>"
+                    "<time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>"
+                    "<note><rest/><duration>8</duration><voice>1</voice><type>quarter</type></note></measure></part></score-partwise>"
+                ),
                 bpm=120,
                 key_sign="C",
                 time_sign="4/4",

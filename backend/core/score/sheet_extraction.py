@@ -6,18 +6,14 @@ from typing import Any, Dict, List
 from uuid import uuid4
 
 from backend.core.pitch.pitch_sequence_utils import is_note_event_item
-from backend.core.score.note_mapping import (
-    beats_per_measure,
-    beats_to_duration_label,
-    beats_to_seconds,
-    frequency_to_note,
-    quantize_beats,
-    seconds_to_beats,
-)
+from backend.core.score.musicxml_utils import build_musicxml_from_measures
+from backend.core.score.note_mapping import beats_per_measure, beats_to_duration_label, beats_to_seconds, frequency_to_note, quantize_beats, seconds_to_beats
 from backend.core.score.score_utils import create_score
 
 GAP_TOLERANCE_SECONDS = 0.05
 MERGE_TOLERANCE_SECONDS = 0.05
+SMALL_SAME_PITCH_GAP_BEATS = 0.25
+MIN_REST_BEATS_TO_KEEP = 0.5
 
 
 def _normalize_pitch_items(pitch_sequence: List[Dict[str, Any]], tempo: int) -> List[Dict[str, Any]]:
@@ -140,6 +136,106 @@ def _empty_measure(measure_no: int, total_beats: float) -> Dict[str, Any]:
     }
 
 
+def _merge_consecutive_rests(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    merged: List[Dict[str, Any]] = []
+    for event in events:
+        item = dict(event)
+        if merged and item["is_rest"] and merged[-1]["is_rest"]:
+            merged[-1]["duration_seconds"] = round(
+                float(merged[-1]["duration_seconds"]) + float(item["duration_seconds"]),
+                3,
+            )
+            continue
+        merged.append(item)
+    return merged
+
+
+def _rebuild_event_timings(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    cursor = 0.0
+    rebuilt: List[Dict[str, Any]] = []
+    for event in events:
+        item = dict(event)
+        duration = round(max(float(item.get("duration_seconds") or 0.0), 0.0), 3)
+        item["start_time"] = round(cursor, 3)
+        item["duration_seconds"] = duration
+        cursor = round(cursor + duration, 3)
+        item["end_time"] = cursor
+        rebuilt.append(item)
+    return rebuilt
+
+
+def _merge_adjacent_same_pitch(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    merged: List[Dict[str, Any]] = []
+    for event in events:
+        item = dict(event)
+        if (
+            merged
+            and not item["is_rest"]
+            and not merged[-1]["is_rest"]
+            and merged[-1]["pitch"] == item["pitch"]
+        ):
+            merged[-1]["duration_seconds"] = round(
+                float(merged[-1]["duration_seconds"]) + float(item["duration_seconds"]),
+                3,
+            )
+            continue
+        merged.append(item)
+    return merged
+
+
+def _simplify_events_for_readability(events: List[Dict[str, Any]], tempo: int) -> List[Dict[str, Any]]:
+    if not events:
+        return []
+
+    merge_gap_seconds = beats_to_seconds(SMALL_SAME_PITCH_GAP_BEATS, tempo)
+    min_rest_seconds = beats_to_seconds(MIN_REST_BEATS_TO_KEEP, tempo)
+    working = _merge_consecutive_rests(events)
+    simplified: List[Dict[str, Any]] = []
+    index = 0
+
+    while index < len(working):
+        current = dict(working[index])
+        if current["is_rest"]:
+            duration = float(current["duration_seconds"])
+            if duration < min_rest_seconds:
+                if simplified and not simplified[-1]["is_rest"]:
+                    simplified[-1]["duration_seconds"] = round(
+                        float(simplified[-1]["duration_seconds"]) + duration,
+                        3,
+                    )
+                elif index + 1 < len(working) and not working[index + 1]["is_rest"]:
+                    working[index + 1]["duration_seconds"] = round(
+                        float(working[index + 1]["duration_seconds"]) + duration,
+                        3,
+                    )
+                else:
+                    simplified.append(current)
+            else:
+                simplified.append(current)
+            index += 1
+            continue
+
+        while (
+            index + 2 < len(working)
+            and working[index + 1]["is_rest"]
+            and float(working[index + 1]["duration_seconds"]) <= merge_gap_seconds
+            and not working[index + 2]["is_rest"]
+            and working[index + 2]["pitch"] == current["pitch"]
+        ):
+            current["duration_seconds"] = round(
+                float(current["duration_seconds"])
+                + float(working[index + 1]["duration_seconds"])
+                + float(working[index + 2]["duration_seconds"]),
+                3,
+            )
+            index += 2
+
+        simplified.append(current)
+        index += 1
+
+    return _rebuild_event_timings(_merge_adjacent_same_pitch(_merge_consecutive_rests(simplified)))
+
+
 def _materialize_measures(events: List[Dict[str, Any]], tempo: int, time_signature: str) -> List[Dict[str, Any]]:
     total_beats = beats_per_measure(time_signature)
     measures = [_empty_measure(1, total_beats)]
@@ -197,7 +293,19 @@ def build_score_from_pitch_sequence(
     tempo: int = 120,
     time_signature: str = "4/4",
     key_signature: str = "C",
+    title: str | None = None,
 ) -> Dict[str, Any]:
     events = _normalize_pitch_items(pitch_sequence, tempo)
+    events = _simplify_events_for_readability(events, tempo)
     measures = _materialize_measures(events, tempo, time_signature) if events else [_empty_measure(1, beats_per_measure(time_signature))]
-    return create_score(measures, tempo=tempo, time_signature=time_signature, key_signature=key_signature)
+    musicxml = build_musicxml_from_measures(
+        measures,
+        tempo=tempo,
+        time_signature=time_signature,
+        key_signature=key_signature,
+        title=title,
+    )
+    return create_score(
+        musicxml=musicxml,
+        title=title,
+    )

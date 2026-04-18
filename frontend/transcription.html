@@ -3,9 +3,12 @@
 <head>
     <meta charset="utf-8"/>
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <meta content="no-store, max-age=0" http-equiv="Cache-Control"/>
+    <meta content="no-cache" http-equiv="Pragma"/>
+    <meta content="0" http-equiv="Expires"/>
     <title>智能识谱 - SeeMusic</title>
     <script src="https://modao.cc/agent-py/static/source/js/iconify-icon.min.1.0.7.js"></script>
-    <link href="transcription.css" rel="stylesheet"/>
+    <link href="transcription.css?v=20260417-score-viewer-v4" rel="stylesheet"/>
 </head>
 <body>
     <div class="page-shell">
@@ -202,12 +205,11 @@
                         </div>
                     </div>
                     <div class="toolbar">
-                        <button class="tool-button" id="apply-score-settings-btn" type="button">同步速度 / 拍号 / 调号</button>
+                        <button class="tool-button" id="apply-score-settings-btn" type="button">保存当前 MusicXML</button>
                         <button class="tool-button" id="undo-btn" type="button">撤销</button>
                         <button class="tool-button" id="redo-btn" type="button">重做</button>
-                        <button class="tool-button" id="pitch-up-btn" type="button">升高半音</button>
-                        <button class="tool-button" id="pitch-down-btn" type="button">降低半音</button>
-                        <button class="tool-button danger" id="delete-note-btn" type="button">删除音符</button>
+                        <button class="tool-button" id="download-musicxml-btn" type="button">下载 MusicXML</button>
+                        <button class="tool-button" id="refresh-score-btn" type="button">重新加载乐谱</button>
                     </div>
                 </div>
 
@@ -215,35 +217,20 @@
                     <div class="panel note-panel">
                         <div class="panel-header compact">
                             <div>
-                                <p class="eyebrow">编辑音符</p>
-                                <h2>当前音符</h2>
+                                <p class="eyebrow">MusicXML 真源</p>
+                                <h2>上传、替换与编辑</h2>
                             </div>
-                            <button class="ghost-button" id="clear-note-selection-btn" type="button">清除选中</button>
                         </div>
-                        <p class="helper-text" id="selected-note-summary">请先在谱面中选择一个音符，或直接新增音符。</p>
-                        <div class="note-form-grid">
-                            <label>
-                                <span class="field-label">小节</span>
-                                <input id="note-measure-input" min="1" step="1" type="number"/>
-                            </label>
-                            <label>
-                                <span class="field-label">拍点</span>
-                                <input id="note-beat-input" min="1" step="0.25" type="number"/>
-                            </label>
-                            <label>
-                                <span class="field-label">音高</span>
-                                <input id="note-pitch-input" placeholder="例如 C4，休止符可写 Rest" type="text"/>
-                            </label>
-                            <label>
-                                <span class="field-label">时值</span>
-                                <input id="note-beats-input" min="0.25" step="0.25" type="number"/>
-                            </label>
-                        </div>
+                        <p class="helper-text" id="selected-note-summary">当前谱面以 MusicXML 为唯一真源。点击谱面中的音符可高亮查看；如需修改，请直接编辑下方 MusicXML 或上传新的 `.musicxml/.xml` 文件整体替换。</p>
+                        <label class="field-label" for="score-musicxml-file-input">上传 MusicXML 文件</label>
+                        <input accept=".musicxml,.xml,text/xml,application/xml" id="score-musicxml-file-input" type="file"/>
                         <div class="button-row">
-                            <button class="secondary-button" id="add-note-btn" type="button">新增音符</button>
-                            <button class="primary-button" id="update-note-btn" type="button">更新选中音符</button>
+                            <button class="secondary-button" id="replace-score-from-file-btn" type="button">用文件替换当前乐谱</button>
+                            <button class="secondary-button" id="load-score-file-into-editor-btn" type="button">载入到编辑区</button>
                         </div>
-                        <p class="helper-text">点击谱面中的某个小节可以自动带入小节与拍点，再结合音高与时值完成编辑。</p>
+                        <label class="field-label" for="score-musicxml-input" style="margin-top:14px">当前 MusicXML 文本</label>
+                        <textarea id="score-musicxml-input" rows="18" spellcheck="false"></textarea>
+                        <p class="helper-text">提示：这里展示的是当前乐谱的完整 MusicXML。保存时会先做 XML 与 MusicXML 校验，校验通过后才会替换后端真源并触发 Verovio 重新渲染。</p>
                     </div>
 
                     <div class="panel note-panel">
@@ -271,7 +258,7 @@
                                 <strong class="stat-value" id="measure-count-display">--</strong>
                             </div>
                         </div>
-                        <p class="helper-text">左侧的速度、拍号和调号既能用于创建乐谱，也能用于当前乐谱的实时更新。</p>
+                        <p class="helper-text">左侧速度、拍号、调号只用于新建乐谱。当前乐谱的元信息会从 MusicXML 自动解析并展示在这里。</p>
                     </div>
                 </div>
 
@@ -279,15 +266,15 @@
                     <div class="panel-header">
                         <div>
                             <p class="eyebrow">识谱结果</p>
-                            <h2>交互谱面</h2>
+                            <h2>Verovio 谱面预览</h2>
                         </div>
-                        <button class="ghost-button" id="refresh-score-view-btn" type="button">刷新视图</button>
+                        <button class="primary-button" id="open-score-viewer-btn" type="button">打开乐谱查看器</button>
                     </div>
                     <div class="score-empty" id="score-empty">
                         <h3>当前还没有关联乐谱</h3>
-                        <p>请先生成一份乐谱，随后就可以直接在谱面中编辑音符并实时保存。</p>
+                        <p>请先生成一份乐谱。生成完成后，这里会出现由 Verovio 渲染的轻量预览，并可进入纸质乐谱风格查看器查看完整分页谱面。</p>
                     </div>
-                    <div class="score-canvas" id="score-canvas"></div>
+                    <div class="score-entry-card" hidden id="score-viewer-entry"></div>
                 </div>
 
                 <div class="panel score-panel">
@@ -417,12 +404,45 @@
             </aside>
         </main>
 
+        <div class="score-viewer-overlay" hidden id="score-viewer-overlay">
+            <div class="score-viewer-shell">
+                <header class="score-viewer-topbar">
+                    <div class="score-viewer-heading">
+                        <button class="ghost-button" id="close-score-viewer-btn" type="button">返回编辑器</button>
+                        <div>
+                            <p class="eyebrow">乐谱查看器</p>
+                            <h2 id="score-viewer-score-title">未加载乐谱</h2>
+                            <p class="helper-text" id="score-viewer-score-subtitle">请先在工作台生成乐谱，然后在这里以纸质乐谱风格查看 A4 分页谱面。支持左右滑动翻页，点击音符可以高亮定位当前符号。</p>
+                        </div>
+                    </div>
+                    <div class="score-viewer-toolbar">
+                        <button aria-label="上一页" class="ghost-button" id="score-viewer-page-prev-btn" type="button">‹</button>
+                        <div class="score-page-meta">
+                            <span class="count-pill" id="score-viewer-page-status">第 1 / 1 页</span>
+                            <span class="count-pill" id="score-viewer-page-range">小节 1-1</span>
+                        </div>
+                        <button aria-label="下一页" class="ghost-button" id="score-viewer-page-next-btn" type="button">›</button>
+                    </div>
+                </header>
+
+                <div class="score-viewer-stage" id="score-viewer-stage" tabindex="0">
+                    <div class="score-empty" id="score-viewer-empty">
+                        <h3>暂无乐谱</h3>
+                        <p>请先在工作台生成乐谱，然后再到这里查看纸质乐谱风格的分页谱面。</p>
+                    </div>
+                    <div class="score-canvas score-viewer-canvas" id="score-viewer-canvas"></div>
+                </div>
+            </div>
+        </div>
+
         <footer class="statusbar">
             <span id="app-status">已就绪。先生成乐谱或上传音频，后续的编辑、分析与导出都会围绕当前内容继续进行。</span>
         </footer>
     </div>
 
-    <script src="app_common.js"></script>
-    <script src="transcription.js"></script>
+    <script src="app_common.js?v=20260417-score-viewer-v4"></script>
+    <script src="vendor/verovio/verovio-toolkit-wasm.js?v=20260417-score-viewer-v4"></script>
+    <script src="score_viewer_layout.js?v=20260417-score-viewer-v4"></script>
+    <script src="transcription.js?v=20260417-score-viewer-v4"></script>
 </body>
 </html>

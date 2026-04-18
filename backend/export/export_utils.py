@@ -9,7 +9,11 @@ from typing import Any
 import re
 import xml.etree.ElementTree as ET
 
-import cairosvg
+try:
+    import cairosvg
+except (ImportError, OSError):
+    cairosvg = None
+    print("Warning: cairosvg not found or DLL missing. PDF/SVG export will not work.")
 from PIL import Image
 import verovio
 
@@ -130,6 +134,8 @@ def _svg_dimensions(svg_markup: str) -> tuple[int, int]:
 
 
 def _render_png_pages(score: dict[str, Any], page_size: str) -> list[Image.Image]:
+    if cairosvg is None:
+        raise RuntimeError("cairosvg is not available. Please install it and its system dependencies (like Cairo) to export as PNG/PDF.")
     images: list[Image.Image] = []
     for svg_markup in _render_svg_pages(score, page_size):
         png_bytes = cairosvg.svg2png(bytestring=svg_markup.encode("utf-8"))

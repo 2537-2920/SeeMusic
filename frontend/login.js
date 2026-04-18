@@ -64,61 +64,63 @@ function initMode() {
     }
 }
 
-async function handleSubmit(event) {
-    event.preventDefault();
-    const submitBtn = document.getElementById("submit-btn");
-    const submitText = document.getElementById("submit-text");
-    const username = document.getElementById("username-input").value.trim();
-    const password = document.getElementById("password-input").value;
-    const email = document.getElementById("email-input").value.trim();
-    const confirmPassword = document.getElementById("confirm-password-input").value;
-    const originalText = isLoginMode ? "立即登录" : "注册账号";
+document.getElementById('auth-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const submitBtn = document.getElementById('submit-btn');
+    const submitText = document.getElementById('submit-text');
+    
+    // 【关键修改】在修改按钮文字之前，先记录当前的模式
+    // 我们假设你的按钮里有一个能区分登录/注册的状态，或者通过是否存在 confirm-password 输入框来判断
+    const confirmInput = document.getElementById('confirm-password');
+    const isLogin = !confirmInput || confirmInput.offsetParent === null; // 如果没有确认密码框，或者框被隐藏了，就是登录模式
+    
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value.trim();
+    const confirmPassword = confirmInput ? confirmInput.value.trim() : "";
 
-    if (!username || !password) {
-        setStatus("用户名和密码不能为空。", true);
-        return;
-    }
-    if (!isLoginMode && password !== confirmPassword) {
-        setStatus("两次输入的密码不一致。", true);
-        return;
-    }
-
-    submitText.innerText = isLoginMode ? "登录中..." : "注册中...";
-    submitBtn.style.opacity = "0.7";
+    submitText.innerText = '验证中...';
     submitBtn.disabled = true;
-    setStatus("");
 
     try {
-        clearAuthSession();
-        if (isLoginMode) {
-            const loginResult = await requestJson("/auth/login", {
+        let response;
+        if (isLogin) {
+            // ✅ 登录逻辑
+            response = await fetch("http://127.0.0.1:8000/api/v1/auth/login", {
                 method: "POST",
-                body: { username, password },
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username, password })
             });
-            setAuthSession(loginResult);
-            window.location.href = "index.html";
-            return;
+        } else {
+            // ✅ 注册逻辑
+            if (password !== confirmPassword) {
+                alert("两次密码不一致！");
+                // 恢复按钮状态，否则用户无法再次点击
+                submitText.innerText = '注册账号'; 
+                submitBtn.disabled = false;
+                return;
+            }
+            response = await fetch("http://127.0.0.1:8000/api/v1/auth/register", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username, password })
+            });
         }
 
-        await requestJson("/auth/register", {
-            method: "POST",
-            body: { username, password, email: email || null },
-        });
-        const loginResult = await requestJson("/auth/login", {
-            method: "POST",
-            body: { username, password },
-        });
-        setAuthSession(loginResult);
-        window.location.href = "index.html";
+        if (response.ok) {
+            alert(isLogin ? "登录成功！" : "注册成功！");
+            localStorage.setItem('seeMusic_isLoggedIn', 'true');
+            window.location.href = 'index.html';
+        } else {
+            alert("验证失败，请检查账号密码！");
+        }
     } catch (error) {
-        setStatus(error.message || "请求失败，请稍后重试。", true);
+        alert("后端服务未启动或接口报错！");
     } finally {
-        submitText.innerText = originalText;
-        submitBtn.style.opacity = "1";
+        submitText.innerText = isLogin ? '立即登录' : '注册账号';
         submitBtn.disabled = false;
     }
-}
-
+});
 function createDecorations() {
     const container = document.getElementById("decoration-container");
     const notes = ["solar:music-note-bold", "solar:music-note-2-bold", "solar:music-note-3-bold", "solar:music-notes-bold"];

@@ -13,6 +13,8 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
+from fastapi import Response
+from urllib.parse import quote
 
 from backend.api.schemas import (
     AnalyzeRhythmRequest,
@@ -935,6 +937,17 @@ def download_community_score(score_id: str):
         }
     )
 
+    pdf_bytes, filename = get_score_pdf_content(score_id)
+    
+    encoded_filename = quote(filename)
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+         headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
+        }
+    )
 
 
 @router.post("/community/scores/{score_id}/like")
@@ -1162,3 +1175,17 @@ def update_user_preferences(payload: PreferencesUpdateRequest, current_user: Dic
 @router.post("/reports/export")
 def reports_export(payload: ReportExportRequest):
     return ok(export_report(payload.model_dump()))
+
+@router.post("/users/avatar")
+async def update_avatar(
+    file: UploadFile = File(...),
+    authorization: str = Header(...)
+):
+    token = authorization.removeprefix("Bearer ").strip()
+    user_info = get_user_by_token(token) 
+    
+    content = await file.read()
+    
+    avatar_url = save_user_avatar(user_info["user_id"], content, file.filename)
+    
+    return {"code": 0, "message": "success", "data": {"avatar_url": avatar_url}}

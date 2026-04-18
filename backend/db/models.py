@@ -343,7 +343,6 @@ class UserHistory(Base):
     metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict, nullable=False)
     create_time: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)
 
-
 class UserToken(Base):
     __tablename__ = "user_token"
 

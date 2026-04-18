@@ -119,6 +119,10 @@
              return await response.blob();
          }
 
+        if (isBlob) {
+            return await response.blob(); 
+        }
+
         if (payload && Object.prototype.hasOwnProperty.call(payload, "code")) {
             if (payload.code !== 0) {
                 throw new Error(payload.message || "Request failed");

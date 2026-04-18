@@ -363,7 +363,7 @@ def _serialize_db_comment(session: Any, row: Any) -> dict[str, Any]:
     payload = {
         "comment_id": str(row.comment_id),
         "username": str(row.username),
-        "nickname": user.nickname if user and user.nickname else comment.username,
+        "nickname": user.nickname if user and user.nickname else user.username,
         "avatar_url": row.avatar_url,
         "content": str(row.content),
         "created_at": _to_community_iso(row.create_time),

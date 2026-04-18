@@ -686,6 +686,7 @@ async function handleDownload() {
              downloads: scoreData.downloads,
             download_count_display: scoreData.download_count_display
         });
+
         renderGrid();
         renderDetail();
         setStatus(`已记录下载：${scoreData.source_file_name || score.title}。当前下载 ${scoreData.downloads} 次。`);
@@ -766,6 +767,7 @@ async function handleUploadSubmit() {
 
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("file_content_base64", base64File); 
     formData.append("title", title);
     formData.append("style", style);
     formData.append("instrument", instrument);

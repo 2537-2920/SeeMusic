@@ -3,12 +3,17 @@ const {
     getCurrentUser,
     clearAuthSession,
     avatarUrl,
+    buildServerUrl,
+    buildApiUrl,
+    STORAGE_KEYS,
 } = window.SeeMusicApp;
 
 const profileState = {
     historyItems: [],
     visibleCount: 6, 
-    currentFilter: "all"
+    currentFilter: "all",
+    searchQuery: "",
+    tempAvatarUrl: null // 暂存新上传但未点击“保存修改”的头像 URL
 };
 
 function applyPreferencesToUI(prefs) {
@@ -98,9 +103,11 @@ function renderUser(user) {
     
     // 头像渲染逻辑：如果有自定义头像则用自定义的，否则用生成的
     const avatarImg = document.getElementById("profile-avatar");
-    if (currentUser && currentUser.avatar) {
-        // 如果是相对路径，补全基础路径
-        avatarImg.src = currentUser.avatar.startsWith("http") ? currentUser.avatar : `/api${currentUser.avatar}`;
+    if (currentUser && currentUser.avatar && currentUser.avatar.length > 5) {
+        // 使用公用工具补全服务器地址，并添加时间戳防止缓存
+        const timestamp = new Date().getTime();
+        const fullUrl = buildServerUrl(currentUser.avatar);
+        avatarImg.src = `${fullUrl}${fullUrl.includes("?") ? "&" : "?"}t=${timestamp}`;
     } else {
         avatarImg.src = avatarUrl(currentUser && currentUser.username ? currentUser.username : "SeeMusic");
     }
@@ -143,13 +150,47 @@ function renderStats(items) {
 function renderHistory(items, filter = "all") {
     const list = document.getElementById("history-list");
     profileState.currentFilter = filter;
-    
-    const filtered = filter === "all" ? items : items.filter(i => {
-        if (filter === "audio") return i.history_type === "audio";
-        if (filter === "transcription") return i.history_type === "transcription";
-        if (filter === "community") return i.history_type === "community";
+    const filtered = items.filter(i => {
+        const type = (i.history_type || "").toLowerCase();
+        
+        // 1. 类型过滤 (更宽松的匹配)
+        let typeMatch = true;
+        if (filter === "transcription") {
+            // 兼容多种可能出现的识谱类型名称
+            typeMatch = (type === "transcription" || type === "audio" || type === "report");
+        } else if (filter === "evaluation") {
+            typeMatch = (type === "evaluation" || type === "score");
+        } else if (filter === "community") {
+            typeMatch = (type === "community");
+        }
+        
+        if (!typeMatch) return false;
+
+        // 2. 关键词筛选 (Search)
+        if (profileState.searchQuery) {
+            const q = profileState.searchQuery.toLowerCase();
+            const title = (i.info?.title || "").toLowerCase();
+            const filename = (i.info?.filename || "").toLowerCase();
+            const label = (i.info?.label || "").toLowerCase();
+            // 只要其中任何一个字段包含搜素词就保留
+            return title.includes(q) || filename.includes(q) || label.includes(q);
+        }
+
         return true;
     });
+
+    // --- 搜索状态条交互控制 ---
+    const searchStatus = document.getElementById("search-status-bar");
+    const searchCountText = document.getElementById("search-count-text");
+    
+    if (searchStatus && searchCountText) {
+        if (profileState.searchQuery) {
+            searchStatus.classList.remove("hidden");
+            searchCountText.textContent = `为您找到了 ${filtered.length} 条关于 "${profileState.searchQuery}" 的记录`;
+        } else {
+            searchStatus.classList.add("hidden");
+        }
+    }
 
     const displayItems = filtered.slice(0, profileState.visibleCount);
 
@@ -167,14 +208,21 @@ function renderHistory(items, filter = "all") {
         let icon = "solar:music-note-bold-duotone";
         let moduleName = "音频分析";
         let typeClass = "type-audio";
-        let metaInfo = "AI 识别结果";
+        let metaInfo = item.info?.duration || "AI 识别结果";
 
-        if (item.history_type === "transcription") {
-            icon = "solar:microphone-large-bold-duotone";
-            moduleName = "音乐评估";
+        const type = (item.history_type || "").toLowerCase();
+
+        if (type === "transcription" || type === "audio") {
+            icon = "solar:notes-bold-duotone";
+            moduleName = "识谱分析";
             typeClass = "type-transcription";
-            metaInfo = `等级: ${item.info?.grade || "N/A"}`;
-        } else if (item.history_type === "community") {
+            metaInfo = item.info?.label || "乐谱提取";
+        } else if (type === "evaluation") {
+            icon = "solar:microphone-large-bold-duotone";
+            moduleName = "唱歌测评";
+            typeClass = "type-evaluation"; 
+            metaInfo = `评分: ${item.info?.score || item.info?.overall_score || "进行中"}`;
+        } else if (type === "community") {
             icon = "solar:globus-bold-duotone";
             moduleName = "社区贡献";
             typeClass = "type-community";
@@ -307,7 +355,7 @@ async function loadProfile() {
         
         document.getElementById("profile-last-update").textContent = items[0] && items[0].created_at ? formatDate(items[0].created_at) : formatDate(new Date());
         document.getElementById("session-action-text").textContent = "退出本地登录";
-        setStatus(`已从后端同步个人中心数据，共 ${items.length} 条历史记录。`);
+        // 移除原有的同步成功提示
     } catch (error) {
         profileState.historyItems = [];
         setStatus(error.message || "加载个人中心失败，请检查登录状态或后端服务。", true);
@@ -394,14 +442,16 @@ function setupEditProfileModal() {
                 // 2. 立即上传后端
                 try {
                     setStatus("正在上传头像...");
+                    if (avatarTrigger) avatarTrigger.classList.add("opacity-50", "pointer-events-none");
+                    
                     const formData = new FormData();
                     formData.append("file", file);
 
                     // 获取 Token
                     const user = getCurrentUser();
-                    const token = localStorage.getItem("auth_token");
+                    const token = localStorage.getItem(STORAGE_KEYS.authToken);
 
-                    const response = await fetch("/api/v1/users/me/avatar", {
+                    const response = await fetch(buildApiUrl("/users/me/avatar"), {
                         method: "POST",
                         headers: { "Authorization": `Bearer ${token}` },
                         body: formData
@@ -409,14 +459,25 @@ function setupEditProfileModal() {
                     
                     const result = await response.json();
                     if (result.code === 0) {
-                        setStatus("头像上传成功！保存修改后生效。");
-                        // 暂存在预览状态中，供最后 submit 时同步
-                        profileState.tempAvatarUrl = result.data.avatar_url;
+                        const newAvatarUrl = result.data.avatar_url;
+                        setStatus("头像上传并保存成功！");
+                        profileState.tempAvatarUrl = newAvatarUrl;
+                        
+                        // 预先刷新侧边栏和弹窗预览，给用户最直接的反馈
+                        const timestamp = new Date().getTime();
+                        const fullUrl = buildServerUrl(newAvatarUrl);
+                        const finalUrl = `${fullUrl}${fullUrl.includes("?") ? "&" : "?"}t=${timestamp}`;
+                        
+                        if (avatarPreview) avatarPreview.src = finalUrl;
+                        const sidebarAvatar = document.getElementById("profile-avatar");
+                        if (sidebarAvatar) sidebarAvatar.src = finalUrl;
                     } else {
                         throw new Error(result.message);
                     }
                 } catch (error) {
                     setStatus("头像上传失败: " + error.message, true);
+                } finally {
+                    if (avatarTrigger) avatarTrigger.classList.remove("opacity-50", "pointer-events-none");
                 }
             }
         });
@@ -482,6 +543,11 @@ function setupEditProfileModal() {
             music_taste: selectedTastes
         };
 
+        // 如果在弹窗期间上传了新头像，一并同步给后端
+        if (profileState.tempAvatarUrl) {
+            payload.avatar = profileState.tempAvatarUrl;
+        }
+
         try {
             setStatus("正在同步至数据库...");
             const updatedUser = await requestJson("/users/me", {
@@ -489,9 +555,15 @@ function setupEditProfileModal() {
                 body: payload
             });
             
-            // 重要：由于 getCurrentUser() 是从 Token 中解析的或从内存拿的，这里更新后可能需要刷新页面或手动更新全局状态
-            // 在这个项目中，我们直接重新渲染 UI
+            // 更新成功后，同步本地登录态缓存（使用公共定义的键名）
+            const currentUser = getCurrentUser();
+            if (currentUser) {
+                const newUserData = { ...currentUser, ...updatedUser };
+                localStorage.setItem(STORAGE_KEYS.currentUser, JSON.stringify(newUserData));
+            }
+
             renderUser(updatedUser);
+            profileState.tempAvatarUrl = null; // 清空暂存
             setStatus("个人资料已成功持久化至数据库。");
             closeModal();
         } catch (error) {
@@ -503,6 +575,7 @@ function setupEditProfileModal() {
 function bindEvents() {
     setupEditProfileModal();
     setupHistoryFilters();
+    setupSearch();
     document.getElementById("refresh-profile-btn").addEventListener("click", () => {
         loadProfile();
     });
@@ -544,3 +617,48 @@ window.addEventListener("load", () => {
     loadProfile();
     loadPreferences();
 });
+function setupSearch() {
+    const searchInput = document.getElementById("history-search-input");
+    const clearBtn = document.getElementById("clear-search-btn");
+    const exitBtn = document.getElementById("exit-search-btn");
+    
+    if (!searchInput || !clearBtn) return;
+
+    const searchContainer = searchInput.closest(".group");
+
+    const resetSearch = () => {
+        searchInput.value = "";
+        profileState.searchQuery = "";
+        clearBtn.classList.add("opacity-0", "pointer-events-none");
+        if (searchContainer) searchContainer.classList.remove("search-active");
+        profileState.visibleCount = 6;
+        renderHistory(profileState.historyItems, profileState.currentFilter);
+    };
+
+    searchInput.addEventListener("input", (e) => {
+        const value = e.target.value.trim();
+        profileState.searchQuery = value;
+        
+        // 视觉反馈：变换清空按钮和图标状态
+        if (value) {
+            clearBtn.classList.remove("opacity-0", "pointer-events-none");
+            if (searchContainer) searchContainer.classList.add("search-active");
+        } else {
+            clearBtn.classList.add("opacity-0", "pointer-events-none");
+            if (searchContainer) searchContainer.classList.remove("search-active");
+        }
+
+        // 实时筛选
+        profileState.visibleCount = 6;
+        renderHistory(profileState.historyItems, profileState.currentFilter);
+    });
+
+    clearBtn.addEventListener("click", () => {
+        resetSearch();
+        searchInput.focus();
+    });
+
+    if (exitBtn) {
+        exitBtn.addEventListener("click", resetSearch);
+    }
+}

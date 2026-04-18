@@ -30,15 +30,10 @@ async def lifespan(_: FastAPI):
         init_database()
         factory = get_session_factory()
         user_system.set_db_session_factory(factory)
-        user_system.USE_DB = True
         history_manager.set_db_session_factory(factory)
-        history_manager.USE_DB = True
         community_service.set_db_session_factory(factory)
-        community_service.USE_DB = True
         analysis_service.set_db_session_factory(factory)
-        analysis_service.USE_DB = True
         report_service.set_db_session_factory(factory)
-        report_service.USE_DB = True
         logger.info(
             "Database connected – user/history/community/analysis/report modules running in DB mode"
         )

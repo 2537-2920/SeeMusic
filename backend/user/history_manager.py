@@ -101,29 +101,57 @@ def _list_history_db(user_id: str) -> dict:
         db_user_id = _parse_db_user_id(user_id)
         all_items = []
         
-        # 1. 聚合 Project 表 (音频转谱)
+        # 1. 聚合 Project 表 (归类为“识谱/转谱”)
         projects = session.query(Project).filter_by(user_id=db_user_id).all()
         for p in projects:
             all_items.append({
                 "history_id": f"p_{p.id}",
-                "history_type": "audio",
+                "history_type": "transcription",  # 统一为识谱类型
                 "info": {
                     "title": p.title or "音频转谱项目",
-                    "duration": f"{p.duration:.1f}s" if p.duration else "未知"
+                    "duration": f"{p.duration:.1f}s" if p.duration else "未知",
+                    "label": "音轨识谱"
                 },
                 "created_at": p.create_time.isoformat() if p.create_time else None
             })
 
-        # 2. 聚合 AudioAnalysis 表 (音乐评估)
+        # 2. 聚合 AudioAnalysis 表 (区分识谱和唱歌测评)
         analyses = session.query(AudioAnalysis).filter_by(user_id=db_user_id).all()
         for a in analyses:
+            params = a.params or {}
+            source = params.get("source", "")
+            
+            # 判断逻辑：如果有节奏报告或是专门的测评上传，归类为测评；否则归类为识谱
+            is_evaluation = (
+                source == "analyze_rhythm_upload" or 
+                "rhythm_report" in (a.result or {}) or
+                "ref_id" in params
+            )
+            
+            h_type = "evaluation" if is_evaluation else "transcription"
+            h_label = "唱歌测评" if is_evaluation else "识谱分析"
+            
+            # 提取详细信息
+            info_data = {
+                "title": a.file_name or h_label,
+                "label": h_label
+            }
+            if a.result:
+                # 如果是唱歌测评，把报告里的关键指标拉平
+                if "rhythm_report" in a.result:
+                    report = a.result["rhythm_report"]
+                    info_data.update({
+                        "score": report.get("score"),
+                        "timing_accuracy": report.get("timing_accuracy"),
+                        "feedback": report.get("feedback")
+                    })
+                else:
+                    info_data.update(a.result)
+            
             all_items.append({
                 "history_id": f"a_{a.id}",
-                "history_type": "transcription",
-                "info": {
-                    "title": a.file_name or "音频分析评估",
-                    **(a.result or {})
-                },
+                "history_type": h_type,
+                "info": info_data,
                 "created_at": a.create_time.isoformat() if a.create_time else None
             })
 

@@ -121,7 +121,14 @@ def _login_user_db(username: str, password: str) -> dict:
         return {
             "token": token,
             "expires_in": 7200,
-            "user": {"user_id": str(user.id), "username": user.username},
+            "user": {
+                "user_id": str(user.id),
+                "username": user.username,
+                "nickname": user.nickname,
+                "avatar": user.avatar,
+                "bio": user.bio,
+                "music_taste": user.music_taste
+            },
         }
     except HTTPException:
         raise

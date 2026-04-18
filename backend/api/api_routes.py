@@ -937,18 +937,6 @@ def download_community_score(score_id: str):
         }
     )
 
-    pdf_bytes, filename = get_score_pdf_content(score_id)
-    
-    encoded_filename = quote(filename)
-
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-         headers={
-            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
-        }
-    )
-
 
 @router.post("/community/scores/{score_id}/like")
 def like_score(score_id: str, authorization: str = Header(default="")):

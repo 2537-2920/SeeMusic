@@ -13,7 +13,7 @@ from fastapi import HTTPException
 # Mode toggle – flipped by conftest.py or application bootstrap
 # ---------------------------------------------------------------------------
 # 默认关闭数据库模式，由 application 或 conftest 手动开启
-USE_DB: bool = False
+USE_DB: bool = True
 _session_factory = None
 
 

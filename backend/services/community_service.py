@@ -849,7 +849,7 @@ def add_community_comment(score_id: str, payload: dict[str, Any], current_user: 
             comments_count = session.query(CommunityComment).filter_by(post_id=post.id).count()
             return {
                 "score_id": score_id,
-                "comment": _serialize_db_comment(comment),
+                "comment": _serialize_db_comment(session,comment),
                 "comments_count": comments_count,
             }
 
@@ -864,7 +864,7 @@ def add_community_comment(score_id: str, payload: dict[str, Any], current_user: 
     COMMUNITY_COMMENTS.setdefault(score_id, []).append(comment)
     return {
         "score_id": score_id,
-        "comment": _serialize_comment(session,comment),
+        "comment": _serialize_comment(comment),
         "comments_count": len(COMMUNITY_COMMENTS[score_id]),
     }
 

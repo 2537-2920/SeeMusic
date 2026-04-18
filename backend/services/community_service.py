@@ -8,8 +8,12 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Iterator
 from uuid import uuid4
-
+import base64            
+from fastapi import HTTPException 
+import os                 
 from sqlalchemy import select
+
+UPLOAD_DIR = "D:/SeeMusic_data/avatars"
 
 
 COMMUNITY_TZ = timezone(timedelta(hours=8))
@@ -692,6 +696,7 @@ def publish_community_score(payload: dict[str, Any], current_user: dict[str, Any
                     favorite_count=0,
                     download_count=0,
                     view_count=0,
+                    file_content_base64=payload.get("file_content_base64"),
                     create_time=now,
                     update_time=now,
                 )
@@ -719,6 +724,7 @@ def publish_community_score(payload: dict[str, Any], current_user: dict[str, Any
                 post.tags = tags
                 post.is_public = bool(payload.get("is_public", True))
                 post.update_time = now
+                post.file_content_base64 = payload.get("file_content_base64")
                 session.add(post)
                 session.flush()
 
@@ -967,3 +973,58 @@ def register_score_download(score_id: str) -> dict[str, Any]:
         "download_url": entry.get("download_url") or f"/api/v1/community/scores/{score_id}/download",
         "file_name": entry.get("source_file_name") or f"{score_id}.pdf",
     }
+
+def get_score_pdf_content(score_id: str) -> tuple[bytes, str]:
+    # 连接数据库
+    from backend.db.models import CommunityPost
+    with _session_scope() as db:
+        # 查询乐谱数据
+        post = db.query(CommunityPost).filter_by(score_id=score_id).first()
+        
+        # 乐谱不存在则报错
+        if not post or not post.file_content_base64:
+            raise HTTPException(status_code=404, detail="乐谱文件不存在")
+        
+        try:
+            # Base64 解码 → 还原成PDF二进制文件
+            pdf_bytes = base64.b64decode(post.file_content_base64)
+            return pdf_bytes, post.source_file_name or "score.pdf"
+        except Exception as e:
+            raise HTTPException(status_code=500, detail="文件解码失败")
+        
+def save_user_avatar(user_id: str, file_content: bytes, filename: str) -> str:
+    from backend.db.models import User,CommunityPost, CommunityComment 
+    # 头像保存路径：D:/SeeMusic_data/avatars/用户ID.png
+    file_path = os.path.join(UPLOAD_DIR, f"{user_id}.png")
+    
+    # 写入图片文件
+    with open(file_path, "wb") as f:
+        f.write(file_content)
+    
+    # 生成可访问的URL
+    avatar_url = f"/static/avatars/{user_id}.png"
+    
+    # 转换为数字 ID（确保匹配数据库类型）
+    uid = int(user_id)
+    
+    with _session_scope() as db:
+        # 1. 更新 User 表
+        user = db.query(User).get(uid)
+        if user:
+            user.avatar = avatar_url
+            
+        # 2. 【核心新增】同步更新评论表中的 avatar_url
+        # 这一步能解决你说的评论区头像不显示的问题
+        db.query(CommunityComment).filter(CommunityComment.user_id == uid).update({
+            "avatar_url": avatar_url
+        })
+        
+        # 3. 【核心新增】同步更新帖子表中的作者头像 (假设字段是 cover_url)
+        # 建议检查 CommunityPost 表中是否有类似 author_avatar 的字段，如果有也一并更新
+        db.query(CommunityPost).filter(CommunityPost.user_id == uid).update({
+            "cover_url": avatar_url 
+        })
+        
+        db.commit() # 👈 确保这几张表的改动全部生效
+    
+    return avatar_url

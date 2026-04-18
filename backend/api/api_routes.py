@@ -8,6 +8,8 @@ import uuid
 import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
+from fastapi import Response
+from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
@@ -41,6 +43,8 @@ from backend.core.pitch.realtime_tuning import analyze_audio_frame
 from backend.services import analysis_service
 from backend.services.report_service import export_report
 from backend.services.community_service import (
+    save_user_avatar,
+    get_score_pdf_content,
     add_community_comment,
     get_community_score_detail as get_community_score_detail_data,
     list_community_comments as list_community_comments_data,
@@ -829,6 +833,7 @@ def publish_community_score(payload: CommunityScorePublishRequest, authorization
 @router.post("/community/scores/upload")
 async def upload_community_score(
     file: UploadFile = File(...),
+    file_content_base64: str = Form(...), 
     cover_file: UploadFile | None = File(default=None),
     title: str = Form(...),
     style: str = Form("精选"),
@@ -855,6 +860,7 @@ async def upload_community_score(
     current_user = optional_user_from_authorization(authorization)
     payload = {
         "title": title,
+        "file_content_base64": file_content_base64,
         "description": description,
         "style": style,
         "instrument": instrument,
@@ -913,9 +919,21 @@ def post_community_score_comment(
 @router.post("/community/scores/{score_id}/download")
 def download_community_score(score_id: str):
     try:
-        return ok(register_score_download(score_id))
+        register_score_download(score_id)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    pdf_bytes, filename = get_score_pdf_content(score_id)
+
+    encoded_filename = quote(filename)
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
+        }
+    )
 
 
 
@@ -1064,41 +1082,62 @@ def update_me(payload: UserUpdatePayload, current_user: Dict[str, Any] = Depends
     return ok(result)
 
 
-@router.post("/users/me/avatar")
-async def upload_avatar(file: UploadFile = File(...), current_user: Dict[str, Any] = Depends(get_current_user)):
-    """上传并更新个人头像"""
-    # 验证类型
-    ext = Path(file.filename).suffix.lower()
-    if ext not in [".jpg", ".jpeg", ".png", ".webp"]:
-        raise HTTPException(status_code=400, detail="仅支持 jpg, png, webp 格式的图片")
+# @router.post("/users/me/avatar")
+# async def upload_avatar(file: UploadFile = File(...), current_user: Dict[str, Any] = Depends(get_current_user)):
+#     """上传并更新个人头像"""
+#     # 验证类型
+#     ext = Path(file.filename).suffix.lower()
+#     if ext not in [".jpg", ".jpeg", ".png", ".webp"]:
+#         raise HTTPException(status_code=400, detail="仅支持 jpg, png, webp 格式的图片")
     
-    # 生成唯一文件名
-    filename = f"avatar_{current_user['user_id']}_{uuid.uuid4().hex[:8]}{ext}"
-    save_path = Path("storage/avatars") / filename
+#     # 生成唯一文件名
+#     filename = f"avatar_{current_user['user_id']}_{uuid.uuid4().hex[:8]}{ext}"
+#     save_path = Path("storage/avatars") / filename
     
-    try:
-        # 保存文件
-        content = await file.read()
-        with open(save_path, "wb") as f:
-            f.write(content)
+#     try:
+#         # 保存文件
+#         content = await file.read()
+#         with open(save_path, "wb") as f:
+#             f.write(content)
         
+<<<<<<< HEAD
         # 切换到更为稳健的静态路径方式，配合 main.py 中的 app.mount("/storage", ...)
         avatar_url = f"/storage/avatars/{filename}"
         update_user_info(current_user["user_id"], {"avatar": avatar_url})
+=======
+#         # 更新数据库中的头像路径 (假设前端可以通过 /api/v1/users/me/avatar/filename 访问，这里暂存相对路径)
+#         avatar_url = f"/api/v1/users/me/avatar/{filename}"
+#         update_user_info(current_user["user_id"], {"avatar": avatar_url})
+>>>>>>> main
         
-        return ok({"avatar_url": avatar_url})
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"文件保存失败: {str(e)}")
+#         return ok({"avatar_url": avatar_url})
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"文件保存失败: {str(e)}")
 
 
-@router.get("/users/me/avatar/{filename}")
-def get_avatar(filename: str):
-    """读取头像文件流"""
-    path = Path("storage/avatars") / filename
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="图片不存在")
-    return FileResponse(path)
+# @router.get("/users/me/avatar/{filename}")
+# def get_avatar(filename: str):
+#     """读取头像文件流"""
+#     path = Path("storage/avatars") / filename
+#     if not path.exists():
+#         raise HTTPException(status_code=404, detail="图片不存在")
+#     return FileResponse(path)
 
+
+@router.post("/users/avatar")
+async def update_avatar(
+    file: UploadFile = File(...),
+    authorization: str = Header(...)
+):
+    print("====================================")
+    print("我进到了 update_avatar 接口里！！！")
+    print(f"收到的文件名是: {file.filename}")
+    print("====================================")
+    token = authorization.removeprefix("Bearer ").strip()
+    user_info = get_user_by_token(token)
+    content = await file.read()
+    avatar_url = save_user_avatar(user_info["user_id"], content, file.filename)
+    return {"code": 0, "message": "success", "data": {"avatar_url": avatar_url}}
 
 @router.get("/users/me/history")
 def get_history(current_user: Dict[str, Any] = Depends(get_current_user)):

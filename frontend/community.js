@@ -841,7 +841,7 @@ function toggleModal(id, show) {
 
 function updateHeader() {
     const currentUser = getCurrentUser();
-    headerAvatar.src = currentUser ? avatarUrl(currentUser.username || "SeeMusic") : avatarUrl("SeeMusic");
+    headerAvatar.src = currentUser ? avatarUrl(currentUser) : avatarUrl("SeeMusic");
 }
 
 function escapeHtml(value) {

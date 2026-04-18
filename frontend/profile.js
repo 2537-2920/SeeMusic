@@ -535,7 +535,12 @@ function setupEditProfileModal() {
                 payload.avatar = avatarResult.data.avatar_url;
                 const timestamp = new Date().getTime();
                 const newUrl = `http://127.0.0.1:8000${avatarResult.data.avatar_url}?t=${timestamp}`;
-                document.getElementById("profile-avatar").src = newUrl;
+                if(document.getElementById("profile-avatar")) {
+                    document.getElementById("profile-avatar").src = fullUrl;
+                }
+                if(document.getElementById("header-avatar")) {
+                    document.getElementById("header-avatar").src = fullUrl; // 👈 同步更新右上角
+                }
             } else {
                 throw new Error("头像上传失败：" + avatarResult.message);
             }

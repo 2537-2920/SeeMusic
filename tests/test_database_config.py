@@ -99,6 +99,7 @@ def test_init_database_creates_all_declared_tables(monkeypatch, tmp_path) -> Non
         "community_favorite",
         "audio_analysis",
         "pitch_sequence",
+        "reference_track",
         "user_history",
     }.issubset(table_names)
 

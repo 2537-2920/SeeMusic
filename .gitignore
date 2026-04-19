@@ -40,3 +40,4 @@ storage/
 !.env.example
 .codex
 
+Music/*

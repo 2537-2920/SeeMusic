@@ -27,7 +27,8 @@ from backend.utils.data_visualizer import build_pitch_curve
 
 logger = logging.getLogger(__name__)
 PITCH_SEQUENCE_FORMAT_NOTE_EVENTS = "note_events"
-USE_DB: bool = False
+# 开启数据库持久化模式
+USE_DB: bool = True
 _session_factory = None
 ANALYSIS_RESULTS: dict[str, dict[str, Any]] = {}
 

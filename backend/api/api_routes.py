@@ -8,9 +8,13 @@ import uuid
 import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
+from fastapi import Response
+from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
+from fastapi import Response
+from urllib.parse import quote
 
 from backend.api.schemas import (
     AnalyzeRhythmRequest,
@@ -35,6 +39,7 @@ from backend.api.schemas import (
     ScoreExportRequest,
     ScoreReExportRequest,
     ScoreUpdateRequest,
+    UserUpdatePayload,
     VariationSuggestionRequest,
 )
 from backend.export.traditional_export import (
@@ -72,8 +77,15 @@ from backend.core.score.audio_pipeline import prepare_piano_score_from_audio
 from backend.core.score.key_detection import analyze_key_signature
 from backend.core.score.sheet_extraction import build_score_from_pitch_sequence
 from backend.services import analysis_service
+from backend.services.reference_track_service import (
+    get_reference_track_by_ref_id,
+    resolve_storage_url_path,
+    search_reference_tracks as search_reference_tracks_data,
+)
 from backend.services.report_service import export_report
 from backend.services.community_service import (
+    save_user_avatar,
+    get_score_pdf_content,
     add_community_comment,
     get_community_score_detail as get_community_score_detail_data,
     list_community_comments as list_community_comments_data,
@@ -103,7 +115,7 @@ from backend.services.score_service import (
     undo_score,
 )
 from backend.user.history_manager import delete_history, list_history, save_history
-from backend.user.user_system import get_current_user, get_user_by_token, login_user, logout_user, register_user, get_preferences, update_preferences
+from backend.user.user_system import get_current_user, get_user_by_token, login_user, logout_user, register_user, get_preferences, update_preferences, update_user_info
 from backend.utils.audio_logger import record_audio_log, record_audio_processing_log, get_audio_logs, read_audio_logs_from_file
 
 # 引入节奏处理服务与项目配置项
@@ -372,6 +384,36 @@ def _resolve_guzheng_score_result(payload: GuzhengScoreRequest | GuzhengScoreExp
         save_analysis_result(**payload)
         return
     background_tasks.add_task(analysis_service.save_analysis_result, **payload)
+
+
+def _resolve_reference_audio_source(ref_id: str) -> tuple[str, dict[str, Any] | None]:
+    normalized_ref_id = str(ref_id or "").strip()
+    if not normalized_ref_id:
+        raise HTTPException(status_code=400, detail="参考音频 ID 不能为空。")
+
+    reference_track = get_reference_track_by_ref_id(normalized_ref_id)
+    if reference_track is not None:
+        try:
+            resolved = resolve_storage_url_path(reference_track["audio_url"])
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if not resolved.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"参考音频文件不存在：{reference_track['audio_url']}",
+            )
+        return str(resolved), reference_track
+
+    fallback_path = os.path.join("assets", "references", f"{normalized_ref_id}.wav")
+    if os.path.exists(fallback_path):
+        return fallback_path, None
+
+    raise HTTPException(
+        status_code=404,
+        detail=f"Reference audio with ID '{normalized_ref_id}' not found in MySQL or assets/references.",
+    )
+
+
 @router.post("/pitch/detect")
 async def pitch_detect(
     background_tasks: BackgroundTasks,
@@ -1031,7 +1073,7 @@ async def analyze_rhythm_api(
     
     Parameters:
     - user_audio: User's audio file (WAV/MP3)
-    - ref_id: Reference audio ID (stored in assets/references/{ref_id}.wav)
+    - ref_id: Reference audio ID (resolved from MySQL `reference_track` first, legacy fallback to assets/references)
     - language: Feedback language ('en' for English, 'zh' for Chinese). Default: 'en'
     - scoring_model: Scoring model ('strict', 'balanced', 'lenient'). Default: 'balanced'
     
@@ -1068,16 +1110,7 @@ async def analyze_rhythm_api(
             params={"ref_id": ref_id, "language": language, "scoring_model": scoring_model, "threshold_ms": threshold_ms},
         )
         
-        # Construct reference audio path
-        ref_audio_path = os.path.join("assets", "references", f"{ref_id}.wav")
-        
-        # Check if reference audio exists
-        if not os.path.exists(ref_audio_path):
-            logging.error(f"Reference audio file not found: {ref_audio_path}")
-            raise HTTPException(
-                status_code=404,
-                detail=f"Reference audio with ID '{ref_id}' not found. Please check assets/references/ directory.",
-            )
+        ref_audio_path, reference_track = _resolve_reference_audio_source(ref_id)
         
         # Call service layer core logic with language and scoring model support
         report = await process_rhythm_scoring(
@@ -1096,10 +1129,22 @@ async def analyze_rhythm_api(
             bpm=int(report.get("user_bpm", 0) or 0) or None,
             status=1,
             params={"ref_id": ref_id, "language": language, "scoring_model": scoring_model, "threshold_ms": threshold_ms},
-            result_data={"rhythm_report": report, "log_id": log_entry["log_id"]},
+            result_data={
+                "rhythm_report": report,
+                "log_id": log_entry["log_id"],
+                "reference_track": reference_track,
+            },
         )
 
-        return ok({"analysis_id": metadata["analysis_id"], **report, "audio_log": log_entry})
+        return ok(
+            {
+                "analysis_id": metadata["analysis_id"],
+                "resolved_ref_id": reference_track["ref_id"] if reference_track else ref_id,
+                "reference_track": reference_track,
+                **report,
+                "audio_log": log_entry,
+            }
+        )
 
     except HTTPException:
         raise
@@ -1124,6 +1169,11 @@ async def analyze_rhythm_api(
             except Exception as cleanup_error:
                 logging.warning(f"Failed to cleanup temp file {temp_user_path}: {cleanup_error}")
 # ==========================================
+
+
+@router.get("/reference-tracks/search")
+def reference_track_search(keyword: str = Query(..., min_length=1), limit: int = Query(20, ge=1, le=50)):
+    return ok({"items": search_reference_tracks_data(keyword, limit=limit)})
 
 
 @router.get("/community/scores")
@@ -1169,6 +1219,7 @@ def publish_community_score(payload: CommunityScorePublishRequest, authorization
 @router.post("/community/scores/upload")
 async def upload_community_score(
     file: UploadFile = File(...),
+    file_content_base64: str = Form(...), 
     cover_file: UploadFile | None = File(default=None),
     title: str = Form(...),
     style: str = Form("精选"),
@@ -1195,6 +1246,7 @@ async def upload_community_score(
     current_user = optional_user_from_authorization(authorization)
     payload = {
         "title": title,
+        "file_content_base64": file_content_base64,
         "description": description,
         "style": style,
         "instrument": instrument,
@@ -1253,10 +1305,21 @@ def post_community_score_comment(
 @router.post("/community/scores/{score_id}/download")
 def download_community_score(score_id: str):
     try:
-        return ok(register_score_download(score_id))
+        register_score_download(score_id)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail=str(exc))
 
+    pdf_bytes, filename = get_score_pdf_content(score_id)
+
+    encoded_filename = quote(filename)
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
+        }
+    )
 
 
 @router.post("/community/scores/{score_id}/like")
@@ -1812,6 +1875,66 @@ def me(current_user: Dict[str, Any] = Depends(get_current_user)):
     return ok(current_user)
 
 
+@router.patch("/users/me")
+def update_me(payload: UserUpdatePayload, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """更新个人资料接口"""
+    # 提取有值的字段
+    updates = payload.model_dump(exclude_unset=True)
+    result = update_user_info(current_user["user_id"], updates)
+    return ok(result)
+
+
+# @router.post("/users/me/avatar")
+# async def upload_avatar(file: UploadFile = File(...), current_user: Dict[str, Any] = Depends(get_current_user)):
+#     """上传并更新个人头像"""
+#     # 验证类型
+#     ext = Path(file.filename).suffix.lower()
+#     if ext not in [".jpg", ".jpeg", ".png", ".webp"]:
+#         raise HTTPException(status_code=400, detail="仅支持 jpg, png, webp 格式的图片")
+    
+#     # 生成唯一文件名
+#     filename = f"avatar_{current_user['user_id']}_{uuid.uuid4().hex[:8]}{ext}"
+#     save_path = Path("storage/avatars") / filename
+    
+#     try:
+#         # 保存文件
+#         content = await file.read()
+#         with open(save_path, "wb") as f:
+#             f.write(content)
+        
+#         # 更新数据库中的头像路径 (假设前端可以通过 /api/v1/users/me/avatar/filename 访问，这里暂存相对路径)
+#         avatar_url = f"/api/v1/users/me/avatar/{filename}"
+#         update_user_info(current_user["user_id"], {"avatar": avatar_url})
+        
+#         return ok({"avatar_url": avatar_url})
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"文件保存失败: {str(e)}")
+
+
+# @router.get("/users/me/avatar/{filename}")
+# def get_avatar(filename: str):
+#     """读取头像文件流"""
+#     path = Path("storage/avatars") / filename
+#     if not path.exists():
+#         raise HTTPException(status_code=404, detail="图片不存在")
+#     return FileResponse(path)
+
+
+@router.post("/users/avatar")
+async def update_avatar(
+    file: UploadFile = File(...),
+    authorization: str = Header(...)
+):
+    print("====================================")
+    print("我进到了 update_avatar 接口里！！！")
+    print(f"收到的文件名是: {file.filename}")
+    print("====================================")
+    token = authorization.removeprefix("Bearer ").strip()
+    user_info = get_user_by_token(token)
+    content = await file.read()
+    avatar_url = save_user_avatar(user_info["user_id"], content, file.filename)
+    return {"code": 0, "message": "success", "data": {"avatar_url": avatar_url}}
+
 @router.get("/users/me/history")
 def get_history(current_user: Dict[str, Any] = Depends(get_current_user)):
     return ok(list_history(current_user["user_id"]))
@@ -1841,3 +1964,17 @@ def update_user_preferences(payload: PreferencesUpdateRequest, current_user: Dic
 @router.post("/reports/export")
 def reports_export(payload: ReportExportRequest):
     return ok(export_report(payload.model_dump()))
+
+@router.post("/users/avatar")
+async def update_avatar(
+    file: UploadFile = File(...),
+    authorization: str = Header(...)
+):
+    token = authorization.removeprefix("Bearer ").strip()
+    user_info = get_user_by_token(token) 
+    
+    content = await file.read()
+    
+    avatar_url = save_user_avatar(user_info["user_id"], content, file.filename)
+    
+    return {"code": 0, "message": "success", "data": {"avatar_url": avatar_url}}

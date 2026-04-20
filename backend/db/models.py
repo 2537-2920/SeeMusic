@@ -39,6 +39,9 @@ class User(Base):
     nickname: Mapped[str | None] = mapped_column(String(50), nullable=True)
     avatar: Mapped[str | None] = mapped_column(String(255), nullable=True)
     email: Mapped[str | None] = mapped_column(String(128), unique=True, nullable=True)
+    bio: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    birthday: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    music_taste: Mapped[list | None] = mapped_column(JSON, nullable=True)
     create_time: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)
     update_time: Mapped[datetime] = mapped_column(
         DateTime,
@@ -259,6 +262,28 @@ class PitchSequence(Base):
     is_reference: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
+class ReferenceTrack(Base):
+    __tablename__ = "reference_track"
+    __table_args__ = (
+        UniqueConstraint("ref_id", name="uq_reference_track_ref_id"),
+        UniqueConstraint("song_name", "artist_name", name="uq_reference_track_song_artist"),
+    )
+
+    id: Mapped[int] = mapped_column(BIGINT_COMPAT, primary_key=True, autoincrement=True)
+    ref_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    song_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    artist_name: Mapped[str] = mapped_column(String(255), nullable=False, default="未知歌手")
+    audio_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    create_time: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)
+    update_time: Mapped[datetime] = mapped_column(
+        DateTime,
+        server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        nullable=False,
+    )
+
+
 class CommunityComment(Base):
     __tablename__ = "community_comment"
 
@@ -339,7 +364,6 @@ class UserHistory(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict, nullable=False)
     create_time: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)
-
 
 class UserToken(Base):
     __tablename__ = "user_token"

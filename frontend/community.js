@@ -467,7 +467,10 @@ function renderDetail() {
 
     document.getElementById("d-title").textContent = score.title || "未命名乐谱";
     document.getElementById("d-author").textContent = score.subtitle || score.author || "社区用户";
-    document.getElementById("d-cover").src = score.cover_url || avatarUrl(score.title || score.score_id);
+    document.getElementById("d-cover").src = avatarUrl({ 
+    avatar: score.cover_url, 
+    username: score.author || score.title 
+});
     document.getElementById("d-price").textContent = score.price_label || "免费";
     document.getElementById("d-downloads").textContent = String(score.downloads || 0);
     document.getElementById("d-likes").textContent = String(score.likes || 0);
@@ -481,22 +484,34 @@ function renderDetail() {
     detailFavoriteBtn.innerHTML = `<iconify-icon class="text-xl" icon="${score.favorited ? "solar:bookmark-bold" : "solar:bookmark-outline"}"></iconify-icon>`;
 
     const commentsList = document.getElementById("detail-comments-list");
-    if (!state.selectedComments.length) {
-        commentsList.innerHTML = '<p class="text-xs text-gray-400">还没有评论，来成为第一个留言的人。</p>';
-    } else {
-        commentsList.innerHTML = state.selectedComments.map((comment) => `
+if (!state.selectedComments.length) {
+    commentsList.innerHTML = '<p class="text-xs text-gray-400">还没有评论，来成为第一个留言的人。</p>';
+} else {
+    commentsList.innerHTML = state.selectedComments.map((comment) => {
+        // 1. 先计算出应该显示的名字（优先昵称，其次用户名，最后保底）
+        const displayName = comment.nickname || comment.username || "社区用户";
+        
+        // 2. 构造 HTML
+        return `
             <div class="flex gap-3">
-                <img alt="${escapeHtml(comment.username || "社区用户")}" class="w-9 h-9 rounded-full bg-gray-100" src="${escapeHtml(comment.avatar_url || avatarUrl(comment.username || "SeeMusic"))}"/>
+                <!-- 头像部分：使用我们之前优化过的对象传参 -->
+                <img alt="${escapeHtml(displayName)}" 
+                     class="w-9 h-9 rounded-full bg-gray-100" 
+                     src="${escapeHtml(avatarUrl({ avatar: comment.avatar_url, username: displayName }))}"/>
+                
                 <div class="min-w-0 flex-1">
                     <div class="flex items-center justify-between gap-3">
-                        <span class="text-sm font-medium text-gray-700 truncate">${escapeHtml(comment.username || "社区用户")}</span>
+                        <!-- 【核心修改】：这里一定要换成 displayName 变量 -->
+                        <span class="text-sm font-medium text-gray-700 truncate">${escapeHtml(displayName)}</span>
+                        
                         <span class="text-[10px] text-gray-400 whitespace-nowrap">${escapeHtml(comment.relative_time || "")}</span>
                     </div>
                     <p class="text-xs text-gray-500 leading-relaxed mt-1 break-words">${escapeHtml(comment.content || "")}</p>
                 </div>
             </div>
-        `).join("");
-    }
+        `;
+    }).join("");
+}
 }
 
 function syncItem(scoreId, patch) {
@@ -647,25 +662,43 @@ async function handleDownload() {
     }
     detailDownloadBtn.disabled = true;
     try {
-        const payload = await requestJson(`/community/scores/${encodeURIComponent(score.score_id)}/download`, {
+        const myBlob = await requestJson(`/community/scores/${encodeURIComponent(score.score_id)}/download`, {
             method: "POST",
+            responseType: 'blob' 
         });
+        const url = window.URL.createObjectURL(myBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = score.source_file_name || "乐谱.pdf";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+
+        setStatus("下载成功！");
+        
+         const updatedInfo = await requestJson(`/community/scores/${encodeURIComponent(score.score_id)}`, {
+            method: "GET" 
+        });
+        const scoreData = updatedInfo.score; 
+
         syncItem(score.score_id, {
-            downloads: payload.downloads,
-            download_count_display: payload.download_count_display,
+             downloads: scoreData.downloads,
+            download_count_display: scoreData.download_count_display
         });
+
         renderGrid();
         renderDetail();
-        setStatus(`已记录下载：${payload.file_name || score.title}。当前下载 ${payload.downloads} 次。`);
+        setStatus(`已记录下载：${scoreData.source_file_name || score.title}。当前下载 ${scoreData.downloads} 次。`);
         await saveHistory({
             type: "score",
             resource_id: score.score_id,
             title: `下载乐谱：${score.title}`,
             metadata: {
                 source: "community",
-                file_name: payload.file_name || "",
-                downloads: payload.downloads || 0,
-                published_at: score.published_at || "",
+                file_name: scoreData.source_file_name || "",
+                downloads: scoreData.downloads || 0,
+                published_at: scoreData.published_at || "",
             },
         });
     } catch (error) {
@@ -726,15 +759,22 @@ async function handleUploadSubmit() {
         setUploadStatus("请填写乐器或版本信息。", true);
         return;
     }
+    const base64File = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1]); 
+        reader.readAsDataURL(file);
+    });
 
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("file_content_base64", base64File); 
     formData.append("title", title);
     formData.append("style", style);
     formData.append("instrument", instrument);
     formData.append("price", String(Number.isFinite(price) ? price : 0));
     formData.append("description", description);
     formData.append("tags", tags);
+    formData.append("file_content_base64", base64File); 
     if (coverFile) {
         formData.append("cover_file", coverFile);
     }
@@ -801,7 +841,7 @@ function toggleModal(id, show) {
 
 function updateHeader() {
     const currentUser = getCurrentUser();
-    headerAvatar.src = currentUser ? avatarUrl(currentUser.username || "SeeMusic") : avatarUrl("SeeMusic");
+    headerAvatar.src = currentUser ? avatarUrl(currentUser) : avatarUrl("SeeMusic");
 }
 
 function escapeHtml(value) {

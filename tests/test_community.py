@@ -50,7 +50,8 @@ def test_community_publish_comment_and_download_flow():
     assert score_id.startswith("score_")
     assert comment_result["data"]["comment"]["content"] == "这首整理得很清楚"
     assert comments_result["data"]["total"] == 1
-    assert download_result["data"]["downloads"] == download_before + 1
+    updated_detail = get_community_score_detail(score_id)
+    assert updated_detail["data"]["score"]["downloads"] == download_before + 1
 
 
 def test_community_tags_endpoint_returns_frontend_tabs():

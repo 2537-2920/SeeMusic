@@ -2,6 +2,7 @@
 
 import xml.etree.ElementTree as ET
 
+import backend.api.api_routes as api_routes_module
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -64,6 +65,165 @@ def test_score_creation_route_persists_project_and_sheet(score_database: dict[st
         assert sheet.note_data["title"] == "API Created Score"
         assert sheet.musicxml == body["musicxml"]
 
+
+def test_score_creation_route_can_auto_detect_key_signature(score_database: dict[str, int | str]) -> None:
+    payload = {
+        "user_id": score_database["user_id"],
+        "title": "Auto Key Score",
+        "tempo": 120,
+        "time_signature": "4/4",
+        "key_signature": None,
+        "auto_detect_key": True,
+        "pitch_sequence": [
+            {"time": 0.0, "frequency": 392.0, "duration": 0.5},
+            {"time": 0.5, "frequency": 440.0, "duration": 0.5},
+            {"time": 1.0, "frequency": 493.88, "duration": 0.5},
+            {"time": 1.5, "frequency": 523.25, "duration": 0.5},
+            {"time": 2.0, "frequency": 587.33, "duration": 0.5},
+            {"time": 2.5, "frequency": 659.25, "duration": 0.5},
+            {"time": 3.0, "frequency": 739.99, "duration": 0.5},
+            {"time": 3.5, "frequency": 783.99, "duration": 1.0},
+        ],
+    }
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/score/from-pitch-sequence", json=payload)
+
+    assert response.status_code == 200
+    body = response.json()["data"]
+    assert body["key_signature"] == "G"
+
+
+def test_score_creation_from_audio_route_returns_piano_melody_score(
+    score_database: dict[str, int | str],
+    monkeypatch,
+) -> None:
+    def fake_piano_pipeline(**kwargs):
+        assert kwargs["analysis_id"].startswith("an_")
+        assert kwargs["fallback_tempo"] == 120
+        return {
+            "analysis_id": kwargs["analysis_id"],
+            "tempo": 92,
+            "time_signature": kwargs["time_signature"],
+            "pitch_sequence": [{"time": 0.0, "frequency": 392.0, "duration": 0.5, "note": "G4"}],
+            "detected_key_signature": "G",
+            "key_detection": {"key_signature": "G", "confidence": 0.88, "mode": "major", "fifths": 1},
+            "beat_result": {
+                "bpm": 92.0,
+                "beat_times": [0.0, 0.652, 1.304],
+                "beat_quality": {"confidence": 0.62},
+                "num_beats": 3,
+            },
+            "tempo_detection": {
+                "detected_tempo": 92,
+                "resolved_tempo": 92,
+                "used_detected_tempo": True,
+                "confidence": 0.62,
+                "beat_count": 3,
+                "fallback_reason": None,
+            },
+            "melody_track": {"name": "vocal", "source": "separated_track", "average_confidence": 0.91, "voiced_ratio": 0.9},
+            "melody_track_candidates": [],
+            "separation": {"status": "completed", "tracks": [{"name": "vocal"}]},
+            "warnings": [],
+            "pipeline": {"separation_enabled": True, "beat_detection_enabled": True},
+        }
+
+    monkeypatch.setattr(api_routes_module, "prepare_piano_score_from_audio", fake_piano_pipeline)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/score/from-audio",
+            files={"file": ("tongnian.wav", b"demo-audio", "audio/wav")},
+            data={
+                "user_id": str(score_database["user_id"]),
+                "title": "钢琴主旋律谱",
+                "tempo": "120",
+                "time_signature": "4/4",
+                "frame_ms": "20",
+                "hop_ms": "10",
+                "algorithm": "yin",
+                "separation_model": "demucs",
+                "separation_stems": "2",
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()["data"]
+    assert body["score_mode"] == "piano_two_hand_arrangement"
+    assert body["tempo"] == 92
+    assert body["key_signature"] == "G"
+    assert body["melody_track"]["name"] == "vocal"
+    assert body["beat_result"]["bpm"] == 92.0
+    assert body["arrangement_mode"] == "piano_solo"
+    assert body["piano_arrangement"]["arrangement_type"] == "piano_solo"
+    assert body["piano_arrangement"]["chords"]
+    assert body["score_id"]
+
+
+def test_score_creation_from_audio_route_can_return_precise_piano_melody_mode(
+    score_database: dict[str, int | str],
+    monkeypatch,
+) -> None:
+    def fake_piano_pipeline(**kwargs):
+        return {
+            "analysis_id": kwargs["analysis_id"],
+            "tempo": 84,
+            "time_signature": kwargs["time_signature"],
+            "pitch_sequence": [{"time": 0.0, "frequency": 440.0, "duration": 0.5, "note": "A4"}],
+            "detected_key_signature": "D",
+            "key_detection": {"key_signature": "D", "confidence": 0.77, "mode": "major", "fifths": 2},
+            "beat_result": {
+                "bpm": 84.0,
+                "beat_times": [0.0, 0.714, 1.428],
+                "beat_quality": {"confidence": 0.52},
+                "num_beats": 3,
+            },
+            "tempo_detection": {
+                "detected_tempo": 84,
+                "resolved_tempo": 84,
+                "used_detected_tempo": True,
+                "confidence": 0.52,
+                "beat_count": 3,
+                "fallback_reason": None,
+            },
+            "melody_track": {"name": "vocal", "source": "separated_track", "average_confidence": 0.88, "voiced_ratio": 0.86},
+            "melody_track_candidates": [],
+            "separation": {"status": "completed", "tracks": [{"name": "vocal"}]},
+            "warnings": [],
+            "pipeline": {"separation_enabled": True, "beat_detection_enabled": True},
+        }
+
+    monkeypatch.setattr(api_routes_module, "prepare_piano_score_from_audio", fake_piano_pipeline)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/score/from-audio",
+            files={"file": ("melody.wav", b"demo-audio", "audio/wav")},
+            data={
+                "user_id": str(score_database["user_id"]),
+                "title": "精准钢琴谱",
+                "tempo": "120",
+                "time_signature": "4/4",
+                "frame_ms": "20",
+                "hop_ms": "10",
+                "algorithm": "yin",
+                "separation_model": "demucs",
+                "separation_stems": "2",
+                "arrangement_mode": "melody",
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()["data"]
+    assert body["score_mode"] == "piano_two_hand_arrangement"
+    assert body["arrangement_mode"] == "piano_solo"
+    assert body["tempo"] == 84
+    assert body["key_signature"] == "D"
+    assert body["melody_track"]["name"] == "vocal"
+    assert body["beat_result"]["bpm"] == 84.0
+    assert body["piano_arrangement"] is not None
+    assert body["score_id"]
 
 
 def test_score_creation_route_rejects_unknown_user(score_database: dict[str, int | str]) -> None:

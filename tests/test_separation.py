@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import tempfile
+import io
+import ssl
 from pathlib import Path
 
 import numpy as np
@@ -400,6 +402,38 @@ class TestAudioProcessing:
         assert result["warnings"]
         assert "mock demucs failure" in result["warnings"][0]
 
+    def test_separate_normalizes_demucs_ssl_warning(self, temp_audio_bytes, temp_dir, monkeypatch):
+        """Test that SSL certificate failures are surfaced as a readable fallback warning."""
+        separator = AudioSeparator(temp_dir)
+
+        def fail_demucs(y, sr, stems):
+            raise ssl.SSLCertVerificationError(
+                "certificate verify failed: unable to get local issuer certificate"
+            )
+
+        def fake_simple(y, sr, stems):
+            return {
+                "vocal": np.ones(1024, dtype=np.float32) * 0.2,
+                "accompaniment": np.ones(1024, dtype=np.float32) * 0.1,
+            }
+
+        monkeypatch.setattr(separator, "_run_demucs_separation", fail_demucs)
+        monkeypatch.setattr(separator, "_simple_separation", fake_simple)
+
+        result = separator.separate(
+            file_name="test.wav",
+            model="demucs",
+            stems=2,
+            audio_bytes=temp_audio_bytes,
+        )
+
+        assert result["status"] == "completed"
+        assert result["backend_used"] == "simple"
+        assert result["fallback_used"] is True
+        assert result["warnings"]
+        assert "SSL 证书校验失败" in result["warnings"][0]
+        assert "内置简易分离" in result["warnings"][0]
+
     def test_save_track_accepts_channel_first_stereo(self, temp_dir):
         """Test that channel-first stereo arrays are transposed before saving."""
         separator = AudioSeparator(temp_dir)
@@ -431,6 +465,58 @@ class TestAudioProcessing:
         
         y, loaded_sr = separator._load_audio(stereo_bytes, sr=sr)
         assert loaded_sr == sr
+
+    def test_vocal_enhancement_focuses_center_harmonic_band(self, temp_dir):
+        """Test that vocal enhancement suppresses bass/percussive leakage and keeps melody energy."""
+        separator = AudioSeparator(temp_dir)
+        sr = 16000
+        duration = 1.0
+        t = np.linspace(0, duration, int(sr * duration), endpoint=False)
+        vocal = 0.28 * np.sin(2 * np.pi * 440 * t)
+        bass = 0.32 * np.sin(2 * np.pi * 55 * t)
+        side = 0.18 * np.sin(2 * np.pi * 700 * t)
+        clicks = np.zeros_like(t)
+        clicks[::800] = 0.65
+        stereo = np.stack([vocal + bass + side + clicks, vocal + bass - side + clicks], axis=0).astype(np.float32)
+
+        centered = np.mean(stereo, axis=0)
+        enhanced = separator._enhance_vocal_track(stereo, original_mix=stereo, sr=sr)
+
+        def band_energy(signal: np.ndarray, low_hz: float, high_hz: float) -> float:
+            spectrum = np.abs(np.fft.rfft(np.asarray(signal, dtype=np.float32)))
+            freqs = np.fft.rfftfreq(len(signal), d=1.0 / sr)
+            mask = (freqs >= low_hz) & (freqs < high_hz)
+            return float(np.sum(spectrum[mask]))
+
+        assert band_energy(enhanced, 35, 75) < band_energy(centered, 35, 75) * 0.6
+        assert band_energy(enhanced, 3000, 6000) < band_energy(centered, 3000, 6000) * 0.3
+        assert band_energy(enhanced, 380, 520) > band_energy(enhanced, 35, 75)
+
+    def test_separate_tracks_includes_vocal_enhancement_metadata(self, temp_dir):
+        """Test that vocal extraction metadata is surfaced for debugging."""
+        separator = AudioSeparator(temp_dir)
+        sr = 16000
+        duration = 1.0
+        t = np.linspace(0, duration, int(sr * duration), endpoint=False)
+        vocal = 0.25 * np.sin(2 * np.pi * 440 * t)
+        bass = 0.15 * np.sin(2 * np.pi * 65 * t)
+        stereo = np.stack([vocal + bass, vocal + bass], axis=1).astype(np.float32)
+
+        buffer = io.BytesIO()
+        sf.write(buffer, stereo, sr, format="WAV")
+        result = separator.separate(
+            file_name="stereo.wav",
+            model="unknown_model",
+            stems=2,
+            audio_bytes=buffer.getvalue(),
+            sample_rate=sr,
+        )
+
+        vocal_track = next(track for track in result["tracks"] if track["name"] == "vocal")
+        assert result["status"] == "completed"
+        assert result["vocal_enhancement"]["band_pass_hz"] == [80, 2000]
+        assert result["vocal_enhancement"]["hpss_harmonic_used"] is True
+        assert vocal_track["enhancement"]["low_frequency_attenuation_below_hz"] == 150
 
     def test_demucs_cache_dir_honors_env_override(self, temp_dir, monkeypatch):
         """Test that DEMUCS_CACHE_DIR overrides the default cache path."""

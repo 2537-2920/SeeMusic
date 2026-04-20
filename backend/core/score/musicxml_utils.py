@@ -86,8 +86,6 @@ BEATS_TO_TYPE = {
     3.0: ("half", 1),
     4.0: ("whole", 0),
 }
-ALTER_TO_ACCIDENTAL = {-2: "flat-flat", -1: "flat", 1: "sharp", 2: "double-sharp"}
-
 ET.register_namespace("xml", XML_NS)
 
 
@@ -374,6 +372,107 @@ def build_score_metadata_snapshot(score: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _normalized_measure_notes(
+    measure: dict[str, Any],
+    *,
+    total_beats: float,
+    note_prefix: str,
+) -> list[dict[str, Any]]:
+    notes = list(
+        sorted(
+            measure.get(note_prefix) or [],
+            key=lambda item: (
+                float(item.get("start_beat", 1.0)),
+                bool(item.get("chord_with_previous")),
+                str(item.get("note_id") or ""),
+            ),
+        )
+    )
+    if notes:
+        return notes
+    return [
+        {
+            "note_id": f"{note_prefix}-rest-{measure.get('measure_no') or 1}",
+            "pitch": "Rest",
+            "beats": total_beats,
+            "start_beat": 1.0,
+            "is_rest": True,
+        }
+    ]
+
+
+def _append_note_xml(
+    measure_el: ET.Element,
+    note: dict[str, Any],
+    *,
+    note_id: str,
+    voice: str,
+    staff: str | None = None,
+) -> None:
+    note_el = ET.SubElement(
+        measure_el,
+        "note",
+        {f"{{{XML_NS}}}id": note_id},
+    )
+    if bool(note.get("chord_with_previous")) and not (bool(note.get("is_rest")) or str(note.get("pitch")) == "Rest"):
+        ET.SubElement(note_el, "chord")
+
+    is_rest = bool(note.get("is_rest")) or str(note.get("pitch")) == "Rest"
+    if is_rest:
+        ET.SubElement(note_el, "rest")
+    else:
+        pitch_el = ET.SubElement(note_el, "pitch")
+        step, alter, octave = _parse_pitch_components(str(note.get("pitch") or "C4"))
+        ET.SubElement(pitch_el, "step").text = step
+        if alter:
+            ET.SubElement(pitch_el, "alter").text = str(alter)
+        ET.SubElement(pitch_el, "octave").text = str(octave)
+
+    duration, note_type, dots = _duration_components(float(note.get("beats") or 1.0), allow_measure_rest=is_rest)
+    ET.SubElement(note_el, "duration").text = str(duration)
+    ET.SubElement(note_el, "voice").text = str(voice)
+    if staff:
+        ET.SubElement(note_el, "staff").text = str(staff)
+    ET.SubElement(note_el, "type").text = note_type
+    for _ in range(dots):
+        ET.SubElement(note_el, "dot")
+
+    if not is_rest:
+        tied_from_previous = bool(note.get("tied_from_previous"))
+        tied_to_next = bool(note.get("tied_to_next"))
+        if tied_from_previous:
+            ET.SubElement(note_el, "tie", {"type": "stop"})
+        if tied_to_next:
+            ET.SubElement(note_el, "tie", {"type": "start"})
+        if tied_from_previous or tied_to_next:
+            notations = ET.SubElement(note_el, "notations")
+            if tied_from_previous:
+                ET.SubElement(notations, "tied", {"type": "stop"})
+            if tied_to_next:
+                ET.SubElement(notations, "tied", {"type": "start"})
+
+
+def _write_note_sequence(
+    measure_el: ET.Element,
+    notes: list[dict[str, Any]],
+    *,
+    voice: str,
+    staff: str | None = None,
+    note_counter_start: int = 0,
+) -> int:
+    note_counter = int(note_counter_start)
+    for note in notes:
+        note_counter += 1
+        _append_note_xml(
+            measure_el,
+            note,
+            note_id=str(note.get("note_id") or f"note-{note_counter}"),
+            voice=voice,
+            staff=staff,
+        )
+    return note_counter
+
+
 def build_musicxml_from_measures(
     measures: list[dict[str, Any]],
     *,
@@ -408,9 +507,13 @@ def build_musicxml_from_measures(
     encoding = ET.SubElement(identification, "encoding")
     ET.SubElement(encoding, "software").text = "SeeMusic Verovio Migration"
 
+    grand_staff_mode = any(
+        measure.get("right_hand_notes") or measure.get("left_hand_notes")
+        for measure in normalized_measures
+    )
     part_list = ET.SubElement(root, "part-list")
     score_part = ET.SubElement(part_list, "score-part", {"id": "P1"})
-    ET.SubElement(score_part, "part-name").text = "Melody"
+    ET.SubElement(score_part, "part-name").text = "Piano" if grand_staff_mode else "Melody"
     part = ET.SubElement(root, "part", {"id": "P1"})
 
     clef_sign, clef_line = _choose_clef(normalized_measures)
@@ -427,80 +530,73 @@ def build_musicxml_from_measures(
                 f"{{{XML_NS}}}id": f"measure-{measure_index}",
             },
         )
-        attributes = ET.SubElement(measure_el, "attributes")
-        ET.SubElement(attributes, "divisions").text = str(DIVISIONS_PER_QUARTER)
-        key_el = ET.SubElement(attributes, "key")
-        ET.SubElement(key_el, "fifths").text = str(fifths)
-        ET.SubElement(key_el, "mode").text = mode
-        time_el = ET.SubElement(attributes, "time")
-        ET.SubElement(time_el, "beats").text = str(numerator)
-        ET.SubElement(time_el, "beat-type").text = str(denominator)
-        clef_el = ET.SubElement(attributes, "clef")
-        ET.SubElement(clef_el, "sign").text = clef_sign
-        ET.SubElement(clef_el, "line").text = clef_line
+        if measure_index == 1:
+            attributes = ET.SubElement(measure_el, "attributes")
+            ET.SubElement(attributes, "divisions").text = str(DIVISIONS_PER_QUARTER)
+            key_el = ET.SubElement(attributes, "key")
+            ET.SubElement(key_el, "fifths").text = str(fifths)
+            ET.SubElement(key_el, "mode").text = mode
+            time_el = ET.SubElement(attributes, "time")
+            ET.SubElement(time_el, "beats").text = str(numerator)
+            ET.SubElement(time_el, "beat-type").text = str(denominator)
+            if grand_staff_mode:
+                ET.SubElement(attributes, "staves").text = "2"
+                treble_clef = ET.SubElement(attributes, "clef", {"number": "1"})
+                ET.SubElement(treble_clef, "sign").text = "G"
+                ET.SubElement(treble_clef, "line").text = "2"
+                bass_clef = ET.SubElement(attributes, "clef", {"number": "2"})
+                ET.SubElement(bass_clef, "sign").text = "F"
+                ET.SubElement(bass_clef, "line").text = "4"
+            else:
+                clef_el = ET.SubElement(attributes, "clef")
+                ET.SubElement(clef_el, "sign").text = clef_sign
+                ET.SubElement(clef_el, "line").text = clef_line
 
         if measure_index == 1:
             direction = ET.SubElement(measure_el, "direction", {"placement": "above"})
             direction_type = ET.SubElement(direction, "direction-type")
-            metronome = ET.SubElement(direction_type, "metronome")
-            ET.SubElement(metronome, "beat-unit").text = "quarter"
-            ET.SubElement(metronome, "per-minute").text = str(int(tempo))
+            ET.SubElement(direction_type, "words").text = f"Quarter = {int(tempo)}"
             ET.SubElement(direction, "sound", {"tempo": str(int(tempo))})
 
-        notes = list(sorted(measure.get("notes") or [], key=lambda item: (float(item.get("start_beat", 1.0)), str(item.get("note_id") or ""))))
-        if not notes:
-            notes = [
-                {
-                    "note_id": f"note-{measure_index}-rest",
-                    "pitch": "Rest",
-                    "beats": total_beats,
-                    "start_beat": 1.0,
-                    "is_rest": True,
-                }
-            ]
-
-        for note in notes:
-            note_counter += 1
-            note_el = ET.SubElement(
-                measure_el,
-                "note",
-                {f"{{{XML_NS}}}id": str(note.get("note_id") or f"note-{note_counter}")},
+        if grand_staff_mode:
+            right_hand_notes = _normalized_measure_notes(
+                measure,
+                total_beats=total_beats,
+                note_prefix="right_hand_notes",
             )
-
-            is_rest = bool(note.get("is_rest")) or str(note.get("pitch")) == "Rest"
-            if is_rest:
-                ET.SubElement(note_el, "rest")
-            else:
-                pitch_el = ET.SubElement(note_el, "pitch")
-                step, alter, octave = _parse_pitch_components(str(note.get("pitch") or "C4"))
-                ET.SubElement(pitch_el, "step").text = step
-                if alter:
-                    ET.SubElement(pitch_el, "alter").text = str(alter)
-                ET.SubElement(pitch_el, "octave").text = str(octave)
-
-            duration, note_type, dots = _duration_components(float(note.get("beats") or 1.0), allow_measure_rest=is_rest)
-            ET.SubElement(note_el, "duration").text = str(duration)
-            ET.SubElement(note_el, "voice").text = "1"
-            ET.SubElement(note_el, "type").text = note_type
-            for _ in range(dots):
-                ET.SubElement(note_el, "dot")
-
-            if not is_rest:
-                accidental = ALTER_TO_ACCIDENTAL.get(alter)
-                if accidental:
-                    ET.SubElement(note_el, "accidental").text = accidental
-                tied_from_previous = bool(note.get("tied_from_previous"))
-                tied_to_next = bool(note.get("tied_to_next"))
-                if tied_from_previous:
-                    ET.SubElement(note_el, "tie", {"type": "stop"})
-                if tied_to_next:
-                    ET.SubElement(note_el, "tie", {"type": "start"})
-                if tied_from_previous or tied_to_next:
-                    notations = ET.SubElement(note_el, "notations")
-                    if tied_from_previous:
-                        ET.SubElement(notations, "tied", {"type": "stop"})
-                    if tied_to_next:
-                        ET.SubElement(notations, "tied", {"type": "start"})
+            left_hand_notes = _normalized_measure_notes(
+                measure,
+                total_beats=total_beats,
+                note_prefix="left_hand_notes",
+            )
+            note_counter = _write_note_sequence(
+                measure_el,
+                right_hand_notes,
+                voice="1",
+                staff="1",
+                note_counter_start=note_counter,
+            )
+            backup = ET.SubElement(measure_el, "backup")
+            ET.SubElement(backup, "duration").text = str(int(round(total_beats * DIVISIONS_PER_QUARTER)))
+            note_counter = _write_note_sequence(
+                measure_el,
+                left_hand_notes,
+                voice="2",
+                staff="2",
+                note_counter_start=note_counter,
+            )
+        else:
+            notes = _normalized_measure_notes(
+                measure,
+                total_beats=total_beats,
+                note_prefix="notes",
+            )
+            note_counter = _write_note_sequence(
+                measure_el,
+                notes,
+                voice="1",
+                note_counter_start=note_counter,
+            )
 
     normalized = _serialize_xml(root)
     _validate_with_verovio(normalized)

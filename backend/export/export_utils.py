@@ -23,6 +23,16 @@ PAGE_SIZE_OPTIONS = {
     "A4": {"pageWidth": 2100, "pageHeight": 2970},
     "LETTER": {"pageWidth": 2160, "pageHeight": 2790},
 }
+COMPACT_EXPORT_OPTIONS = {
+    "scale": 82,
+    "pageMarginLeft": 80,
+    "pageMarginRight": 80,
+    "pageMarginTop": 72,
+    "pageMarginBottom": 84,
+    "spacingSystem": 10,
+    "spacingStaff": 10,
+    "systemMaxPerPage": 8,
+}
 
 
 class ExportPathError(ValueError):
@@ -100,17 +110,83 @@ def _toolkit_for_export(page_size: str) -> verovio.toolkit:
             "breaks": "auto",
             "pageWidth": int(page_settings["pageWidth"]),
             "pageHeight": int(page_settings["pageHeight"]),
-            "scale": 100,
+            "scale": int(COMPACT_EXPORT_OPTIONS["scale"]),
             "adjustPageWidth": False,
             "adjustPageHeight": False,
             "svgViewBox": True,
+            "pageMarginLeft": int(COMPACT_EXPORT_OPTIONS["pageMarginLeft"]),
+            "pageMarginRight": int(COMPACT_EXPORT_OPTIONS["pageMarginRight"]),
+            "pageMarginTop": int(COMPACT_EXPORT_OPTIONS["pageMarginTop"]),
+            "pageMarginBottom": int(COMPACT_EXPORT_OPTIONS["pageMarginBottom"]),
+            "spacingSystem": int(COMPACT_EXPORT_OPTIONS["spacingSystem"]),
+            "spacingStaff": int(COMPACT_EXPORT_OPTIONS["spacingStaff"]),
+            "systemMaxPerPage": int(COMPACT_EXPORT_OPTIONS["systemMaxPerPage"]),
+            "header": "none",
+            "footer": "none",
         }
     )
     return toolkit
 
 
+def _local_name(tag: str) -> str:
+    if "}" in tag:
+        return tag.rsplit("}", 1)[1]
+    return tag
+
+
+def _iter_named_children(parent: ET.Element, tag_name: str) -> list[ET.Element]:
+    return [child for child in list(parent) if _local_name(child.tag) == tag_name]
+
+
+def _serialize_child(element: ET.Element) -> str:
+    return ET.tostring(element, encoding="unicode")
+
+
+def _compact_redundant_measure_attributes(musicxml: str) -> str:
+    root = ET.fromstring(str(musicxml or "").encode("utf-8"))
+    measures = [element for element in root.iter() if _local_name(element.tag) == "measure"]
+    if len(measures) < 2:
+        return musicxml
+
+    first_attributes = next((child for child in list(measures[0]) if _local_name(child.tag) == "attributes"), None)
+    if first_attributes is None:
+        return musicxml
+
+    visual_tags = ("divisions", "key", "time", "staves", "clef", "part-symbol")
+    reference_signature = {
+        tag: [_serialize_child(child) for child in _iter_named_children(first_attributes, tag)]
+        for tag in visual_tags
+    }
+    allowed_visual_tags = set(visual_tags)
+
+    for measure in measures[1:]:
+        attributes = next((child for child in list(measure) if _local_name(child.tag) == "attributes"), None)
+        if attributes is None:
+            continue
+        children = list(attributes)
+        if not children:
+            attributes.clear()
+            measure.remove(attributes)
+            continue
+        if any(_local_name(child.tag) not in allowed_visual_tags for child in children):
+            continue
+
+        current_signature = {
+            tag: [_serialize_child(child) for child in _iter_named_children(attributes, tag)]
+            for tag in visual_tags
+        }
+        if current_signature == reference_signature:
+            measure.remove(attributes)
+
+    try:
+        ET.indent(root, space="  ")
+    except AttributeError:  # pragma: no cover
+        pass
+    return ET.tostring(root, encoding="unicode", xml_declaration=True)
+
+
 def _render_svg_pages(score: dict[str, Any], page_size: str) -> list[str]:
-    musicxml = str(score.get("musicxml") or "")
+    musicxml = _compact_redundant_measure_attributes(str(score.get("musicxml") or ""))
     toolkit = _toolkit_for_export(page_size)
     if not toolkit.loadData(musicxml):
         raise ValueError("MusicXML could not be loaded by Verovio for export")
@@ -139,6 +215,13 @@ def _render_png_pages(score: dict[str, Any], page_size: str) -> list[Image.Image
     return images
 
 
+def _flatten_image_to_white_rgb(image: Image.Image) -> Image.Image:
+    rgba_image = image.convert("RGBA")
+    white_background = Image.new("RGBA", rgba_image.size, (255, 255, 255, 255))
+    white_background.alpha_composite(rgba_image)
+    return white_background.convert("RGB")
+
+
 def _merge_png_pages(images: list[Image.Image]) -> bytes:
     if not images:
         raise ValueError("no score pages available for PNG export")
@@ -165,7 +248,7 @@ def _merge_png_pages(images: list[Image.Image]) -> bytes:
 def _merge_pdf_pages(images: list[Image.Image]) -> bytes:
     if not images:
         raise ValueError("no score pages available for PDF export")
-    converted = [image.convert("RGB") for image in images]
+    converted = [_flatten_image_to_white_rgb(image) for image in images]
     buffer = BytesIO()
     converted[0].save(buffer, format="PDF", save_all=True, append_images=converted[1:])
     return buffer.getvalue()

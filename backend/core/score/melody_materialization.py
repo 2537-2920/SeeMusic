@@ -1,15 +1,16 @@
-"""Convert pitch sequences into normalized score structures."""
+"""Shared melody materialization helpers without MusicXML dependencies."""
 
 from __future__ import annotations
 
 from typing import Any, Dict, List
 from uuid import uuid4
 
-from backend.core.piano.arrangement import generate_piano_arrangement
 from backend.core.pitch.pitch_sequence_utils import is_note_event_item
-from backend.core.score.key_detection import detect_key_signature, normalize_key_signature_text, respell_pitch_sequence_for_key
-from backend.core.score.melody_materialization import materialize_melody_from_pitch_sequence as shared_materialize_melody_from_pitch_sequence
-from backend.core.score.musicxml_utils import build_musicxml_from_measures
+from backend.core.score.key_detection import (
+    detect_key_signature,
+    normalize_key_signature_text,
+    respell_pitch_sequence_for_key,
+)
 from backend.core.score.note_mapping import (
     beats_per_measure,
     beats_to_duration_label,
@@ -21,7 +22,6 @@ from backend.core.score.note_mapping import (
     quantize_beats,
     seconds_to_beats,
 )
-from backend.core.score.score_utils import create_score
 
 GAP_TOLERANCE_SECONDS = 0.05
 MERGE_TOLERANCE_SECONDS = 0.05
@@ -345,15 +345,9 @@ def _simplify_events_for_readability(events: List[Dict[str, Any]], tempo: int) -
             duration = float(current["duration_seconds"])
             if duration < min_rest_seconds:
                 if simplified and not simplified[-1]["is_rest"]:
-                    simplified[-1]["duration_seconds"] = round(
-                        float(simplified[-1]["duration_seconds"]) + duration,
-                        3,
-                    )
+                    simplified[-1]["duration_seconds"] = round(float(simplified[-1]["duration_seconds"]) + duration, 3)
                 elif index + 1 < len(working) and not working[index + 1]["is_rest"]:
-                    working[index + 1]["duration_seconds"] = round(
-                        float(working[index + 1]["duration_seconds"]) + duration,
-                        3,
-                    )
+                    working[index + 1]["duration_seconds"] = round(float(working[index + 1]["duration_seconds"]) + duration, 3)
                 else:
                     simplified.append(current)
             else:
@@ -391,7 +385,6 @@ def _materialize_measures(events: List[Dict[str, Any]], tempo: int, time_signatu
 
     for event in events:
         raw_beats = round(seconds_to_beats(event["duration_seconds"], tempo), 3)
-        # Keep full length for notes that exceed one measure so they can be split with ties.
         remaining_beats = raw_beats if raw_beats > total_beats + 1e-6 else quantize_beats(raw_beats)
         event_group_id = f"evt_{uuid4().hex[:8]}"
         segment_index = 0
@@ -437,6 +430,25 @@ def _materialize_measures(events: List[Dict[str, Any]], tempo: int, time_signatu
     return measures
 
 
+def _is_full_rest_measure(measure: Dict[str, Any], *, total_beats: float) -> bool:
+    notes = list(measure.get("notes") or [])
+    if not notes:
+        return True
+    if any(not bool(note.get("is_rest")) and str(note.get("pitch") or "Rest") != "Rest" for note in notes):
+        return False
+    return True
+
+
+def _trim_trailing_rest_measures(measures: List[Dict[str, Any]], *, time_signature: str) -> List[Dict[str, Any]]:
+    if not measures:
+        return []
+    total_beats = beats_per_measure(time_signature)
+    trimmed = [dict(measure) for measure in measures]
+    while len(trimmed) > 1 and _is_full_rest_measure(trimmed[-1], total_beats=total_beats):
+        trimmed.pop()
+    return trimmed
+
+
 def materialize_melody_from_pitch_sequence(
     pitch_sequence: List[Dict[str, Any]],
     *,
@@ -445,60 +457,37 @@ def materialize_melody_from_pitch_sequence(
     key_signature: str | None = "C",
     auto_detect_key: bool = False,
 ) -> Dict[str, Any]:
-    return shared_materialize_melody_from_pitch_sequence(
-        pitch_sequence,
-        tempo=tempo,
-        time_signature=time_signature,
-        key_signature=key_signature,
-        auto_detect_key=auto_detect_key,
+    fallback_key = normalize_key_signature_text(key_signature, default="C")
+    resolved_key_signature = (
+        detect_key_signature(pitch_sequence, fallback_key_signature=fallback_key)
+        if auto_detect_key or not str(key_signature or "").strip()
+        else fallback_key
     )
-
-
-def build_score_from_pitch_sequence(
-    pitch_sequence: List[Dict[str, Any]],
-    tempo: int = 120,
-    time_signature: str = "4/4",
-    key_signature: str | None = "C",
-    title: str | None = None,
-    auto_detect_key: bool = False,
-    arrangement_mode: str = "piano_solo",
-) -> Dict[str, Any]:
-    resolved_arrangement_mode = "piano_solo" if str(arrangement_mode or "piano_solo").strip().lower() == "piano_solo" else "melody"
-    melody_materialized = materialize_melody_from_pitch_sequence(
-        pitch_sequence,
-        tempo=tempo,
-        time_signature=time_signature,
-        key_signature=key_signature,
-        auto_detect_key=auto_detect_key,
+    normalized_sequence = respell_pitch_sequence_for_key(pitch_sequence, resolved_key_signature)
+    events = _normalize_pitch_items(normalized_sequence, tempo)
+    events = _simplify_events_for_readability(events, tempo)
+    measures = (
+        _materialize_measures(events, tempo, time_signature)
+        if events
+        else [_empty_measure(1, beats_per_measure(time_signature))]
     )
-    resolved_key_signature = str(melody_materialized["key_signature"])
-    measures = list(melody_materialized["measures"])
-    arrangement_payload: Dict[str, Any] | None = None
-    measures_for_export = measures
-    if resolved_arrangement_mode == "piano_solo":
-        arrangement_payload = generate_piano_arrangement(
-            melody_measures=measures,
-            key_signature=resolved_key_signature,
-            tempo=int(tempo),
-            time_signature=time_signature,
-            title=title,
-        )
-        measures_for_export = list(arrangement_payload.get("arranged_measures") or measures)
-    musicxml = build_musicxml_from_measures(
-        measures_for_export,
-        tempo=tempo,
-        time_signature=time_signature,
-        key_signature=resolved_key_signature,
-        title=title,
-    )
-    score = create_score(
-        musicxml=musicxml,
-        title=title,
-    )
-    score["arrangement_mode"] = resolved_arrangement_mode
-    if arrangement_payload is not None:
-        score["piano_arrangement"] = arrangement_payload
-        score["score_mode"] = "piano_two_hand_arrangement"
-    else:
-        score["score_mode"] = "melody_transcription"
-    return score
+    measures = _trim_trailing_rest_measures(measures, time_signature=time_signature)
+    melody = [
+        {
+            "measure_no": int(measure.get("measure_no") or 1),
+            "start_beat": float(note.get("start_beat") or 1.0),
+            "beats": float(note.get("beats") or 0.0),
+            "pitch": str(note.get("pitch") or "Rest"),
+            "time": float(note.get("time") or 0.0),
+            "duration_seconds": float(note.get("duration_seconds") or 0.0),
+        }
+        for measure in measures
+        for note in list(measure.get("notes") or [])
+        if not note.get("is_rest") and str(note.get("pitch") or "Rest") != "Rest"
+    ]
+    return {
+        "key_signature": resolved_key_signature,
+        "pitch_sequence": normalized_sequence,
+        "measures": measures,
+        "melody": melody,
+    }

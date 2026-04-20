@@ -450,7 +450,7 @@ def analyze_audio(file_name: str, audio_bytes: bytes, sample_rate: int | None = 
         audio_bytes=audio_bytes,
     )
     beat_result = detect_beats(file_name, audio_bytes=audio_bytes)
-    score = build_score_from_pitch_sequence(pitch_sequence)
+    score = build_score_from_pitch_sequence(pitch_sequence, auto_detect_key=True, arrangement_mode="piano_solo")
     pitch_curve = build_pitch_curve(pitch_sequence, pitch_sequence)
     log_entry = record_audio_processing_log(
         file_name=file_name,

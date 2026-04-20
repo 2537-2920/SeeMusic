@@ -8,7 +8,7 @@
     <meta content="0" http-equiv="Expires"/>
     <title>智能识谱 - SeeMusic</title>
     <script src="https://modao.cc/agent-py/static/source/js/iconify-icon.min.1.0.7.js"></script>
-    <link href="transcription.css?v=20260417-score-viewer-v4" rel="stylesheet"/>
+    <link href="transcription.css?v=20260420-piano-export-fallback-v1" rel="stylesheet"/>
 </head>
 <body>
     <div class="page-shell">
@@ -32,7 +32,7 @@
                     <span id="backend-status-text">服务检查中</span>
                 </div>
                 <div class="status-chip">
-                    <span>当前乐谱</span>
+                    <span id="linkage-label">当前乐谱</span>
                     <strong id="score-linkage-status">未连接</strong>
                 </div>
             </div>
@@ -69,6 +69,19 @@
                         <span class="field-label">调号</span>
                         <input id="key-signature-input" placeholder="C" type="text"/>
                     </label>
+                </div>
+                <div hidden id="dizi-flute-type-field" style="margin-top:12px">
+                    <label class="field-label" for="dizi-flute-type-input">笛型</label>
+                    <select id="dizi-flute-type-input">
+                        <option value="C">C 调笛</option>
+                        <option value="D">D 调笛</option>
+                        <option value="E">E 调笛</option>
+                        <option value="F">F 调笛</option>
+                        <option value="G">G 调笛</option>
+                        <option value="A">A 调笛</option>
+                        <option value="Bb">Bb 调笛</option>
+                    </select>
+                    <p class="helper-text">笛子模式下会按所选笛型的筒音关系显示简谱数字和指法。</p>
                 </div>
 
                 <label class="field-label" for="pitch-sequence-input">音高序列 JSON</label>
@@ -192,7 +205,7 @@
             </section>
 
             <section class="center-column">
-                <div class="panel summary-panel">
+                <div class="panel summary-panel" id="score-summary-panel">
                     <div class="summary-head">
                         <div>
                             <p class="eyebrow">当前关联</p>
@@ -213,7 +226,7 @@
                     </div>
                 </div>
 
-                <div class="editor-grid">
+                <div class="editor-grid" id="score-editor-grid">
                     <div class="panel note-panel">
                         <div class="panel-header compact">
                             <div>
@@ -266,25 +279,60 @@
                     <div class="panel-header">
                         <div>
                             <p class="eyebrow">识谱结果</p>
-                            <h2>Verovio 谱面预览</h2>
+                            <h2 id="preview-panel-title">Verovio 谱面预览</h2>
                         </div>
-                        <button class="primary-button" id="open-score-viewer-btn" type="button">打开乐谱查看器</button>
+                        <div class="panel-header-actions">
+                            <div class="instrument-switch">
+                                <span class="instrument-switch-label">识谱模式</span>
+                                <div class="instrument-toggle" id="instrument-toggle" role="tablist" aria-label="识谱模式切换">
+                                    <button class="instrument-toggle-button" data-instrument-type="piano" role="tab" type="button">钢琴</button>
+                                    <button class="instrument-toggle-button" data-instrument-type="guzheng" role="tab" type="button">古筝</button>
+                                    <button class="instrument-toggle-button" data-instrument-type="guitar" role="tab" type="button">吉他</button>
+                                    <button class="instrument-toggle-button" data-instrument-type="dizi" role="tab" type="button">笛子</button>
+                                </div>
+                            </div>
+                            <div class="instrument-switch instrument-switch-compact" id="piano-result-switch">
+                                <span class="instrument-switch-label">钢琴输出</span>
+                                <div class="instrument-toggle" id="piano-result-toggle" aria-label="钢琴输出固定为双手钢琴谱">
+                                    <button class="instrument-toggle-button active" data-piano-result-mode="arranged" type="button">双手钢琴谱</button>
+                                </div>
+                            </div>
+                            <button class="secondary-button" id="export-score-pdf-btn" type="button">导出 PDF</button>
+                            <button class="primary-button" id="open-score-viewer-btn" type="button">打开乐谱查看器</button>
+                        </div>
                     </div>
+                    <p class="helper-text" id="preview-panel-copy">钢琴模式固定输出双手钢琴谱；切到古筝、吉他或笛子模式后，这里会切成各自的专属结果页。</p>
                     <div class="score-empty" id="score-empty">
                         <h3>当前还没有关联乐谱</h3>
                         <p>请先生成一份乐谱。生成完成后，这里会出现由 Verovio 渲染的轻量预览，并可进入纸质乐谱风格查看器查看完整分页谱面。</p>
                     </div>
                     <div class="score-entry-card" hidden id="score-viewer-entry"></div>
+                    <div class="score-empty" hidden id="guzheng-score-empty">
+                        <h3>当前还没有生成古筝谱</h3>
+                        <p>切换到古筝模式后，系统会基于当前旋律生成简谱、弦位与基础技法建议，并在这里展示古筝专属结果页。</p>
+                    </div>
+                    <div class="guzheng-score-view" hidden id="guzheng-score-view"></div>
+                    <div class="score-empty" hidden id="guitar-lead-sheet-empty">
+                        <h3>当前还没有生成吉他弹唱谱</h3>
+                        <p>切换到吉他模式后，系统会基于当前旋律生成 lead sheet 风格的吉他弹唱谱，并在这里优先展示正文、常用和弦图与基础扫弦建议。</p>
+                    </div>
+                    <div class="guitar-lead-sheet-view" hidden id="guitar-lead-sheet-view"></div>
+                    <div class="score-empty" hidden id="dizi-score-empty">
+                        <h3>当前还没有生成笛子谱</h3>
+                        <p>切换到笛子模式后，系统会基于当前旋律生成笛子简谱，并在这里展示筒音关系、指法/孔位和基础技法建议。</p>
+                    </div>
+                    <div class="dizi-score-view" hidden id="dizi-score-view"></div>
                 </div>
 
                 <div class="panel score-panel">
                     <div class="panel-header">
                         <div>
                             <p class="eyebrow">分析结果</p>
-                            <h2>音频分析面板</h2>
+                            <h2 id="analysis-panel-title">钢琴识谱分析</h2>
                         </div>
                     </div>
-                    <div class="analysis-grid">
+                    <p class="helper-text" id="analysis-panel-copy">钢琴模式下会按当前输出模式展示节拍、分轨与和声分析；切到古筝或吉他模式后会替换成各自的调试面板。</p>
+                    <div class="analysis-grid" id="piano-analysis-grid">
                         <div class="analysis-card">
                             <h3>节拍检测</h3>
                             <div class="analysis-output" id="beat-detect-output">
@@ -310,10 +358,13 @@
                             </div>
                         </div>
                     </div>
+                    <div class="guzheng-debug-panel" hidden id="guzheng-debug-panel"></div>
+                    <div class="guitar-debug-panel" hidden id="guitar-debug-panel"></div>
+                    <div class="dizi-debug-panel" hidden id="dizi-debug-panel"></div>
                 </div>
             </section>
 
-            <aside class="panel right-panel">
+            <aside class="panel right-panel" id="export-workbench-panel">
                 <div class="panel-header">
                     <div>
                         <p class="eyebrow">导出工作台</p>
@@ -440,9 +491,9 @@
         </footer>
     </div>
 
-    <script src="app_common.js?v=20260417-score-viewer-v4"></script>
-    <script src="vendor/verovio/verovio-toolkit-wasm.js?v=20260417-score-viewer-v4"></script>
-    <script src="score_viewer_layout.js?v=20260417-score-viewer-v4"></script>
-    <script src="transcription.js?v=20260417-score-viewer-v4"></script>
+    <script src="app_common.js?v=20260418-guitar-folk-layout-v3"></script>
+    <script src="vendor/verovio/verovio-toolkit-wasm.js?v=20260418-guitar-folk-layout-v3"></script>
+    <script src="score_viewer_layout.js?v=20260418-guitar-folk-layout-v3"></script>
+    <script src="transcription.js?v=20260420-piano-export-fallback-v1"></script>
 </body>
 </html>

@@ -570,6 +570,72 @@ select:focus {
     font-weight: 700;
 }
 
+.panel-header-actions {
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.instrument-switch {
+    display: grid;
+    gap: 6px;
+    min-width: 220px;
+}
+
+.instrument-switch-compact {
+    min-width: 260px;
+}
+
+.instrument-switch-label {
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.instrument-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px;
+    border-radius: 999px;
+    border: 1px solid #d9e4ec;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(244, 248, 250, 0.96));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+.instrument-toggle-button {
+    flex: 1 1 0;
+    min-width: 0;
+    border: 0;
+    border-radius: 999px;
+    padding: 10px 14px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.86rem;
+    font-weight: 700;
+    transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.instrument-toggle-button.active {
+    background: linear-gradient(135deg, rgba(69, 123, 157, 0.12), rgba(255, 255, 255, 0.98));
+    color: var(--accent-strong);
+    box-shadow: 0 8px 16px rgba(69, 123, 157, 0.12);
+}
+
+.instrument-toggle-button:hover,
+.instrument-toggle-button:focus-visible {
+    color: var(--accent-strong);
+}
+
+.instrument-toggle-button:focus-visible {
+    outline: 2px solid rgba(69, 123, 157, 0.32);
+    outline-offset: 2px;
+}
+
 #score-musicxml-input {
     min-height: 360px;
     white-space: pre;
@@ -621,6 +687,2205 @@ select:focus {
 .verovio-pane .note.is-selected,
 .verovio-pane .rest.is-selected {
     filter: drop-shadow(0 0 10px rgba(69, 123, 157, 0.42));
+}
+
+.guzheng-score-view,
+.guitar-lead-sheet-view,
+.dizi-score-view {
+    display: grid;
+    gap: 18px;
+}
+
+.guzheng-debug-panel,
+.guitar-debug-panel,
+.dizi-debug-panel,
+.guitar-debug-shell,
+.guitar-debug-summary,
+.guitar-debug-summary-copy {
+    display: grid;
+    gap: 14px;
+}
+
+.guitar-debug-summary {
+    padding: 20px 22px;
+    border-radius: 24px;
+    border: 1px solid #e6ebf1;
+    background:
+        radial-gradient(circle at top right, rgba(123, 184, 189, 0.18), transparent 34%),
+        linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(242, 247, 249, 0.96));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.guitar-debug-summary-title {
+    color: var(--accent-strong);
+    font-size: 1.04rem;
+    font-weight: 700;
+}
+
+.guitar-debug-summary .helper-text {
+    margin: 0;
+}
+
+.guzheng-sheet-stack {
+    display: grid;
+    gap: 18px;
+}
+
+.guzheng-jianpu-paper {
+    display: grid;
+    gap: 22px;
+    width: 100%;
+    max-width: 100%;
+    padding: 28px 30px 32px;
+    border-radius: 28px;
+    border: 1px solid #eadfce;
+    box-sizing: border-box;
+    overflow: hidden;
+    background:
+        linear-gradient(180deg, rgba(255, 254, 250, 0.995), rgba(252, 248, 241, 0.98)),
+        repeating-linear-gradient(
+            180deg,
+            rgba(166, 119, 76, 0.03) 0,
+            rgba(166, 119, 76, 0.03) 1px,
+            transparent 1px,
+            transparent 36px
+        );
+    box-shadow:
+        0 18px 42px rgba(115, 84, 49, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+.guzheng-jianpu-header {
+    display: grid;
+    grid-template-columns: minmax(96px, 0.55fr) minmax(0, 1.6fr) minmax(96px, 0.55fr);
+    align-items: start;
+    gap: 18px;
+}
+
+.guzheng-jianpu-signature,
+.guzheng-jianpu-meta {
+    display: grid;
+    gap: 8px;
+    color: #5e4124;
+    font-family: "Noto Serif SC", "Songti SC", "STSong", serif;
+}
+
+.guzheng-jianpu-signature-main,
+.guzheng-jianpu-signature-sub,
+.guzheng-jianpu-signature-tempo {
+    font-size: 1.16rem;
+    font-weight: 700;
+}
+
+.guzheng-jianpu-title-block {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+    width: 100%;
+    justify-items: center;
+    text-align: center;
+}
+
+.guzheng-jianpu-title {
+    margin: 0;
+    color: #3d2a17;
+    font-family: "Noto Serif SC", "Songti SC", "STSong", serif;
+    font-size: clamp(1.4rem, 2.6vw, 2rem);
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    line-height: 1.18;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+    text-wrap: balance;
+}
+
+.guzheng-jianpu-subtitle {
+    margin: 0;
+    color: #8a6542;
+    font-size: 0.96rem;
+}
+
+.guzheng-jianpu-meta {
+    justify-items: end;
+    font-size: 0.96rem;
+    line-height: 1.7;
+}
+
+.guzheng-jianpu-body {
+    display: grid;
+    gap: 18px;
+}
+
+.guzheng-jianpu-pages {
+    display: grid;
+    gap: 22px;
+}
+
+.guzheng-jianpu-page {
+    display: grid;
+    gap: 16px;
+    padding-bottom: 14px;
+    border-bottom: 1px dashed rgba(130, 94, 59, 0.22);
+}
+
+.guzheng-jianpu-page:last-child {
+    padding-bottom: 0;
+    border-bottom: none;
+}
+
+.guzheng-jianpu-page-footer {
+    justify-self: end;
+    color: #8a6542;
+    font-size: 0.82rem;
+    letter-spacing: 0.08em;
+}
+
+.guzheng-jianpu-running-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 12px;
+    align-items: center;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(122, 83, 50, 0.16);
+    color: #7d5736;
+}
+
+.guzheng-jianpu-running-title {
+    color: #4f341c;
+    font-family: "Noto Serif SC", "Songti SC", "STSong", serif;
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+}
+
+.guzheng-jianpu-running-meta,
+.guzheng-jianpu-running-page {
+    font-size: 0.8rem;
+    letter-spacing: 0.04em;
+}
+
+.guzheng-jianpu-line {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
+}
+
+.guzheng-jianpu-line-marker {
+    min-height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 22px;
+    border-radius: 8px;
+    border: 1px solid #d6c3ab;
+    background: rgba(255, 255, 255, 0.82);
+    color: #7a5332;
+    font-size: 0.92rem;
+    font-weight: 700;
+}
+
+.guzheng-jianpu-line-content {
+    display: grid;
+    grid-template-columns: repeat(var(--guzheng-line-measure-count, 1), minmax(0, 1fr));
+    gap: 10px;
+    min-width: 0;
+}
+
+.guzheng-jianpu-measure {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 0 6px 0 0;
+    min-width: 0;
+}
+
+.guzheng-jianpu-measure.is-line-end {
+    padding-right: 0;
+}
+
+.guzheng-jianpu-measure-notes {
+    display: flex;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    min-width: 0;
+}
+
+.guzheng-jianpu-note-group {
+    position: relative;
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 5px;
+    max-width: 100%;
+}
+
+.guzheng-jianpu-bar {
+    width: 2px;
+    align-self: stretch;
+    border-radius: 999px;
+    background: linear-gradient(180deg, rgba(121, 79, 42, 0.94), rgba(88, 59, 31, 0.92));
+}
+
+.guzheng-jianpu-slur-part {
+    position: absolute;
+    top: 18px;
+    width: 30px;
+    height: 10px;
+    border-top: 2px solid rgba(128, 88, 52, 0.9);
+    pointer-events: none;
+}
+
+.guzheng-jianpu-slur-part.slur-start {
+    right: -16px;
+    border-radius: 0 999px 0 0;
+}
+
+.guzheng-jianpu-slur-part.slur-end {
+    left: -16px;
+    border-radius: 999px 0 0 0;
+}
+
+.guzheng-jianpu-note {
+    display: inline-grid;
+    grid-template-rows: 16px 14px auto 12px 14px 14px;
+    justify-items: center;
+    align-items: center;
+    min-width: 28px;
+    color: #3f2a16;
+    font-family: "Noto Serif SC", "Songti SC", "STSong", serif;
+}
+
+.guzheng-jianpu-note.requires-press .guzheng-jianpu-digit,
+.guzheng-jianpu-note.requires-press .guzheng-jianpu-accidental {
+    color: #a54d1e;
+}
+
+.guzheng-jianpu-ornaments {
+    min-height: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.guzheng-jianpu-ornament-placeholder {
+    display: inline-block;
+    width: 18px;
+    height: 12px;
+}
+
+.guzheng-jianpu-grace-cluster {
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 3px;
+    margin-right: 2px;
+    padding-bottom: 12px;
+}
+
+.guzheng-jianpu-grace-note {
+    display: grid;
+    justify-items: center;
+    min-width: 10px;
+    color: #6f4d31;
+    font-family: "Noto Serif SC", "Songti SC", "STSong", serif;
+    line-height: 1;
+}
+
+.guzheng-jianpu-grace-note.requires-press .guzheng-jianpu-grace-digit,
+.guzheng-jianpu-grace-note.requires-press .guzheng-jianpu-grace-accidental {
+    color: #b44327;
+}
+
+.guzheng-jianpu-grace-top,
+.guzheng-jianpu-grace-bottom {
+    min-height: 10px;
+    font-size: 0.56rem;
+    letter-spacing: 0.08em;
+}
+
+.guzheng-jianpu-grace-glyph {
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 1px;
+}
+
+.guzheng-jianpu-grace-accidental {
+    font-size: 0.56rem;
+    font-weight: 700;
+}
+
+.guzheng-jianpu-grace-digit {
+    font-size: 0.9rem;
+    font-weight: 700;
+}
+
+.guzheng-jianpu-wave-line {
+    color: #9a6c42;
+    font-size: 0.74rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.guzheng-jianpu-slide-arc {
+    position: relative;
+    display: inline-block;
+    width: 24px;
+    height: 10px;
+    border-top: 2px solid #9a6c42;
+    border-radius: 999px 999px 0 0;
+}
+
+.guzheng-jianpu-slide-arc::after {
+    position: absolute;
+    top: -8px;
+    color: #9a6c42;
+    font-size: 0.66rem;
+    font-weight: 700;
+}
+
+.guzheng-jianpu-slide-arc.slide-up::after {
+    right: -5px;
+    content: "↗";
+}
+
+.guzheng-jianpu-slide-arc.slide-down::after {
+    left: -5px;
+    content: "↘";
+}
+
+.guzheng-jianpu-bend-mark {
+    color: #b44327;
+    font-size: 0.86rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.guzheng-jianpu-octave-top,
+.guzheng-jianpu-octave-bottom {
+    min-height: 14px;
+    color: #6f4d31;
+    font-size: 0.82rem;
+    line-height: 1;
+    letter-spacing: 0.1em;
+}
+
+.guzheng-jianpu-glyph {
+    display: inline-flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 1px;
+    min-height: 38px;
+    white-space: nowrap;
+}
+
+.guzheng-jianpu-accidental {
+    margin-right: 1px;
+    color: #9f5a2b;
+    font-size: 1rem;
+    font-weight: 700;
+    line-height: 1.1;
+}
+
+.guzheng-jianpu-digit {
+    color: #2f2218;
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.guzheng-jianpu-dot,
+.guzheng-jianpu-sustain {
+    color: #5b4028;
+    font-size: 1.2rem;
+    line-height: 1;
+}
+
+.guzheng-jianpu-underlines {
+    display: grid;
+    gap: 2px;
+    min-height: 12px;
+    width: 100%;
+}
+
+.guzheng-jianpu-underline {
+    display: block;
+    width: 100%;
+    min-width: 18px;
+    border-bottom: 2px solid #4a321d;
+}
+
+.guzheng-jianpu-underline-empty {
+    border-bottom-color: transparent;
+}
+
+.guzheng-jianpu-press-text {
+    min-height: 14px;
+    color: #d44b32;
+    font-size: 0.84rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.guzheng-jianpu-press-text:empty::before {
+    content: "";
+    display: inline-block;
+}
+
+.guzheng-jianpu-note.is-rest .guzheng-jianpu-digit {
+    color: #6e5640;
+}
+
+.guzheng-jianpu-note.is-rest .guzheng-jianpu-press-text,
+.guzheng-jianpu-note.is-rest .guzheng-jianpu-octave-bottom {
+    color: transparent;
+}
+
+.guzheng-jianpu-repeat-sign {
+    min-width: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding-bottom: 8px;
+    color: #5a3d24;
+    font-family: "Noto Serif SC", "Songti SC", "STSong", serif;
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.guzheng-sheet-hero,
+.guzheng-meta-card,
+.guzheng-shell,
+.guzheng-phrase-card,
+.guzheng-measure-card,
+.guzheng-string-card,
+.guzheng-technique-card,
+.dizi-sheet-hero,
+.dizi-meta-card,
+.dizi-shell,
+.dizi-phrase-card,
+.dizi-measure-card,
+.dizi-fingering-card,
+.dizi-technique-card {
+    border: 1px solid #e6ebf1;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.guzheng-sheet-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.95fr);
+    gap: 18px;
+    border-radius: 28px;
+    padding: 24px;
+    background:
+        radial-gradient(circle at top right, rgba(212, 163, 115, 0.22), transparent 36%),
+        linear-gradient(135deg, rgba(255, 252, 246, 0.99), rgba(247, 242, 232, 0.96));
+}
+
+.guzheng-sheet-kicker,
+.guzheng-section-kicker {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(182, 124, 68, 0.12);
+    color: #8a4a1b;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.guzheng-sheet-title,
+.guzheng-shell-title {
+    margin: 12px 0 10px;
+    color: #8a4a1b;
+}
+
+.guzheng-sheet-title {
+    font-size: 1.42rem;
+}
+
+.guzheng-sheet-copy,
+.guzheng-string-tip,
+.guzheng-technique-card p,
+.dizi-sheet-copy,
+.dizi-fingering-tip,
+.dizi-technique-card p {
+    margin: 0;
+    color: var(--muted);
+    line-height: 1.7;
+}
+
+.guzheng-sheet-metrics,
+.guzheng-sheet-meta,
+.guzheng-technique-metrics,
+.dizi-sheet-metrics,
+.dizi-sheet-meta,
+.dizi-technique-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.guzheng-meta-card,
+.guzheng-shell,
+.guzheng-phrase-card,
+.guzheng-string-card,
+.guzheng-technique-card,
+.dizi-meta-card,
+.dizi-shell,
+.dizi-phrase-card,
+.dizi-fingering-card,
+.dizi-technique-card {
+    border-radius: 24px;
+    padding: 18px 20px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(249, 246, 241, 0.95));
+}
+
+.guzheng-meta-card,
+.guzheng-shell,
+.dizi-meta-card,
+.dizi-shell {
+    display: grid;
+    gap: 12px;
+}
+
+.guzheng-meta-label,
+.guzheng-measure-count,
+.dizi-meta-label,
+.dizi-measure-count {
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.guzheng-meta-value,
+.guzheng-note-degree,
+.guzheng-measure-index,
+.dizi-meta-value,
+.dizi-note-degree,
+.dizi-measure-index {
+    color: #8a4a1b;
+    font-weight: 800;
+}
+
+.guzheng-meta-value,
+.dizi-meta-value {
+    font-size: 1.12rem;
+}
+
+.guzheng-meta-subtle,
+.dizi-meta-subtle {
+    color: var(--muted);
+    font-size: 0.84rem;
+    line-height: 1.6;
+}
+
+.guzheng-shell-head,
+.guzheng-phrase-head,
+.guzheng-string-head,
+.guzheng-technique-card-head,
+.guzheng-measure-head,
+.dizi-shell-head,
+.dizi-phrase-head,
+.dizi-fingering-head,
+.dizi-technique-card-head,
+.dizi-measure-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.guzheng-section-range,
+.guzheng-section-meta,
+.dizi-section-range,
+.dizi-section-meta {
+    color: #8a4a1b;
+    font-weight: 700;
+}
+
+.guzheng-measure-grid,
+.guzheng-string-grid,
+.guzheng-technique-suggestions,
+.dizi-measure-grid,
+.dizi-fingering-grid,
+.dizi-technique-suggestions {
+    display: grid;
+    gap: 14px;
+}
+
+.guzheng-measure-grid {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.guzheng-string-grid {
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.guzheng-note-row,
+.dizi-note-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+    gap: 12px;
+}
+
+.guzheng-note-token,
+.dizi-note-token {
+    display: grid;
+    gap: 10px;
+    padding: 14px 12px;
+    border-radius: 18px;
+    border: 1px solid #e2d8ca;
+    background: rgba(255, 255, 255, 0.94);
+}
+
+.guzheng-note-token.requires-press,
+.guzheng-string-chip.requires-press,
+.dizi-note-token.half-hole,
+.dizi-fingering-chip.half-hole {
+    border-color: rgba(182, 124, 68, 0.34);
+    background: linear-gradient(180deg, rgba(182, 124, 68, 0.08), rgba(255, 255, 255, 0.98));
+}
+
+.dizi-note-token.out-of-range,
+.dizi-fingering-chip.out-of-range {
+    border-color: rgba(217, 101, 112, 0.32);
+    background: linear-gradient(180deg, rgba(217, 101, 112, 0.08), rgba(255, 255, 255, 0.98));
+}
+
+.guzheng-note-jianpu,
+.dizi-note-jianpu {
+    display: grid;
+    justify-items: center;
+    min-height: 54px;
+}
+
+.guzheng-note-degree,
+.dizi-note-degree {
+    font-size: 1.48rem;
+    line-height: 1.1;
+}
+
+.guzheng-octave,
+.dizi-octave {
+    min-height: 12px;
+    color: #c16c2e;
+    font-size: 0.76rem;
+    letter-spacing: 0.22em;
+}
+
+.guzheng-note-meta,
+.dizi-note-meta {
+    display: grid;
+    gap: 4px;
+    color: var(--muted);
+    font-size: 0.82rem;
+    line-height: 1.5;
+}
+
+.guzheng-technique-row,
+.guzheng-string-chip-row,
+.dizi-technique-row,
+.dizi-fingering-chip-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.guzheng-technique-pill,
+.guzheng-string-chip,
+.dizi-technique-pill,
+.dizi-fingering-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid #e2d8ca;
+    background: rgba(255, 255, 255, 0.94);
+    color: #8a4a1b;
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+
+.guzheng-technique-pill.subtle,
+.dizi-technique-pill.subtle {
+    color: var(--muted);
+}
+
+.guzheng-technique-shell,
+.dizi-technique-shell {
+    display: grid;
+    gap: 14px;
+}
+
+.dizi-sheet-stack {
+    display: grid;
+    gap: 18px;
+}
+
+.traditional-sheet-stack {
+    display: grid;
+    gap: 18px;
+}
+
+.traditional-sheet-hero {
+    align-items: start;
+}
+
+.traditional-sheet-controls {
+    display: grid;
+    gap: 10px;
+    justify-items: end;
+    align-content: start;
+}
+
+.traditional-sheet-metrics,
+.traditional-sheet-meta {
+    min-width: 0;
+}
+
+.traditional-shell {
+    display: grid;
+    gap: 16px;
+}
+
+.traditional-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+}
+
+.traditional-export-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.traditional-export-button {
+    flex: 0 0 auto;
+}
+
+.traditional-engraved-shell {
+    display: grid;
+    gap: 16px;
+}
+
+.traditional-engraved-shell.has-error,
+.traditional-engraved-shell.is-loading {
+    padding: 18px 20px;
+    border-radius: 22px;
+    border: 1px solid rgba(157, 170, 182, 0.18);
+    background: rgba(255, 255, 255, 0.9);
+}
+
+.traditional-engraved-status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.traditional-engraved-status strong {
+    color: var(--accent-strong);
+    font-size: 1rem;
+    font-weight: 800;
+}
+
+.traditional-engraved-kicker {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.traditional-engraved-pages {
+    display: grid;
+    gap: 18px;
+}
+
+.traditional-engraved-page {
+    margin: 0;
+    display: grid;
+    gap: 10px;
+    justify-items: center;
+}
+
+.traditional-engraved-image {
+    width: min(100%, 920px);
+    height: auto;
+    display: block;
+    border-radius: 18px;
+    border: 1px solid rgba(157, 170, 182, 0.22);
+    background: #ffffff;
+    box-shadow: 0 16px 34px rgba(47, 63, 79, 0.1);
+}
+
+.traditional-engraved-caption {
+    color: var(--muted);
+    font-size: 0.82rem;
+}
+
+.traditional-summary-card {
+    display: grid;
+    gap: 10px;
+    padding: 16px 18px;
+    border-radius: 20px;
+    border: 1px solid rgba(157, 170, 182, 0.18);
+    background: rgba(255, 255, 255, 0.88);
+}
+
+.traditional-summary-label {
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.traditional-summary-value {
+    color: var(--accent-strong);
+    font-size: 1.02rem;
+    font-weight: 800;
+}
+
+.traditional-summary-copy {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.84rem;
+    line-height: 1.6;
+}
+
+.traditional-technique-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+}
+
+.traditional-inline-field {
+    display: grid;
+    gap: 8px;
+}
+
+.traditional-inline-label {
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.traditional-inline-select {
+    min-height: 42px;
+    border-radius: 14px;
+    border: 1px solid rgba(76, 112, 138, 0.18);
+    background: rgba(255, 255, 255, 0.96);
+    padding: 0 14px;
+    color: var(--accent-strong);
+    font-size: 0.96rem;
+    font-weight: 700;
+}
+
+.traditional-inline-copy {
+    color: var(--muted);
+    font-size: 0.82rem;
+    line-height: 1.5;
+}
+
+.traditional-jianpu-paper.instrument-dizi {
+    border-color: #d9e5ec;
+    background:
+        linear-gradient(180deg, rgba(250, 252, 253, 0.996), rgba(244, 249, 251, 0.985)),
+        repeating-linear-gradient(
+            180deg,
+            rgba(98, 143, 171, 0.028) 0,
+            rgba(98, 143, 171, 0.028) 1px,
+            transparent 1px,
+            transparent 36px
+        );
+    box-shadow:
+        0 18px 42px rgba(76, 112, 138, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+.traditional-jianpu-paper.instrument-dizi .guzheng-jianpu-signature,
+.traditional-jianpu-paper.instrument-dizi .guzheng-jianpu-meta,
+.traditional-jianpu-paper.instrument-dizi .guzheng-jianpu-running-header,
+.traditional-jianpu-paper.instrument-dizi .guzheng-jianpu-running-meta,
+.traditional-jianpu-paper.instrument-dizi .guzheng-jianpu-running-page {
+    color: #365f7d;
+}
+
+.traditional-jianpu-paper.instrument-dizi .guzheng-jianpu-title,
+.traditional-jianpu-paper.instrument-dizi .guzheng-jianpu-running-title {
+    color: #234760;
+}
+
+.traditional-jianpu-paper.instrument-dizi .guzheng-jianpu-subtitle {
+    color: #537a95;
+}
+
+.traditional-jianpu-paper.instrument-dizi .guzheng-jianpu-slide-arc,
+.traditional-jianpu-paper.instrument-dizi .guzheng-jianpu-wave-line,
+.traditional-jianpu-paper.instrument-dizi .traditional-jianpu-breath-mark {
+    color: #547b96;
+    border-top-color: #547b96;
+}
+
+.traditional-jianpu-paper.instrument-dizi .guzheng-jianpu-digit,
+.traditional-jianpu-paper.instrument-dizi .guzheng-jianpu-accidental,
+.traditional-jianpu-paper.instrument-dizi .guzheng-jianpu-dot,
+.traditional-jianpu-paper.instrument-dizi .guzheng-jianpu-sustain {
+    color: #203648;
+}
+
+.traditional-jianpu-paper.instrument-dizi .guzheng-jianpu-bar,
+.traditional-jianpu-paper.instrument-dizi .guzheng-jianpu-underline {
+    background: linear-gradient(180deg, rgba(62, 98, 123, 0.92), rgba(42, 74, 96, 0.9));
+    border-bottom-color: #355975;
+}
+
+.traditional-jianpu-paper.instrument-dizi .guzheng-jianpu-line-marker {
+    border-color: #c9d9e3;
+    color: #365f7d;
+}
+
+.traditional-jianpu-note.instrument-dizi .traditional-jianpu-annotation {
+    color: #3b6f90;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+.traditional-jianpu-note.instrument-guzheng .traditional-jianpu-annotation {
+    color: #d44b32;
+}
+
+.traditional-slide-arc-plain::after {
+    content: "~";
+    right: 50%;
+    transform: translateX(50%);
+}
+
+.traditional-jianpu-breath-mark {
+    color: #6b91a8;
+    font-size: 0.84rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.traditional-sheet-stack.print-mode .guzheng-jianpu-paper {
+    border-radius: 20px;
+}
+
+.traditional-sheet-stack.preview-mode .guzheng-jianpu-page {
+    padding-bottom: 10px;
+}
+
+.dizi-sheet-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.95fr);
+    gap: 18px;
+    border-radius: 28px;
+    padding: 24px;
+    background:
+        radial-gradient(circle at top right, rgba(69, 123, 157, 0.18), transparent 36%),
+        linear-gradient(135deg, rgba(248, 253, 255, 0.99), rgba(240, 247, 249, 0.96));
+}
+
+.dizi-sheet-kicker,
+.dizi-section-kicker {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(69, 123, 157, 0.1);
+    color: var(--accent-strong);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.dizi-sheet-title,
+.dizi-shell-title {
+    margin: 12px 0 10px;
+    color: var(--accent-strong);
+}
+
+.dizi-sheet-title {
+    font-size: 1.42rem;
+}
+
+.dizi-meta-card,
+.dizi-shell,
+.dizi-phrase-card,
+.dizi-fingering-card,
+.dizi-technique-card {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(241, 247, 249, 0.95));
+}
+
+.dizi-meta-value,
+.dizi-note-degree,
+.dizi-measure-index,
+.dizi-section-range,
+.dizi-section-meta,
+.dizi-technique-pill,
+.dizi-fingering-chip {
+    color: var(--accent-strong);
+}
+
+.guitar-sheet-stack {
+    display: grid;
+    gap: 18px;
+}
+
+.guitar-sheet-hero,
+.guitar-meta-card,
+.guitar-measure-card,
+.guitar-shape-card {
+    border: 1px solid #e6ebf1;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.guitar-sheet-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.95fr);
+    gap: 18px;
+    border-radius: 28px;
+    padding: 24px;
+    background:
+        radial-gradient(circle at top right, rgba(123, 184, 189, 0.22), transparent 36%),
+        linear-gradient(135deg, rgba(255, 255, 255, 0.99), rgba(241, 247, 249, 0.96));
+}
+
+.guitar-sheet-kicker {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(69, 123, 157, 0.1);
+    color: var(--accent-strong);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.guitar-sheet-title {
+    margin: 12px 0 10px;
+    color: var(--accent-strong);
+    font-size: 1.42rem;
+}
+
+.guitar-sheet-copy {
+    margin: 0;
+    max-width: 62ch;
+    color: var(--muted);
+    line-height: 1.7;
+}
+
+.guitar-sheet-metrics,
+.guitar-sheet-meta {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.guitar-sheet-metrics {
+    align-content: start;
+}
+
+.guitar-meta-card {
+    display: grid;
+    gap: 8px;
+    border-radius: 24px;
+    padding: 18px 20px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 248, 250, 0.95));
+}
+
+.guitar-meta-label {
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.guitar-meta-value {
+    color: var(--accent-strong);
+    font-size: 1.12rem;
+}
+
+.guitar-arrow-pattern {
+    letter-spacing: 0.14em;
+}
+
+.guitar-meta-subtle {
+    color: var(--muted);
+    font-size: 0.84rem;
+    line-height: 1.6;
+}
+
+.guitar-strumming-block {
+    display: grid;
+    gap: 14px;
+}
+
+.guitar-strumming-hero,
+.guitar-strumming-shell,
+.guitar-strumming-section-card {
+    border-radius: 24px;
+    border: 1px solid #e6ebf1;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(245, 249, 251, 0.95)),
+        linear-gradient(90deg, rgba(69, 123, 157, 0.04), transparent);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.guitar-strumming-hero,
+.guitar-strumming-shell {
+    display: grid;
+    gap: 14px;
+    padding: 20px;
+}
+
+.guitar-strumming-title {
+    margin: 6px 0 10px;
+    color: var(--accent-strong);
+    font-size: 1.24rem;
+    font-weight: 800;
+}
+
+.guitar-strumming-pattern {
+    color: var(--accent-strong);
+    font-size: clamp(1.4rem, 2.8vw, 2rem);
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    line-height: 1.2;
+    margin-bottom: 8px;
+}
+
+.guitar-count-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(54px, 1fr));
+    gap: 10px;
+}
+
+.guitar-count-slot {
+    display: grid;
+    gap: 8px;
+    justify-items: center;
+    padding: 12px 8px;
+    border-radius: 18px;
+    border: 1px solid #dce6ee;
+    background: rgba(255, 255, 255, 0.96);
+}
+
+.guitar-count-slot.accent {
+    border-color: rgba(69, 123, 157, 0.26);
+    background: linear-gradient(180deg, rgba(69, 123, 157, 0.08), rgba(255, 255, 255, 0.98));
+}
+
+.guitar-count-label {
+    color: var(--muted);
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.guitar-count-stroke {
+    color: var(--accent-strong);
+    font-size: 1.22rem;
+    font-weight: 800;
+    line-height: 1;
+}
+
+.guitar-count-stroke.empty {
+    color: #9aabb8;
+}
+
+.guitar-strumming-section-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 12px;
+}
+
+.guitar-strumming-section-card {
+    display: grid;
+    gap: 12px;
+    padding: 18px;
+}
+
+.guitar-strumming-section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.guitar-strumming-section-pattern {
+    color: var(--accent-strong);
+    font-size: 1.22rem;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    line-height: 1.25;
+}
+
+.guitar-strumming-section-copy {
+    color: var(--muted);
+    font-size: 0.82rem;
+    line-height: 1.6;
+    margin: 0;
+}
+
+.guitar-strumming-section-foot {
+    display: grid;
+    gap: 6px;
+}
+
+.guitar-measure-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px;
+}
+
+.guitar-measure-card {
+    display: grid;
+    gap: 14px;
+    border-radius: 24px;
+    padding: 18px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(246, 249, 251, 0.95));
+}
+
+.guitar-measure-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.guitar-measure-index {
+    color: var(--accent-strong);
+    font-weight: 700;
+}
+
+.guitar-measure-count {
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+
+.guitar-measure-chords {
+    display: grid;
+    gap: 10px;
+}
+
+.guitar-chord-pill {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.98);
+    border: 1px solid #e7edf3;
+}
+
+.guitar-chord-symbol {
+    display: block;
+    color: var(--accent-strong);
+    font-size: 1rem;
+}
+
+.guitar-chord-beat {
+    display: block;
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 0.76rem;
+}
+
+.guitar-chord-shape {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(69, 123, 157, 0.08);
+    color: var(--accent-strong);
+    font-size: 0.74rem;
+    font-weight: 700;
+}
+
+.guitar-shape-block {
+    display: grid;
+    gap: 12px;
+}
+
+.guitar-folk-block,
+.guitar-folk-sheet,
+.guitar-lyric-lines {
+    display: grid;
+    gap: 14px;
+}
+
+.guitar-section-card {
+    display: grid;
+    gap: 14px;
+    padding: 20px;
+    border-radius: 24px;
+    border: 1px solid #e6ebf1;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(245, 249, 251, 0.95)),
+        linear-gradient(90deg, rgba(69, 123, 157, 0.04), transparent);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.guitar-section-head,
+.guitar-lyric-line-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.guitar-section-kicker {
+    display: block;
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+}
+
+.guitar-section-range,
+.guitar-lyric-line-label {
+    color: var(--accent-strong);
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+.guitar-section-meta,
+.guitar-lyric-line-meta {
+    color: var(--muted);
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.guitar-lyric-line {
+    display: grid;
+    gap: 10px;
+    padding: 16px;
+    border-radius: 20px;
+    border: 1px solid #e8edf3;
+    background: rgba(255, 255, 255, 0.96);
+}
+
+.guitar-lyric-line-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+}
+
+.guitar-lyric-measure {
+    display: grid;
+    gap: 8px;
+    padding: 12px 12px 10px;
+    border-radius: 16px;
+    border: 1px dashed #dbe4ec;
+    background: linear-gradient(180deg, rgba(249, 251, 253, 0.98), rgba(244, 248, 250, 0.95));
+}
+
+.guitar-lyric-measure-index {
+    color: var(--muted);
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+}
+
+.guitar-lyric-chord-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.guitar-lyric-chord {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 30px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid #dce6ee;
+    background: #ffffff;
+    color: var(--accent-strong);
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.guitar-lyric-chord.secondary_dominant {
+    background: rgba(69, 123, 157, 0.1);
+    border-color: rgba(69, 123, 157, 0.24);
+}
+
+.guitar-lyric-chord.borrowed {
+    background: rgba(123, 184, 189, 0.16);
+    border-color: rgba(123, 184, 189, 0.28);
+}
+
+.guitar-lyric-chord.empty {
+    color: var(--muted);
+    font-weight: 600;
+}
+
+.guitar-lyric-rail {
+    min-height: 40px;
+    border-radius: 14px;
+    border: 1px dashed #d7e1ea;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 250, 252, 0.94)),
+        repeating-linear-gradient(
+            90deg,
+            transparent 0,
+            transparent 22px,
+            rgba(124, 135, 147, 0.08) 22px,
+            rgba(124, 135, 147, 0.08) 23px
+        );
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+}
+
+.guitar-lyric-placeholder {
+    color: var(--muted);
+    font-size: 0.78rem;
+}
+
+.guitar-shape-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 12px;
+}
+
+.guitar-shape-card {
+    display: grid;
+    gap: 6px;
+    border-radius: 20px;
+    padding: 16px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(243, 247, 250, 0.95));
+}
+
+.guitar-shape-title {
+    color: var(--accent-strong);
+    font-size: 1rem;
+}
+
+.guitar-shape-fingering {
+    color: #2d6280;
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 0.88rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+}
+
+.guitar-shape-meta {
+    color: var(--muted);
+    font-size: 0.74rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.guitar-sheet-stack.screen-mode {
+    gap: 20px;
+}
+
+.guitar-sheet-stack.print-mode {
+    gap: 16px;
+}
+
+.guitar-sheet-hero {
+    align-items: start;
+}
+
+.guitar-sheet-hero-main {
+    display: grid;
+    gap: 18px;
+}
+
+.guitar-sheet-headline {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.guitar-sheet-actions {
+    display: grid;
+    gap: 10px;
+    justify-items: end;
+}
+
+.guitar-view-mode {
+    display: grid;
+    gap: 8px;
+    justify-items: end;
+}
+
+.guitar-view-mode-toggle {
+    min-width: 240px;
+}
+
+.guitar-export-button {
+    min-height: 42px;
+}
+
+.guitar-global-strumming-card,
+.guitar-lead-body,
+.guitar-lead-section,
+.guitar-chord-rail,
+.guitar-diagram-card,
+.guitar-aux-card {
+    border: 1px solid #e6ebf1;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.guitar-global-strumming-card,
+.guitar-lead-body,
+.guitar-lead-section,
+.guitar-chord-rail,
+.guitar-aux-card {
+    border-radius: 28px;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(244, 248, 250, 0.95)),
+        linear-gradient(120deg, rgba(69, 123, 157, 0.04), transparent 45%);
+}
+
+.guitar-global-strumming-card {
+    display: grid;
+    gap: 14px;
+    padding: 22px;
+}
+
+.guitar-global-strumming-title,
+.guitar-lead-body-title,
+.guitar-chord-rail-title,
+.guitar-aux-title,
+.guitar-lead-section-title {
+    margin: 8px 0 0;
+    color: var(--accent-strong);
+}
+
+.guitar-global-strumming-pattern {
+    color: var(--accent-strong);
+    font-size: clamp(1.45rem, 2.8vw, 2.05rem);
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    line-height: 1.2;
+}
+
+.guitar-strumming-details {
+    border-radius: 18px;
+    border: 1px solid #dde7ef;
+    background: rgba(255, 255, 255, 0.92);
+    overflow: hidden;
+}
+
+.guitar-strumming-details summary {
+    cursor: pointer;
+    list-style: none;
+    padding: 12px 16px;
+    color: var(--accent-strong);
+    font-weight: 700;
+}
+
+.guitar-strumming-details summary::-webkit-details-marker {
+    display: none;
+}
+
+.guitar-strumming-details-body {
+    padding: 0 16px 16px;
+}
+
+.guitar-lead-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
+    gap: 18px;
+    align-items: start;
+}
+
+.guitar-lead-main {
+    display: grid;
+    gap: 18px;
+    min-width: 0;
+}
+
+.guitar-lead-body {
+    display: grid;
+    gap: 18px;
+    padding: 22px;
+}
+
+.guitar-lead-body-head,
+.guitar-chord-rail-head,
+.guitar-aux-head,
+.guitar-lead-section-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.guitar-lead-sections,
+.guitar-lead-lines {
+    display: grid;
+    gap: 18px;
+}
+
+.guitar-lead-section {
+    display: grid;
+    gap: 16px;
+    padding: 20px;
+}
+
+.guitar-lead-section-kicker {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 10px;
+    border-radius: 999px;
+    background: rgba(69, 123, 157, 0.08);
+    color: var(--accent-strong);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.guitar-lead-section-copy {
+    display: grid;
+    gap: 8px;
+}
+
+.guitar-inline-strumming {
+    display: grid;
+    gap: 4px;
+    align-content: start;
+    justify-items: end;
+    min-width: min(100%, 220px);
+    padding: 12px 14px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid #dce6ee;
+}
+
+.guitar-inline-strumming-label {
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.guitar-inline-strumming-pattern {
+    color: var(--accent-strong);
+    font-size: 1.02rem;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+}
+
+.guitar-inline-strumming-copy {
+    color: var(--muted);
+    font-size: 0.76rem;
+}
+
+.guitar-lead-line-shell {
+    display: grid;
+    gap: 10px;
+}
+
+.guitar-lead-line-meta {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.guitar-lead-line-label {
+    color: var(--accent-strong);
+    font-size: 0.92rem;
+    font-weight: 700;
+}
+
+.guitar-lead-line-summary {
+    color: var(--muted);
+    font-size: 0.78rem;
+}
+
+.guitar-lead-line-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 4px;
+}
+
+.guitar-lead-line {
+    display: flex;
+    align-items: stretch;
+    gap: 10px;
+    min-width: max-content;
+}
+
+.guitar-lead-measure {
+    display: grid;
+    gap: 10px;
+    width: var(--measure-width, 11rem);
+    min-width: var(--measure-width, 11rem);
+}
+
+.guitar-lead-measure-head {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.guitar-lead-measure-bar,
+.guitar-lead-final-bar {
+    color: #9aacba;
+    font-weight: 700;
+}
+
+.guitar-lead-measure-number {
+    color: var(--muted);
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+}
+
+.guitar-lead-chord-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    min-height: 42px;
+    padding-bottom: 4px;
+}
+
+.guitar-lead-chord-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 34px;
+    padding: 6px 10px;
+    border: 1px solid #dce6ee;
+    border-radius: 999px;
+    background: #ffffff;
+    color: var(--accent-strong);
+    font-size: 0.92rem;
+    font-weight: 800;
+    line-height: 1;
+    transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.guitar-lead-chord-chip:hover,
+.guitar-diagram-card:hover {
+    transform: translateY(-1px);
+}
+
+.guitar-lead-chord-chip.active,
+.guitar-diagram-card.active {
+    border-color: rgba(69, 123, 157, 0.45);
+    box-shadow: 0 10px 20px rgba(69, 123, 157, 0.12);
+}
+
+.guitar-lead-chord-chip.secondary_dominant {
+    background: rgba(69, 123, 157, 0.12);
+    border-color: rgba(69, 123, 157, 0.26);
+}
+
+.guitar-lead-chord-chip.borrowed {
+    background: rgba(123, 184, 189, 0.16);
+    border-color: rgba(123, 184, 189, 0.3);
+}
+
+.guitar-lead-spacer {
+    color: #9aabb8;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+}
+
+.guitar-lead-lyric-row {
+    min-height: 42px;
+    padding: 10px 2px 4px;
+    border-bottom: 2px solid #d8e1e8;
+    display: flex;
+    align-items: center;
+    color: var(--accent-strong);
+    font-size: 0.96rem;
+    line-height: 1.5;
+}
+
+.guitar-lead-lyric-row.is-placeholder {
+    color: #8597a5;
+    background:
+        linear-gradient(180deg, transparent 0, transparent calc(100% - 2px), rgba(124, 135, 147, 0.18) calc(100% - 2px), rgba(124, 135, 147, 0.18) 100%),
+        repeating-linear-gradient(
+            90deg,
+            transparent 0,
+            transparent 18px,
+            rgba(124, 135, 147, 0.08) 18px,
+            rgba(124, 135, 147, 0.08) 19px
+        );
+}
+
+.guitar-lead-lyric-row.is-empty .guitar-lead-lyric-text {
+    opacity: 0;
+}
+
+.guitar-lead-lyric-text {
+    white-space: nowrap;
+}
+
+/* ============================================================
+   Compact inline chord-over-lyric layout
+   (replaces the legacy measure-grid layout as the main view)
+   ============================================================ */
+
+/* Section card: no card frame – just spacing between sections */
+.guitar-lead-section {
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+    background: transparent;
+    padding: 0 0 24px;
+    gap: 0;
+}
+
+/* Dark-bar section header */
+.guitar-lead-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #2c2c2e;
+    border-radius: 8px 8px 0 0;
+    padding: 10px 16px;
+    margin-bottom: 14px;
+}
+
+.guitar-lead-section-copy {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+}
+
+.guitar-lead-section-title {
+    color: #f0f0f0;
+    font-size: 0.95rem;
+    font-weight: 700;
+    margin: 0;
+    letter-spacing: 0.04em;
+}
+
+.guitar-lead-section-meta {
+    color: #8e8e93;
+    font-size: 0.75rem;
+}
+
+/* Hide the pill badge – info is now in the title */
+.guitar-lead-section-kicker {
+    display: none;
+}
+
+/* Line container */
+.guitar-lead-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 0 6px;
+}
+
+/* One line of chord-over-lyric pairs */
+.guitar-inline-lyric-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0 0.4rem;
+    padding: 4px 0;
+}
+
+/* Each pair: chord name on top, syllable below */
+.guitar-inline-pair {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-start;
+    flex-shrink: 0;
+}
+
+/* Chord name */
+.guitar-inline-chord {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #e05a5a;
+    min-height: 1.3em;
+    min-width: 1.5ch;
+    white-space: nowrap;
+    padding-bottom: 1px;
+    cursor: pointer;
+    transition: color 0.15s ease;
+    user-select: none;
+}
+
+.guitar-inline-chord.is-empty {
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.guitar-inline-chord.secondary_dominant {
+    color: #c07a30;
+}
+
+.guitar-inline-chord.borrowed {
+    color: #4aabb2;
+}
+
+.guitar-inline-pair.is-highlighted .guitar-inline-chord {
+    color: var(--accent-strong);
+    text-decoration: underline;
+}
+
+/* Lyric syllable */
+.guitar-inline-syllable {
+    font-size: 1.05rem;
+    color: var(--text-primary, #e0e0e6);
+    white-space: nowrap;
+    line-height: 1.4;
+}
+
+/* ============================================================ */
+
+.guitar-chord-rail {
+    position: sticky;
+    top: 18px;
+    display: grid;
+    gap: 16px;
+    padding: 20px;
+}
+
+.guitar-chord-rail-grid {
+    display: grid;
+    gap: 12px;
+}
+
+.guitar-diagram-card {
+    display: grid;
+    gap: 12px;
+    padding: 16px;
+    border-radius: 22px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(245, 249, 251, 0.95));
+    text-align: left;
+}
+
+.guitar-diagram-card-head,
+.guitar-diagram-card-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.guitar-diagram-title {
+    color: var(--accent-strong);
+    font-size: 1rem;
+}
+
+.guitar-diagram-usage,
+.guitar-diagram-card-foot {
+    color: var(--muted);
+    font-size: 0.76rem;
+}
+
+.guitar-diagram-glyph {
+    display: grid;
+    gap: 8px;
+    justify-items: center;
+}
+
+.guitar-diagram-head {
+    position: relative;
+    width: 106px;
+    height: 18px;
+}
+
+.guitar-diagram-head-marker {
+    position: absolute;
+    top: 0;
+    left: calc((var(--string) - 1) * 20%);
+    transform: translateX(-50%);
+    color: var(--muted);
+    font-size: 0.76rem;
+    font-weight: 700;
+}
+
+.guitar-diagram-board {
+    position: relative;
+    width: 106px;
+    height: 132px;
+    border-top: 2px solid #aab8c4;
+}
+
+.guitar-diagram-board.open-position {
+    border-top: 3px solid #8093a1;
+}
+
+.guitar-diagram-string-line,
+.guitar-diagram-fret-line,
+.guitar-diagram-dot {
+    position: absolute;
+}
+
+.guitar-diagram-string-line {
+    top: 0;
+    bottom: 0;
+    left: calc((var(--string) - 1) * 20%);
+    width: 1px;
+    background: #b7c4cf;
+    transform: translateX(-50%);
+}
+
+.guitar-diagram-fret-line {
+    left: 0;
+    right: 0;
+    top: calc(var(--fret) * 20%);
+    height: 1px;
+    background: #c1ccd6;
+    transform: translateY(-50%);
+}
+
+.guitar-diagram-dot {
+    left: calc((var(--string) - 1) * 20%);
+    top: calc((var(--fret) - 0.5) * 20%);
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--accent-strong);
+    transform: translate(-50%, -50%);
+    box-shadow: 0 2px 6px rgba(24, 59, 88, 0.2);
+}
+
+.guitar-diagram-base {
+    color: var(--muted);
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.guitar-diagram-fallback {
+    display: grid;
+    gap: 6px;
+    min-height: 106px;
+    align-content: center;
+    justify-items: center;
+    border-radius: 18px;
+    border: 1px dashed #d6e1ea;
+    background: rgba(255, 255, 255, 0.92);
+}
+
+.guitar-diagram-fallback-label {
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.guitar-diagram-fallback-value {
+    color: var(--accent-strong);
+    font-size: 0.92rem;
+    font-weight: 700;
+}
+
+.guitar-aux-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.guitar-aux-card {
+    display: grid;
+    gap: 14px;
+    padding: 18px;
+}
+
+.guitar-debug-toggle-btn {
+    width: fit-content;
+}
+
+.guitar-measure-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.guitar-measure-chip {
+    display: inline-grid;
+    gap: 4px;
+    min-width: 118px;
+    padding: 10px 12px;
+    border-radius: 16px;
+    border: 1px solid #dce6ee;
+    background: rgba(255, 255, 255, 0.96);
+}
+
+.guitar-measure-chip strong {
+    color: var(--accent-strong);
+    font-size: 0.8rem;
+}
+
+.guitar-measure-chip span {
+    color: var(--muted);
+    font-size: 0.74rem;
+    line-height: 1.5;
+}
+
+.guitar-debug-grid {
+    gap: 14px;
+}
+
+.guitar-sheet-stack.print-mode .guitar-lead-layout {
+    grid-template-columns: 1fr;
+}
+
+.guitar-sheet-stack.print-mode .guitar-chord-rail {
+    position: static;
+    order: -1;
+}
+
+.guitar-sheet-stack.print-mode .guitar-lead-line-scroll {
+    overflow: visible;
+}
+
+.guitar-sheet-stack.print-mode .guitar-lead-line {
+    min-width: 0;
+    flex-wrap: wrap;
+}
+
+.guitar-sheet-stack.print-mode .guitar-lead-measure {
+    flex: 1 1 12rem;
 }
 
 .score-page-toolbar {
@@ -2026,6 +4291,45 @@ textarea:disabled {
         position: static;
         grid-column: 1 / -1;
     }
+
+    .guzheng-sheet-hero,
+    .guitar-sheet-hero,
+    .dizi-sheet-hero {
+        grid-template-columns: 1fr;
+    }
+
+    .traditional-sheet-controls {
+        justify-items: start;
+    }
+
+    .traditional-engraved-status {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .guzheng-jianpu-header {
+        grid-template-columns: 1fr;
+        justify-items: start;
+    }
+
+    .guzheng-jianpu-title-block,
+    .guzheng-jianpu-meta {
+        justify-items: start;
+        text-align: left;
+    }
+
+    .guzheng-jianpu-running-header {
+        grid-template-columns: 1fr;
+        justify-items: start;
+    }
+
+    .guitar-lead-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .guitar-chord-rail {
+        position: static;
+    }
 }
 
 @media (max-width: 1024px) {
@@ -2045,12 +4349,103 @@ textarea:disabled {
 
     .topbar,
     .summary-head,
+    .panel-header-actions,
+    .guitar-section-head,
+    .guitar-lyric-line-head,
+    .guitar-sheet-headline,
+    .guitar-lead-body-head,
+    .guitar-chord-rail-head,
+    .guitar-aux-head,
+    .guitar-lead-section-header,
+    .guitar-lead-line-meta,
     .score-page-toolbar,
     .score-page-header,
     .score-system-head,
     .score-viewer-topbar {
         flex-direction: column;
         align-items: stretch;
+    }
+
+    .guzheng-sheet-metrics,
+    .guzheng-sheet-meta,
+    .traditional-summary-grid,
+    .traditional-technique-grid,
+    .guzheng-note-row,
+    .guzheng-string-grid,
+    .guzheng-technique-metrics,
+    .dizi-sheet-metrics,
+    .dizi-sheet-meta,
+    .dizi-note-row,
+    .dizi-fingering-grid,
+    .dizi-technique-metrics,
+    .guitar-sheet-metrics,
+    .guitar-sheet-meta,
+    .guitar-aux-grid,
+    .guitar-lyric-line-grid,
+    .guitar-measure-grid,
+    .guitar-shape-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .guitar-chord-pill {
+        grid-template-columns: 1fr;
+    }
+
+    .guzheng-jianpu-paper {
+        padding: 22px 18px 24px;
+    }
+
+    .guzheng-jianpu-line {
+        grid-template-columns: 1fr;
+    }
+
+    .guzheng-jianpu-line-marker {
+        margin-top: 0;
+        justify-self: start;
+        min-width: 40px;
+    }
+
+    .guzheng-jianpu-line-content {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .guzheng-jianpu-measure {
+        padding-right: 0;
+    }
+
+    .guzheng-jianpu-digit {
+        font-size: 1.72rem;
+    }
+
+    .guzheng-jianpu-running-header {
+        grid-template-columns: 1fr;
+        justify-items: start;
+    }
+
+    .guzheng-jianpu-repeat-sign {
+        min-width: 28px;
+        font-size: 1.72rem;
+    }
+
+    .guitar-view-mode {
+        justify-items: start;
+    }
+
+    .guitar-view-mode-toggle {
+        min-width: 0;
+        width: 100%;
+    }
+
+    .traditional-view-mode-toggle,
+    .traditional-annotation-toggle {
+        min-width: 0;
+        width: 100%;
+    }
+
+    .guitar-lead-measure {
+        width: min(15rem, 72vw);
+        min-width: min(15rem, 72vw);
     }
 
     .brand-block {
@@ -2097,5 +4492,115 @@ textarea:disabled {
     .score-viewer-toolbar .ghost-button {
         width: 40px;
         height: 40px;
+    }
+}
+
+@media print {
+    @page {
+        size: A4 portrait;
+        margin: 14mm 12mm 14mm;
+    }
+
+    .guzheng-jianpu-paper {
+        padding: 0;
+        border: none;
+        border-radius: 0;
+        background: #ffffff;
+        box-shadow: none;
+    }
+
+    .guzheng-jianpu-pages {
+        gap: 0;
+    }
+
+    .guzheng-jianpu-page {
+        min-height: 255mm;
+        padding: 0 0 8mm;
+        border-bottom: none;
+        break-after: page;
+        page-break-after: always;
+    }
+
+    .guzheng-jianpu-page:last-child {
+        break-after: auto;
+        page-break-after: auto;
+    }
+
+    .guzheng-jianpu-running-header {
+        padding-bottom: 6mm;
+        border-bottom-color: rgba(0, 0, 0, 0.18);
+    }
+
+    .guzheng-jianpu-page-footer {
+        color: #666666;
+    }
+
+    .guzheng-jianpu-line-marker {
+        background: transparent;
+        border-color: #d7d7d7;
+    }
+
+    .traditional-sheet-controls {
+        display: none;
+    }
+
+    .traditional-engraved-image {
+        border-radius: 14px;
+        box-shadow: none;
+    }
+
+    .traditional-summary-card,
+    .traditional-shell {
+        border-color: rgba(0, 0, 0, 0.12);
+        background: #ffffff;
+        box-shadow: none;
+    }
+
+    .guitar-sheet-stack,
+    .guitar-sheet-stack.print-mode {
+        gap: 12px;
+    }
+
+    .guitar-sheet-hero,
+    .guitar-global-strumming-card,
+    .guitar-lead-body,
+    .guitar-lead-section,
+    .guitar-chord-rail,
+    .guitar-aux-card,
+    .guitar-diagram-card {
+        border-color: rgba(0, 0, 0, 0.12);
+        background: #ffffff;
+        box-shadow: none;
+    }
+
+    .guitar-view-mode,
+    .guitar-debug-toggle-btn {
+        display: none;
+    }
+
+    .guitar-lead-layout,
+    .guitar-aux-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .guitar-chord-rail {
+        position: static;
+        padding: 14px 16px;
+    }
+
+    .guitar-lead-line-scroll {
+        overflow: visible;
+    }
+
+    .guitar-lead-line {
+        min-width: 0;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .guitar-lead-measure {
+        width: auto;
+        min-width: 0;
+        flex: 1 1 10.5rem;
     }
 }

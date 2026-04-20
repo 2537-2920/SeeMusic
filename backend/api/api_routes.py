@@ -18,6 +18,12 @@ from backend.api.schemas import (
     ChordGenerationRequest,
     CommunityCommentCreateRequest,
     CommunityScorePublishRequest,
+    DiziScoreExportRequest,
+    DiziScoreRequest,
+    GuzhengScoreExportRequest,
+    GuzhengScoreRequest,
+    GuitarLeadSheetExportRequest,
+    GuitarLeadSheetRequest,
     HistoryCreateRequest,
     LoginRequest,
     PitchCompareRequest,
@@ -31,12 +37,40 @@ from backend.api.schemas import (
     ScoreUpdateRequest,
     VariationSuggestionRequest,
 )
+from backend.export.traditional_export import (
+    TraditionalExportCompileError,
+    TraditionalExportDependencyError,
+    TraditionalExportError,
+    export_traditional_score,
+)
+from backend.export.guitar_export import (
+    GuitarExportDependencyError,
+    GuitarExportError,
+    export_guitar_lead_sheet_pdf,
+)
+from backend.core.dizi.audio_pipeline import generate_dizi_score_from_audio
+from backend.core.dizi.notation import (
+    generate_dizi_score,
+    generate_dizi_score_from_musicxml,
+    generate_dizi_score_from_pitch_sequence,
+)
+from backend.core.guzheng.audio_pipeline import generate_guzheng_score_from_audio
+from backend.core.guzheng.notation import (
+    generate_guzheng_score,
+    generate_guzheng_score_from_musicxml,
+    generate_guzheng_score_from_pitch_sequence,
+)
+from backend.core.guitar.audio_pipeline import generate_guitar_lead_sheet_from_audio
+from backend.core.guitar.lead_sheet import generate_guitar_lead_sheet, generate_guitar_lead_sheet_from_musicxml
 from backend.core.generation.chord_generation import generate_chord_sequence
 from backend.core.generation.variation_suggestions import generate_variation_suggestions
 from backend.core.pitch.audio_utils import AudioDecodeError, AudioDependencyError, estimate_duration_from_bytes, infer_audio_metadata
 from backend.core.pitch.pitch_comparison import build_pitch_comparison_payload, load_pitch_sequence_json
 from backend.core.pitch.pitch_detection import detect_pitch_sequence
 from backend.core.pitch.realtime_tuning import analyze_audio_frame
+from backend.core.score.audio_pipeline import prepare_piano_score_from_audio
+from backend.core.score.key_detection import analyze_key_signature
+from backend.core.score.sheet_extraction import build_score_from_pitch_sequence
 from backend.services import analysis_service
 from backend.services.report_service import export_report
 from backend.services.community_service import (
@@ -188,6 +222,152 @@ def _persist_analysis_result_non_blocking(
     cache_analysis_result(**payload)
     if not analysis_service.USE_DB:
         return
+
+
+def _resolve_dizi_score_result(payload: DiziScoreRequest | DiziScoreExportRequest) -> dict[str, Any]:
+    if payload.score_id:
+        score = get_score(payload.score_id)
+        return generate_dizi_score_from_musicxml(
+            musicxml=score["musicxml"],
+            key=str(score.get("key_signature") or payload.key or "C"),
+            tempo=int(score.get("tempo") or payload.tempo or 120),
+            time_signature=str(score.get("time_signature") or payload.time_signature or "4/4"),
+            flute_type=payload.flute_type,
+            style=payload.style,
+            title=str(score.get("title") or payload.title or "Untitled Dizi Chart"),
+        )
+
+    melody = [dict(item) for item in payload.melody]
+    key = str(payload.key or "C")
+    tempo = int(payload.tempo or 120)
+    time_signature = str(payload.time_signature or "4/4")
+    title = str(payload.title or "Untitled Dizi Chart")
+    style = str(payload.style or "traditional")
+    flute_type = str(payload.flute_type or "G")
+
+    if melody:
+        return generate_dizi_score(
+            key=key,
+            tempo=tempo,
+            time_signature=time_signature,
+            flute_type=flute_type,
+            style=style,
+            melody=melody,
+            title=title,
+        )
+
+    pitch_sequence = [item.model_dump() for item in payload.pitch_sequence]
+    if not pitch_sequence and payload.analysis_id:
+        pitch_sequence = get_saved_pitch_sequence(str(payload.analysis_id), populate_cache=True) or []
+    if not pitch_sequence:
+        raise HTTPException(status_code=400, detail="missing melody, score_id, or pitch source")
+
+    return generate_dizi_score_from_pitch_sequence(
+        pitch_sequence=pitch_sequence,
+        tempo=tempo,
+        time_signature=time_signature,
+        flute_type=flute_type,
+        key=payload.key,
+        style=style,
+        title=title,
+    )
+
+
+def _resolve_guitar_lead_sheet_result(payload: GuitarLeadSheetRequest | GuitarLeadSheetExportRequest) -> dict[str, Any]:
+    if payload.score_id:
+        score = get_score(payload.score_id)
+        return generate_guitar_lead_sheet_from_musicxml(
+            musicxml=score["musicxml"],
+            key=str(score.get("key_signature") or payload.key or "C"),
+            tempo=int(score.get("tempo") or payload.tempo or 120),
+            time_signature=str(score.get("time_signature") or payload.time_signature or "4/4"),
+            style=payload.style,
+            title=str(score.get("title") or payload.title or "Untitled Guitar Lead Sheet"),
+        )
+
+    melody = [dict(item) for item in payload.melody]
+    key = str(payload.key or "C")
+    tempo = int(payload.tempo or 120)
+    time_signature = str(payload.time_signature or "4/4")
+    title = str(payload.title or "Untitled Guitar Lead Sheet")
+
+    if melody:
+        return generate_guitar_lead_sheet(
+            key=key,
+            tempo=tempo,
+            style=payload.style,
+            melody=melody,
+            time_signature=time_signature,
+            title=title,
+        )
+
+    pitch_sequence = [item.model_dump() for item in payload.pitch_sequence]
+    if not pitch_sequence and payload.analysis_id:
+        pitch_sequence = get_saved_pitch_sequence(str(payload.analysis_id), populate_cache=True) or []
+    if not pitch_sequence:
+        raise HTTPException(status_code=400, detail="missing melody, score_id, or pitch source")
+
+    temporary_score = build_score_from_pitch_sequence(
+        pitch_sequence,
+        tempo=tempo,
+        time_signature=time_signature,
+        key_signature=payload.key,
+        title=title,
+        auto_detect_key=not bool((payload.key or "").strip()),
+    )
+    return generate_guitar_lead_sheet_from_musicxml(
+        musicxml=temporary_score["musicxml"],
+        key=str(temporary_score.get("key_signature") or key),
+        tempo=int(temporary_score.get("tempo") or tempo),
+        time_signature=str(temporary_score.get("time_signature") or time_signature),
+        style=payload.style,
+        title=str(temporary_score.get("title") or title),
+    )
+
+
+def _resolve_guzheng_score_result(payload: GuzhengScoreRequest | GuzhengScoreExportRequest) -> dict[str, Any]:
+    if payload.score_id:
+        score = get_score(payload.score_id)
+        return generate_guzheng_score_from_musicxml(
+            musicxml=score["musicxml"],
+            key=str(score.get("key_signature") or payload.key or "C"),
+            tempo=int(score.get("tempo") or payload.tempo or 120),
+            time_signature=str(score.get("time_signature") or payload.time_signature or "4/4"),
+            style=payload.style,
+            title=str(score.get("title") or payload.title or "Untitled Guzheng Chart"),
+        )
+
+    melody = [dict(item) for item in payload.melody]
+    key = str(payload.key or "C")
+    tempo = int(payload.tempo or 120)
+    time_signature = str(payload.time_signature or "4/4")
+    title = str(payload.title or "Untitled Guzheng Chart")
+    style = str(payload.style or "traditional")
+
+    if melody:
+        return generate_guzheng_score(
+            key=key,
+            tempo=tempo,
+            time_signature=time_signature,
+            style=style,
+            melody=melody,
+            title=title,
+        )
+
+    pitch_sequence = [item.model_dump() for item in payload.pitch_sequence]
+    if not pitch_sequence and payload.analysis_id:
+        pitch_sequence = get_saved_pitch_sequence(str(payload.analysis_id), populate_cache=True) or []
+    if not pitch_sequence:
+        raise HTTPException(status_code=400, detail="missing melody, score_id, or pitch source")
+
+    return generate_guzheng_score_from_pitch_sequence(
+        pitch_sequence=pitch_sequence,
+        tempo=tempo,
+        time_signature=time_signature,
+        key=payload.key,
+        style=style,
+        title=title,
+    )
     if background_tasks is None:
         save_analysis_result(**payload)
         return
@@ -240,6 +420,7 @@ async def pitch_detect(
     except Exception as exc:
         raise _normalize_pitch_detect_error(exc) from exc
     _ensure_detected_pitch(pitches)
+    key_detection = analyze_key_signature(pitches)
     _persist_analysis_result_non_blocking(
         background_tasks,
         analysis_id=metadata["analysis_id"],
@@ -248,7 +429,7 @@ async def pitch_detect(
         duration=metadata["duration"],
         status=1,
         params={"frame_ms": frame_ms, "hop_ms": hop_ms, "algorithm": algorithm, "source": "pitch_detect"},
-        result_data={"log_id": log_entry["log_id"]},
+        result_data={"log_id": log_entry["log_id"], "key_detection": key_detection},
         pitch_sequence=pitches,
     )
     return ok(
@@ -261,6 +442,8 @@ async def pitch_detect(
             "algorithm": algorithm,
             "track_count": 1,
             "tracks": [{"name": file.filename or "audio"}],
+            "detected_key_signature": key_detection["key_signature"],
+            "key_detection": key_detection,
             "pitch_sequence": pitches,
             "audio_log": log_entry,
         }
@@ -325,6 +508,7 @@ async def pitch_detect_multitrack(
     except Exception as exc:
         raise _normalize_pitch_detect_error(exc) from exc
     _ensure_detected_pitch(pitches)
+    key_detection = analyze_key_signature(pitches)
     return ok(
         {
             "analysis_id": metadata["analysis_id"],
@@ -335,6 +519,8 @@ async def pitch_detect_multitrack(
             "algorithm": algorithm,
             "track_count": len(tracks),
             "tracks": [{"name": track["name"]} for track in tracks],
+            "detected_key_signature": key_detection["key_signature"],
+            "key_detection": key_detection,
             "pitch_sequence": pitches,
             "audio_log": log_entry,
         }
@@ -431,6 +617,161 @@ def score_from_pitch_sequence(payload: PitchToScoreRequest, authorization: str =
             except UserNotFoundError:
                 pass
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/score/from-audio")
+async def score_from_audio(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    user_id: int = Form(...),
+    title: str = Form(""),
+    sample_rate: Optional[int] = Form(None),
+    frame_ms: int = Form(20),
+    hop_ms: int = Form(10),
+    algorithm: str = Form("yin"),
+    tempo: int = Form(120),
+    time_signature: str = Form("4/4"),
+    bpm_hint: Optional[int] = Form(None),
+    beat_sensitivity: float = Form(0.5),
+    separation_model: str = Form("demucs"),
+    separation_stems: int = Form(2),
+    arrangement_mode: str = Form("piano_solo"),
+    authorization: str = Header(default=""),
+):
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="上传的音频文件为空。")
+
+    resolved_sample_rate = sample_rate or 16000
+    estimated_duration = estimate_duration_from_bytes(content, resolved_sample_rate)
+    metadata = infer_audio_metadata(file.filename or "audio", resolved_sample_rate, estimated_duration or None)
+    log_entry = record_audio_processing_log(
+        file_name=file.filename or "audio",
+        audio_bytes=content,
+        sample_rate=metadata["sample_rate"],
+        duration=metadata["duration"],
+        analysis_id=metadata["analysis_id"],
+        source="api",
+        stage="score_from_audio",
+        params={
+            "frame_ms": frame_ms,
+            "hop_ms": hop_ms,
+            "algorithm": algorithm,
+            "tempo": tempo,
+            "time_signature": time_signature,
+            "bpm_hint": bpm_hint,
+            "beat_sensitivity": beat_sensitivity,
+            "separation_model": separation_model,
+            "separation_stems": separation_stems,
+            "arrangement_mode": arrangement_mode,
+        },
+    )
+    resolved_arrangement_mode = "piano_solo"
+    try:
+        pipeline_result = prepare_piano_score_from_audio(
+            file_name=file.filename or "audio",
+            audio_bytes=content,
+            analysis_id=metadata["analysis_id"],
+            fallback_tempo=int(tempo or 120),
+            time_signature=time_signature,
+            sample_rate=metadata["sample_rate"],
+            frame_ms=frame_ms,
+            hop_ms=hop_ms,
+            algorithm=algorithm,
+            bpm_hint=bpm_hint,
+            beat_sensitivity=beat_sensitivity,
+            separation_model=separation_model,
+            separation_stems=separation_stems,
+        )
+    except (AudioDecodeError, AudioDependencyError) as exc:
+        raise _normalize_pitch_detect_error(exc) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"钢琴智能识谱失败：{exc}") from exc
+
+    score_payload = {
+        "user_id": int(user_id),
+        "title": title or None,
+        "analysis_id": metadata["analysis_id"],
+        "tempo": int(pipeline_result.get("tempo") or tempo or 120),
+        "time_signature": time_signature,
+        "key_signature": pipeline_result.get("detected_key_signature") or "C",
+        "auto_detect_key": False,
+        "arrangement_mode": resolved_arrangement_mode,
+        "pitch_sequence": pipeline_result["pitch_sequence"],
+    }
+    try:
+        score = create_score_from_pitch_sequence(score_payload)
+    except UserNotFoundError as exc:
+        current_user = optional_user_from_authorization(authorization)
+        fallback_user_id = current_user.get("user_id") if current_user else None
+        if (
+            fallback_user_id is not None
+            and str(fallback_user_id).isdigit()
+            and int(fallback_user_id) != int(score_payload["user_id"])
+        ):
+            score_payload["user_id"] = int(fallback_user_id)
+            try:
+                score = create_score_from_pitch_sequence(score_payload)
+            except UserNotFoundError:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+        else:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    _persist_analysis_result_non_blocking(
+        background_tasks,
+        analysis_id=metadata["analysis_id"],
+        file_name=file.filename or "audio",
+        sample_rate=metadata["sample_rate"],
+        duration=metadata["duration"],
+        bpm=int(pipeline_result.get("tempo") or 0) or None,
+        status=1,
+        params={
+            "frame_ms": frame_ms,
+            "hop_ms": hop_ms,
+            "algorithm": algorithm,
+            "time_signature": time_signature,
+            "bpm_hint": bpm_hint,
+            "beat_sensitivity": beat_sensitivity,
+            "separation_model": separation_model,
+            "separation_stems": separation_stems,
+            "arrangement_mode": resolved_arrangement_mode,
+            "source": "score_from_audio",
+        },
+        result_data={
+            "score_id": score["score_id"],
+            "arrangement_mode": resolved_arrangement_mode,
+            "score_mode": score.get("score_mode"),
+            "beat_result": pipeline_result.get("beat_result"),
+            "tempo_detection": pipeline_result.get("tempo_detection"),
+            "key_detection": pipeline_result.get("key_detection"),
+            "separation": pipeline_result.get("separation"),
+            "melody_track": pipeline_result.get("melody_track"),
+            "log_id": log_entry["log_id"],
+        },
+        pitch_sequence=pipeline_result["pitch_sequence"],
+    )
+    return ok(
+        {
+            **score,
+            "analysis_id": metadata["analysis_id"],
+            "pitch_sequence": pipeline_result["pitch_sequence"],
+            "detected_key_signature": pipeline_result.get("detected_key_signature"),
+            "key_detection": pipeline_result.get("key_detection"),
+            "beat_result": pipeline_result.get("beat_result"),
+            "tempo_detection": pipeline_result.get("tempo_detection"),
+            "melody_track": pipeline_result.get("melody_track"),
+            "melody_track_candidates": pipeline_result.get("melody_track_candidates"),
+            "separation": pipeline_result.get("separation"),
+            "warnings": pipeline_result.get("warnings"),
+            "pipeline": pipeline_result.get("pipeline"),
+            "piano_arrangement": score.get("piano_arrangement"),
+            "audio_log": log_entry,
+            "arrangement_mode": score.get("arrangement_mode") or resolved_arrangement_mode,
+            "score_mode": score.get("score_mode") or "melody_transcription",
+        }
+    )
 
 
 @router.get("/scores/{score_id}")
@@ -1021,7 +1362,424 @@ def pitch_curve(
 
 @router.post("/generation/chords")
 def generation_chords(payload: ChordGenerationRequest):
-    return ok(generate_chord_sequence(payload.key, payload.tempo, payload.style, payload.melody))
+    return ok(generate_chord_sequence(payload.key, payload.tempo, payload.style, payload.melody, payload.time_signature))
+
+
+@router.post("/generation/dizi-score-from-audio")
+async def generation_dizi_score_from_audio_api(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    sample_rate: Optional[int] = Form(None),
+    frame_ms: int = Form(20),
+    hop_ms: int = Form(10),
+    algorithm: str = Form("yin"),
+    title: str = Form("Untitled Dizi Chart"),
+    key: str = Form(""),
+    tempo: int = Form(120),
+    time_signature: str = Form("4/4"),
+    style: str = Form("traditional"),
+    flute_type: str = Form("G"),
+    bpm_hint: Optional[int] = Form(None),
+    beat_sensitivity: float = Form(0.5),
+    separation_model: str = Form("demucs"),
+    separation_stems: int = Form(2),
+):
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="上传的音频文件为空。")
+
+    resolved_sample_rate = sample_rate or 16000
+    estimated_duration = estimate_duration_from_bytes(content, resolved_sample_rate)
+    metadata = infer_audio_metadata(file.filename or "audio", resolved_sample_rate, estimated_duration or None)
+    log_entry = record_audio_processing_log(
+        file_name=file.filename or "audio",
+        audio_bytes=content,
+        sample_rate=metadata["sample_rate"],
+        duration=metadata["duration"],
+        analysis_id=metadata["analysis_id"],
+        source="api",
+        stage="dizi_score_audio",
+        params={
+            "frame_ms": frame_ms,
+            "hop_ms": hop_ms,
+            "algorithm": algorithm,
+            "tempo": tempo,
+            "time_signature": time_signature,
+            "style": style,
+            "key": key,
+            "flute_type": flute_type,
+            "bpm_hint": bpm_hint,
+            "beat_sensitivity": beat_sensitivity,
+            "separation_model": separation_model,
+            "separation_stems": separation_stems,
+        },
+    )
+    try:
+        result = generate_dizi_score_from_audio(
+            file_name=file.filename or "audio",
+            audio_bytes=content,
+            analysis_id=metadata["analysis_id"],
+            title=title,
+            key=key,
+            tempo=tempo,
+            time_signature=time_signature,
+            style=style,
+            flute_type=flute_type,
+            sample_rate=metadata["sample_rate"],
+            frame_ms=frame_ms,
+            hop_ms=hop_ms,
+            algorithm=algorithm,
+            bpm_hint=bpm_hint,
+            beat_sensitivity=beat_sensitivity,
+            separation_model=separation_model,
+            separation_stems=separation_stems,
+        )
+    except (AudioDecodeError, AudioDependencyError) as exc:
+        raise _normalize_pitch_detect_error(exc) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"笛子谱生成失败：{exc}") from exc
+
+    _persist_analysis_result_non_blocking(
+        background_tasks,
+        analysis_id=metadata["analysis_id"],
+        file_name=file.filename or "audio",
+        sample_rate=metadata["sample_rate"],
+        duration=metadata["duration"],
+        bpm=int(result.get("tempo") or 0) or None,
+        status=1,
+        params={
+            "frame_ms": frame_ms,
+            "hop_ms": hop_ms,
+            "algorithm": algorithm,
+            "tempo": tempo,
+            "time_signature": time_signature,
+            "style": style,
+            "key": key,
+            "flute_type": flute_type,
+            "bpm_hint": bpm_hint,
+            "beat_sensitivity": beat_sensitivity,
+            "separation_model": separation_model,
+            "separation_stems": separation_stems,
+            "source": "dizi_score_audio",
+        },
+        result_data={
+            "log_id": log_entry["log_id"],
+            "key_detection": result.get("key_detection"),
+            "tempo_detection": result.get("tempo_detection"),
+            "separation": result.get("separation"),
+            "melody_track": result.get("melody_track"),
+            "warnings": result.get("warnings") or [],
+            "lead_sheet_type": result.get("lead_sheet_type"),
+            "flute_type": result.get("flute_type"),
+        },
+        pitch_sequence=result.get("pitch_sequence") or [],
+    )
+    return ok({**result, "audio_log": log_entry})
+
+
+@router.post("/generation/dizi-score")
+def generation_dizi_score_api(payload: DiziScoreRequest):
+    try:
+        return ok(_resolve_dizi_score_result(payload))
+    except ScoreNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/generation/dizi-score/export")
+def generation_dizi_score_export_api(payload: DiziScoreExportRequest):
+    try:
+        result = _resolve_dizi_score_result(payload)
+        export_payload = export_traditional_score(
+            result,
+            instrument_type="dizi",
+            export_format=payload.format,
+            storage_dir=settings.storage_dir,
+            file_stem=(
+                f"dizi_{result.get('title') or 'jianpu'}_"
+                f"{payload.flute_type}_{payload.layout_mode}_{payload.annotation_layer}_{payload.format}"
+            ),
+            layout_mode=payload.layout_mode,
+            annotation_layer=payload.annotation_layer,
+        )
+        return ok(export_payload)
+    except ScoreNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except TraditionalExportDependencyError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (TraditionalExportCompileError, TraditionalExportError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/generation/guzheng-score-from-audio")
+async def generation_guzheng_score_from_audio_api(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    sample_rate: Optional[int] = Form(None),
+    frame_ms: int = Form(20),
+    hop_ms: int = Form(10),
+    algorithm: str = Form("yin"),
+    title: str = Form("Untitled Guzheng Chart"),
+    key: str = Form(""),
+    tempo: int = Form(120),
+    time_signature: str = Form("4/4"),
+    style: str = Form("traditional"),
+    bpm_hint: Optional[int] = Form(None),
+    beat_sensitivity: float = Form(0.5),
+    separation_model: str = Form("demucs"),
+    separation_stems: int = Form(2),
+):
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="上传的音频文件为空。")
+
+    resolved_sample_rate = sample_rate or 16000
+    estimated_duration = estimate_duration_from_bytes(content, resolved_sample_rate)
+    metadata = infer_audio_metadata(file.filename or "audio", resolved_sample_rate, estimated_duration or None)
+    log_entry = record_audio_processing_log(
+        file_name=file.filename or "audio",
+        audio_bytes=content,
+        sample_rate=metadata["sample_rate"],
+        duration=metadata["duration"],
+        analysis_id=metadata["analysis_id"],
+        source="api",
+        stage="guzheng_score_audio",
+        params={
+            "frame_ms": frame_ms,
+            "hop_ms": hop_ms,
+            "algorithm": algorithm,
+            "tempo": tempo,
+            "time_signature": time_signature,
+            "style": style,
+            "key": key,
+            "bpm_hint": bpm_hint,
+            "beat_sensitivity": beat_sensitivity,
+            "separation_model": separation_model,
+            "separation_stems": separation_stems,
+        },
+    )
+    try:
+        result = generate_guzheng_score_from_audio(
+            file_name=file.filename or "audio",
+            audio_bytes=content,
+            analysis_id=metadata["analysis_id"],
+            title=title,
+            key=key,
+            tempo=tempo,
+            time_signature=time_signature,
+            style=style,
+            sample_rate=metadata["sample_rate"],
+            frame_ms=frame_ms,
+            hop_ms=hop_ms,
+            algorithm=algorithm,
+            bpm_hint=bpm_hint,
+            beat_sensitivity=beat_sensitivity,
+            separation_model=separation_model,
+            separation_stems=separation_stems,
+        )
+    except (AudioDecodeError, AudioDependencyError) as exc:
+        raise _normalize_pitch_detect_error(exc) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"古筝谱生成失败：{exc}") from exc
+
+    _persist_analysis_result_non_blocking(
+        background_tasks,
+        analysis_id=metadata["analysis_id"],
+        file_name=file.filename or "audio",
+        sample_rate=metadata["sample_rate"],
+        duration=metadata["duration"],
+        bpm=int(result.get("tempo") or 0) or None,
+        status=1,
+        params={
+            "frame_ms": frame_ms,
+            "hop_ms": hop_ms,
+            "algorithm": algorithm,
+            "tempo": tempo,
+            "time_signature": time_signature,
+            "style": style,
+            "key": key,
+            "bpm_hint": bpm_hint,
+            "beat_sensitivity": beat_sensitivity,
+            "separation_model": separation_model,
+            "separation_stems": separation_stems,
+            "source": "guzheng_score_audio",
+        },
+        result_data={
+            "log_id": log_entry["log_id"],
+            "key_detection": result.get("key_detection"),
+            "tempo_detection": result.get("tempo_detection"),
+            "separation": result.get("separation"),
+            "melody_track": result.get("melody_track"),
+            "warnings": result.get("warnings") or [],
+            "lead_sheet_type": result.get("lead_sheet_type"),
+        },
+        pitch_sequence=result.get("pitch_sequence") or [],
+    )
+    return ok({**result, "audio_log": log_entry})
+
+
+@router.post("/generation/guzheng-score")
+def generation_guzheng_score_api(payload: GuzhengScoreRequest):
+    try:
+        return ok(_resolve_guzheng_score_result(payload))
+    except ScoreNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/generation/guzheng-score/export")
+def generation_guzheng_score_export_api(payload: GuzhengScoreExportRequest):
+    try:
+        result = _resolve_guzheng_score_result(payload)
+        export_payload = export_traditional_score(
+            result,
+            instrument_type="guzheng",
+            export_format=payload.format,
+            storage_dir=settings.storage_dir,
+            file_stem=(
+                f"guzheng_{result.get('title') or 'jianpu'}_"
+                f"{payload.layout_mode}_{payload.annotation_layer}_{payload.format}"
+            ),
+            layout_mode=payload.layout_mode,
+            annotation_layer=payload.annotation_layer,
+        )
+        return ok(export_payload)
+    except ScoreNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except TraditionalExportDependencyError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (TraditionalExportCompileError, TraditionalExportError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/generation/guitar-lead-sheet-from-audio")
+async def generation_guitar_lead_sheet_from_audio_api(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    sample_rate: Optional[int] = Form(None),
+    frame_ms: int = Form(20),
+    hop_ms: int = Form(10),
+    algorithm: str = Form("yin"),
+    title: str = Form("Untitled Guitar Lead Sheet"),
+    key: str = Form(""),
+    tempo: int = Form(120),
+    time_signature: str = Form("4/4"),
+    style: str = Form("pop"),
+    separation_model: str = Form("demucs"),
+    separation_stems: int = Form(2),
+):
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="上传的音频文件为空。")
+
+    resolved_sample_rate = sample_rate or 16000
+    estimated_duration = estimate_duration_from_bytes(content, resolved_sample_rate)
+    metadata = infer_audio_metadata(file.filename or "audio", resolved_sample_rate, estimated_duration or None)
+    log_entry = record_audio_processing_log(
+        file_name=file.filename or "audio",
+        audio_bytes=content,
+        sample_rate=metadata["sample_rate"],
+        duration=metadata["duration"],
+        analysis_id=metadata["analysis_id"],
+        source="api",
+        stage="guitar_lead_sheet_audio",
+        params={
+            "frame_ms": frame_ms,
+            "hop_ms": hop_ms,
+            "algorithm": algorithm,
+            "tempo": tempo,
+            "time_signature": time_signature,
+            "style": style,
+            "key": key,
+            "separation_model": separation_model,
+            "separation_stems": separation_stems,
+        },
+    )
+    try:
+        result = generate_guitar_lead_sheet_from_audio(
+            file_name=file.filename or "audio",
+            audio_bytes=content,
+            analysis_id=metadata["analysis_id"],
+            title=title,
+            key=key,
+            tempo=tempo,
+            time_signature=time_signature,
+            style=style,
+            sample_rate=metadata["sample_rate"],
+            frame_ms=frame_ms,
+            hop_ms=hop_ms,
+            algorithm=algorithm,
+            separation_model=separation_model,
+            separation_stems=separation_stems,
+        )
+    except (AudioDecodeError, AudioDependencyError) as exc:
+        raise _normalize_pitch_detect_error(exc) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"吉他弹唱谱生成失败：{exc}") from exc
+
+    _persist_analysis_result_non_blocking(
+        background_tasks,
+        analysis_id=metadata["analysis_id"],
+        file_name=file.filename or "audio",
+        sample_rate=metadata["sample_rate"],
+        duration=metadata["duration"],
+        status=1,
+        params={
+            "frame_ms": frame_ms,
+            "hop_ms": hop_ms,
+            "algorithm": algorithm,
+            "tempo": tempo,
+            "time_signature": time_signature,
+            "style": style,
+            "key": key,
+            "separation_model": separation_model,
+            "separation_stems": separation_stems,
+            "source": "guitar_lead_sheet_audio",
+        },
+        result_data={
+            "log_id": log_entry["log_id"],
+            "key_detection": result.get("key_detection"),
+            "separation": result.get("separation"),
+            "melody_track": result.get("melody_track"),
+            "warnings": result.get("warnings") or [],
+        },
+        pitch_sequence=result.get("pitch_sequence") or [],
+    )
+    return ok({**result, "audio_log": log_entry})
+
+
+@router.post("/generation/guitar-lead-sheet")
+def generation_guitar_lead_sheet(payload: GuitarLeadSheetRequest):
+    try:
+        return ok(_resolve_guitar_lead_sheet_result(payload))
+    except ScoreNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/generation/guitar-lead-sheet/export")
+def generation_guitar_lead_sheet_export(payload: GuitarLeadSheetExportRequest):
+    try:
+        result = _resolve_guitar_lead_sheet_result(payload)
+        export_payload = export_guitar_lead_sheet_pdf(
+            result,
+            storage_dir=settings.storage_dir,
+            file_stem=(
+                f"guitar_{result.get('title') or 'lead_sheet'}_"
+                f"{payload.layout_mode}_{payload.format}"
+            ),
+            layout_mode=payload.layout_mode,
+        )
+        return ok(export_payload)
+    except ScoreNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except GuitarExportDependencyError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except GuitarExportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/generation/variation-suggestions")

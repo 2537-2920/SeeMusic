@@ -59,6 +59,11 @@ const DEFAULT_SEQUENCE = [
     { time: 1.5, frequency: 587.33, duration: 0.5 },
     { time: 2.0, frequency: 659.25, duration: 1.0 },
 ];
+const DEFAULT_TRANSCRIPTION_SETTINGS = {
+    tempo: 120,
+    timeSignature: "4/4",
+    keySignature: "C",
+};
 const SUPPORTED_INSTRUMENT_TYPES = new Set(["piano", "guzheng", "guitar", "dizi"]);
 const SUPPORTED_PIANO_RESULT_MODES = new Set(["arranged"]);
 const SUPPORTED_JIANPU_LAYOUT_MODES = new Set(["preview", "print"]);
@@ -85,6 +90,10 @@ const state = {
     diziResult: null,
     diziEngravedPreview: null,
     diziFluteType: "G",
+    preferredTempo: DEFAULT_TRANSCRIPTION_SETTINGS.tempo,
+    preferredTimeSignature: DEFAULT_TRANSCRIPTION_SETTINGS.timeSignature,
+    preferredKeySignature: DEFAULT_TRANSCRIPTION_SETTINGS.keySignature,
+    latestPitchSequence: [],
     selectedScoreId: localStorage.getItem(STORAGE_KEYS.scoreId) || "",
     selectedNotationElementId: null,
     exportList: [],
@@ -154,16 +163,10 @@ function cacheElements() {
         "user-id-input",
         "project-title-input",
         "analysis-id-input",
-        "tempo-input",
-        "time-signature-input",
-        "key-signature-input",
         "dizi-flute-type-field",
         "dizi-flute-type-input",
         "instrument-toggle",
         "piano-result-switch",
-        "pitch-sequence-input",
-        "load-sample-btn",
-        "clear-sequence-btn",
         "create-score-btn",
         "analysis-file-input",
         "beat-bpm-hint-input",
@@ -287,14 +290,13 @@ function hydrateInputs() {
     state.guzhengDebugExpanded = localStorage.getItem(STORAGE_KEYS.guzhengDebugExpanded) === "true";
     state.diziDebugExpanded = localStorage.getItem(STORAGE_KEYS.diziDebugExpanded) === "true";
     state.diziFluteType = resolveDiziFluteType(localStorage.getItem(STORAGE_KEYS.diziFluteType) || "G");
-    els.tempoInput.value = localStorage.getItem(STORAGE_KEYS.tempo) || "120";
-    els.timeSignatureInput.value = localStorage.getItem(STORAGE_KEYS.timeSignature) || "4/4";
-    els.keySignatureInput.value = localStorage.getItem(STORAGE_KEYS.keySignature) || "C";
+    state.preferredTempo = parseStoredTempo(localStorage.getItem(STORAGE_KEYS.tempo));
+    state.preferredTimeSignature = normalizeTimeSignature(localStorage.getItem(STORAGE_KEYS.timeSignature));
+    state.preferredKeySignature = normalizeKeySignature(localStorage.getItem(STORAGE_KEYS.keySignature));
+    state.latestPitchSequence = loadStoredPitchSequence();
     if (els.diziFluteTypeInput) {
         els.diziFluteTypeInput.value = state.diziFluteType;
     }
-    els.pitchSequenceInput.value =
-        localStorage.getItem(STORAGE_KEYS.pitchSequence) || JSON.stringify(DEFAULT_SEQUENCE, null, 2);
     els.pitchDetectAlgorithmInput.value = "yin";
     els.pitchDetectFrameMsInput.value = "20";
     els.pitchDetectHopMsInput.value = "10";
@@ -365,6 +367,44 @@ function resolveDiziFluteType(value) {
         return "Bb";
     }
     return SUPPORTED_DIZI_FLUTE_TYPES.has(upper) ? upper : "G";
+}
+
+function parseStoredTempo(value) {
+    const parsed = Number.parseInt(String(value || "").trim(), 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        return DEFAULT_TRANSCRIPTION_SETTINGS.tempo;
+    }
+    return parsed;
+}
+
+function normalizeTimeSignature(value) {
+    const normalized = String(value || "").trim();
+    return normalized || DEFAULT_TRANSCRIPTION_SETTINGS.timeSignature;
+}
+
+function normalizeKeySignature(value) {
+    const normalized = String(value || "").trim();
+    return normalized || DEFAULT_TRANSCRIPTION_SETTINGS.keySignature;
+}
+
+function loadStoredPitchSequence() {
+    const raw = localStorage.getItem(STORAGE_KEYS.pitchSequence);
+    if (!raw) {
+        return [...DEFAULT_SEQUENCE];
+    }
+    try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [...DEFAULT_SEQUENCE];
+    } catch {
+        return [...DEFAULT_SEQUENCE];
+    }
+}
+
+function setLatestPitchSequence(sequence, { persist = true } = {}) {
+    state.latestPitchSequence = Array.isArray(sequence) ? sequence : [];
+    if (persist) {
+        setLocalStorageSafely(STORAGE_KEYS.pitchSequence, JSON.stringify(state.latestPitchSequence), { silent: true });
+    }
 }
 
 function isGuitarMode() {
@@ -776,8 +816,6 @@ function handleDiziDebugPanelInteraction(event) {
 function bindEvents() {
     els.saveApiBaseBtn.addEventListener("click", handleSaveApiBase);
     els.pingBackendBtn.addEventListener("click", checkBackendConnection);
-    els.loadSampleBtn.addEventListener("click", loadSampleSequence);
-    els.clearSequenceBtn.addEventListener("click", handleClearSequence);
     els.createScoreBtn.addEventListener("click", handleCreateScore);
     els.pitchDetectBtn.addEventListener("click", handlePitchDetect);
     els.pitchDetectAndScoreBtn.addEventListener("click", handlePitchDetectAndScore);
@@ -839,10 +877,6 @@ function bindEvents() {
         [els.userIdInput, STORAGE_KEYS.userId],
         [els.projectTitleInput, STORAGE_KEYS.title],
         [els.analysisIdInput, STORAGE_KEYS.analysisId],
-        [els.tempoInput, STORAGE_KEYS.tempo],
-        [els.timeSignatureInput, STORAGE_KEYS.timeSignature],
-        [els.keySignatureInput, STORAGE_KEYS.keySignature],
-        [els.pitchSequenceInput, STORAGE_KEYS.pitchSequence],
         [els.diziFluteTypeInput, STORAGE_KEYS.diziFluteType],
     ].forEach(([element, key]) => {
         if (!element) {
@@ -1046,19 +1080,17 @@ function isBusy(key) {
 }
 
 function parsePitchSequence() {
-    const parsed = JSON.parse(els.pitchSequenceInput.value);
-    if (!Array.isArray(parsed) || parsed.length === 0) {
-        throw new Error("音高序列 JSON 必须是非空数组");
+    if (!Array.isArray(state.latestPitchSequence) || state.latestPitchSequence.length === 0) {
+        throw new Error("请先通过音频识别获得音高序列");
     }
-    return parsed;
+    return state.latestPitchSequence;
 }
 
 function parsePitchSequenceOrEmpty() {
-    const raw = (els.pitchSequenceInput.value || "").trim();
-    if (!raw) {
+    if (!Array.isArray(state.latestPitchSequence) || state.latestPitchSequence.length === 0) {
         return [];
     }
-    return parsePitchSequence();
+    return state.latestPitchSequence;
 }
 
 function resolveCustomLeadSheetSource({ allowScoreFallback = true } = {}) {
@@ -1078,20 +1110,20 @@ function resolveCustomLeadSheetSource({ allowScoreFallback = true } = {}) {
 
 function resolveCustomLeadSheetBase(scoreId = null) {
     const usingScoreSource = Boolean(scoreId);
+    const fallbackTempo = Number(state.preferredTempo) || DEFAULT_TRANSCRIPTION_SETTINGS.tempo;
+    const fallbackTimeSignature = normalizeTimeSignature(state.preferredTimeSignature);
+    const fallbackKeySignature = normalizeKeySignature(state.preferredKeySignature);
     return {
         title: (els.projectTitleInput.value || "").trim() || null,
         key: (
             usingScoreSource
-                ? state.currentScore?.key_signature || els.keySignatureInput.value || ""
-                : els.keySignatureInput.value || ""
+                ? state.currentScore?.key_signature || fallbackKeySignature
+                : fallbackKeySignature
         ).trim() || null,
-        tempo: parsePositiveInteger(
-            usingScoreSource ? state.currentScore?.tempo || els.tempoInput.value : els.tempoInput.value,
-            "速度"
-        ),
+        tempo: parsePositiveInteger(String(usingScoreSource ? state.currentScore?.tempo || fallbackTempo : fallbackTempo), "速度"),
         timeSignature: (
-            usingScoreSource ? state.currentScore?.time_signature || els.timeSignatureInput.value || "4/4" : els.timeSignatureInput.value || "4/4"
-        ).trim() || "4/4",
+            usingScoreSource ? state.currentScore?.time_signature || fallbackTimeSignature : fallbackTimeSignature
+        ).trim() || DEFAULT_TRANSCRIPTION_SETTINGS.timeSignature,
     };
 }
 
@@ -1179,18 +1211,6 @@ async function handleSaveApiBase() {
     }
 }
 
-function loadSampleSequence() {
-    els.pitchSequenceInput.value = JSON.stringify(DEFAULT_SEQUENCE, null, 2);
-    setLocalStorageSafely(STORAGE_KEYS.pitchSequence, els.pitchSequenceInput.value, { silent: true });
-    setAppStatus("示例音高序列已载入，可以直接生成乐谱。");
-}
-
-function handleClearSequence() {
-    els.pitchSequenceInput.value = "";
-    setLocalStorageSafely(STORAGE_KEYS.pitchSequence, "", { silent: true });
-    setAppStatus("音高序列输入已清空。");
-}
-
 function ensureAnalysisFile() {
     const file = els.analysisFileInput.files?.[0];
     if (!file) {
@@ -1213,7 +1233,7 @@ function applyDetectedKeySignature(keySignature) {
     if (!resolved) {
         return "";
     }
-    els.keySignatureInput.value = resolved;
+    state.preferredKeySignature = normalizeKeySignature(resolved);
     localStorage.setItem(STORAGE_KEYS.keySignature, resolved);
     return resolved;
 }
@@ -1280,9 +1300,9 @@ function applyDetectedTempo(tempo, { persist = true } = {}) {
         return null;
     }
     const resolvedTempo = Math.max(1, Math.round(numericTempo));
-    els.tempoInput.value = String(resolvedTempo);
+    state.preferredTempo = resolvedTempo;
     if (persist) {
-        localStorage.setItem(STORAGE_KEYS.tempo, els.tempoInput.value);
+        localStorage.setItem(STORAGE_KEYS.tempo, String(resolvedTempo));
     }
     return resolvedTempo;
 }
@@ -1337,8 +1357,8 @@ async function requestPianoScoreFromAudio(file) {
     formData.append("hop_ms", String(config.hopMs));
     formData.append("algorithm", config.algorithm);
     formData.append("title", (els.projectTitleInput.value || "").trim() || defaultTitle);
-    formData.append("tempo", String(parsePositiveInteger(els.tempoInput.value, "速度")));
-    formData.append("time_signature", (els.timeSignatureInput.value || "4/4").trim() || "4/4");
+    formData.append("tempo", String(parsePositiveInteger(String(state.preferredTempo), "速度")));
+    formData.append("time_signature", normalizeTimeSignature(state.preferredTimeSignature));
     if (els.beatBpmHintInput.value) {
         formData.append("bpm_hint", els.beatBpmHintInput.value);
     }
@@ -1356,8 +1376,7 @@ async function requestPianoScoreFromAudio(file) {
         : null;
     state.separateTracksResult = result.separation || null;
     state.chordGenerationResult = result.piano_arrangement || null;
-    els.pitchSequenceInput.value = JSON.stringify(result.pitch_sequence || [], null, 2);
-    setLocalStorageSafely(STORAGE_KEYS.pitchSequence, els.pitchSequenceInput.value);
+    setLatestPitchSequence(result.pitch_sequence || []);
     els.analysisIdInput.value = result.analysis_id || "";
     setLocalStorageSafely(STORAGE_KEYS.analysisId, els.analysisIdInput.value, { silent: true });
     applyDetectedTempo(result.tempo_detection?.resolved_tempo || result.tempo);
@@ -1683,8 +1702,7 @@ async function requestGuzhengScoreFromAudio(file) {
         ? { ...result.beat_result, analysis_id: result.analysis_id, audio_log: result.audio_log }
         : null;
     state.separateTracksResult = result.separation || null;
-    els.pitchSequenceInput.value = JSON.stringify(result.pitch_sequence || [], null, 2);
-    setLocalStorageSafely(STORAGE_KEYS.pitchSequence, els.pitchSequenceInput.value);
+    setLatestPitchSequence(result.pitch_sequence || []);
     els.analysisIdInput.value = result.analysis_id || "";
     setLocalStorageSafely(STORAGE_KEYS.analysisId, els.analysisIdInput.value, { silent: true });
     applyDetectedTempo(result.tempo_detection?.resolved_tempo || result.tempo);
@@ -1726,8 +1744,7 @@ async function requestDiziScoreFromAudio(file) {
         ? { ...result.beat_result, analysis_id: result.analysis_id, audio_log: result.audio_log }
         : null;
     state.separateTracksResult = result.separation || null;
-    els.pitchSequenceInput.value = JSON.stringify(result.pitch_sequence || [], null, 2);
-    setLocalStorageSafely(STORAGE_KEYS.pitchSequence, els.pitchSequenceInput.value);
+    setLatestPitchSequence(result.pitch_sequence || []);
     els.analysisIdInput.value = result.analysis_id || "";
     setLocalStorageSafely(STORAGE_KEYS.analysisId, els.analysisIdInput.value, { silent: true });
     setDiziFluteType(result.flute_type || fluteType, { persist: true, announce: false });
@@ -1761,8 +1778,7 @@ async function requestGuitarLeadSheetFromAudio(file) {
     state.guitarLeadSheetResult = result;
     state.chordGenerationResult = result;
     state.separateTracksResult = result.separation || null;
-    els.pitchSequenceInput.value = JSON.stringify(result.pitch_sequence || [], null, 2);
-    setLocalStorageSafely(STORAGE_KEYS.pitchSequence, els.pitchSequenceInput.value);
+    setLatestPitchSequence(result.pitch_sequence || []);
     els.analysisIdInput.value = result.analysis_id || "";
     setLocalStorageSafely(STORAGE_KEYS.analysisId, els.analysisIdInput.value, { silent: true });
     applyDetectedKeySignature(result.detected_key_signature || result.key);
@@ -1783,8 +1799,7 @@ async function handlePitchDetect() {
         setAppStatus("正在处理音高识别，请稍候。");
         const result = await requestJson("/pitch/detect", { method: "POST", body: formData });
         const sequence = result.pitch_sequence || [];
-        els.pitchSequenceInput.value = JSON.stringify(sequence, null, 2);
-        setLocalStorageSafely(STORAGE_KEYS.pitchSequence, els.pitchSequenceInput.value);
+        setLatestPitchSequence(sequence);
         els.analysisIdInput.value = result.analysis_id || "";
         setLocalStorageSafely(STORAGE_KEYS.analysisId, els.analysisIdInput.value, { silent: true });
         const detectedKeySignature = applyDetectedKeySignature(result.detected_key_signature);
@@ -1955,9 +1970,9 @@ async function handleCreateScore() {
             user_id: await ensureScoreOwnerUserId(),
             title: (els.projectTitleInput.value || "").trim() || null,
             analysis_id: (els.analysisIdInput.value || "").trim() || null,
-            tempo: parsePositiveInteger(els.tempoInput.value, "速度"),
-            time_signature: (els.timeSignatureInput.value || "").trim() || "4/4",
-            key_signature: (els.keySignatureInput.value || "").trim() || "C",
+            tempo: parsePositiveInteger(String(state.preferredTempo), "速度"),
+            time_signature: normalizeTimeSignature(state.preferredTimeSignature),
+            key_signature: normalizeKeySignature(state.preferredKeySignature),
             auto_detect_key: false,
             arrangement_mode: resolvePianoArrangementModeValue(),
             pitch_sequence: parsePitchSequence(),
@@ -2074,9 +2089,9 @@ async function handleGenerateChords() {
             setAppStatus("已展示当前双手钢琴谱的和弦、分手规则和左手织体。");
             return;
         }
-        const key = (state.currentScore?.key_signature || els.keySignatureInput.value || "C").trim() || "C";
-        const tempo = parsePositiveInteger(state.currentScore?.tempo || els.tempoInput.value, "速度");
-        const timeSignature = (state.currentScore?.time_signature || els.timeSignatureInput.value || "4/4").trim() || "4/4";
+        const key = (state.currentScore?.key_signature || normalizeKeySignature(state.preferredKeySignature)).trim() || "C";
+        const tempo = parsePositiveInteger(String(state.currentScore?.tempo || state.preferredTempo), "速度");
+        const timeSignature = (state.currentScore?.time_signature || normalizeTimeSignature(state.preferredTimeSignature)).trim() || "4/4";
         const style = (els.chordStyleInput.value || "").trim() || "pop";
         const melody = buildMelodyFromScore();
         const result = await requestJson("/generation/chords", {
@@ -2330,9 +2345,12 @@ function applyScoreResult(score) {
     state.selectedNotationElementId = null;
     localStorage.setItem(STORAGE_KEYS.scoreId, state.selectedScoreId);
 
-    els.tempoInput.value = String(score.tempo || els.tempoInput.value || "120");
-    els.timeSignatureInput.value = score.time_signature || els.timeSignatureInput.value || "4/4";
-    els.keySignatureInput.value = score.key_signature || els.keySignatureInput.value || "C";
+    state.preferredTempo = parseStoredTempo(score.tempo || state.preferredTempo);
+    state.preferredTimeSignature = normalizeTimeSignature(score.time_signature || state.preferredTimeSignature);
+    state.preferredKeySignature = normalizeKeySignature(score.key_signature || state.preferredKeySignature);
+    localStorage.setItem(STORAGE_KEYS.tempo, String(state.preferredTempo));
+    localStorage.setItem(STORAGE_KEYS.timeSignature, state.preferredTimeSignature);
+    localStorage.setItem(STORAGE_KEYS.keySignature, state.preferredKeySignature);
     els.scoreMusicxmlInput.value = score.musicxml || "";
 
     invalidateViewerRenderState({ preservePageIndex });
@@ -7022,7 +7040,7 @@ function renderControlState() {
     const hasExport = Boolean(state.selectedExportDetail);
     const hasAnalysisFile = Boolean(els.analysisFileInput.files?.length);
     const hasScoreFile = Boolean(els.scoreMusicxmlFileInput.files?.length);
-    const hasPitchSequence = Boolean((els.pitchSequenceInput.value || "").trim());
+    const hasPitchSequence = Array.isArray(state.latestPitchSequence) && state.latestPitchSequence.length > 0;
     const hasGuitarSource = hasScore || hasPitchSequence || Boolean((els.analysisIdInput.value || "").trim());
     const hasGuzhengSource = hasScore || hasPitchSequence || Boolean((els.analysisIdInput.value || "").trim());
     const hasDiziSource = hasScore || hasPitchSequence || Boolean((els.analysisIdInput.value || "").trim());

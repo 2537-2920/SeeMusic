@@ -16,64 +16,6 @@ const profileState = {
     tempAvatarUrl: null // 暂存新上传但未点击“保存修改”的头像 URL
 };
 
-function applyPreferencesToUI(prefs) {
-    const engineSelect = document.getElementById("pref-audio-engine");
-    if (engineSelect && prefs.audio_engine) {
-        engineSelect.value = prefs.audio_engine;
-    }
-    const formatsContainer = document.getElementById("pref-export-formats");
-    if (formatsContainer && Array.isArray(prefs.export_formats)) {
-        formatsContainer.querySelectorAll("input[type=checkbox]").forEach((cb) => {
-            cb.checked = prefs.export_formats.includes(cb.value);
-        });
-    }
-}
-
-function collectPreferencesFromUI() {
-    const engineSelect = document.getElementById("pref-audio-engine");
-    const formatsContainer = document.getElementById("pref-export-formats");
-    const exportFormats = [];
-    if (formatsContainer) {
-        formatsContainer.querySelectorAll("input[type=checkbox]:checked").forEach((cb) => {
-            exportFormats.push(cb.value);
-        });
-    }
-    return {
-        audio_engine: engineSelect ? engineSelect.value : "default",
-        export_formats: exportFormats,
-    };
-}
-
-async function loadPreferences() {
-    if (!getCurrentUser()) {
-        return;
-    }
-    try {
-        const prefs = await requestJson("/users/me/preferences");
-        applyPreferencesToUI(prefs);
-    } catch {
-        // Preferences not critical
-    }
-}
-
-async function savePreferences() {
-    if (!getCurrentUser()) {
-        setStatus("请先登录后再保存偏好设置。", true);
-        return;
-    }
-    try {
-        const prefs = collectPreferencesFromUI();
-        const saved = await requestJson("/users/me/preferences", {
-            method: "PUT",
-            body: prefs,
-        });
-        applyPreferencesToUI(saved);
-        setStatus("偏好设置已保存。");
-    } catch (error) {
-        setStatus(error.message || "保存偏好设置失败。", true);
-    }
-}
-
 function setStatus(message, isError = false) {
     const status = document.getElementById("profile-status");
     if (!message) {
@@ -391,19 +333,6 @@ async function handleDeleteHistory(historyId) {
     }
 }
 
-function clearCache(btn) {
-    const textSpan = btn.querySelector(".cache-text");
-    textSpan.textContent = "正在清理前端缓存...";
-    btn.classList.replace("text-red-400", "text-yellow-500");
-
-    window.setTimeout(() => {
-        localStorage.removeItem("seemusic.transcription.apiBase");
-        textSpan.textContent = "清理前端缓存配置";
-        btn.classList.replace("text-yellow-500", "text-gray-400");
-        setStatus("已清理本地 API 配置缓存，登录态与数据库记录未受影响。");
-    }, 600);
-}
-
 function calculateAge(birthdayStr) {
     if (!birthdayStr) return "";
     const birthDate = new Date(birthdayStr);
@@ -601,14 +530,6 @@ function bindEvents() {
         window.location.href = "login.html";
     });
 
-    document.getElementById("clear-cache-btn").addEventListener("click", function handleCacheClear() {
-        clearCache(this);
-    });
-
-    document.getElementById("save-prefs-btn").addEventListener("click", () => {
-        savePreferences();
-    });
-
     document.getElementById("history-list").addEventListener("click", (event) => {
         const button = event.target.closest("[data-history-id]");
         if (!button) {
@@ -621,7 +542,6 @@ function bindEvents() {
 bindEvents();
 window.addEventListener("load", () => {
     loadProfile();
-    loadPreferences();
 });
 function setupSearch() {
     const searchInput = document.getElementById("history-search-input");

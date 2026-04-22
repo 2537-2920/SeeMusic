@@ -45,7 +45,6 @@
                         <p class="eyebrow">识谱准备</p>
                         <h2>基础信息</h2>
                     </div>
-                    <button class="ghost-button" id="load-sample-btn" type="button">载入示例</button>
                 </div>
 
                 <input id="user-id-input" min="1" step="1" type="hidden"/>
@@ -56,20 +55,6 @@
                     <input id="project-title-input" placeholder="我的智能识谱项目" type="text"/>
                 </div>
 
-                <div class="meta-row">
-                    <label>
-                        <span class="field-label">速度</span>
-                        <input id="tempo-input" min="40" step="1" type="number"/>
-                    </label>
-                    <label>
-                        <span class="field-label">拍号</span>
-                        <input id="time-signature-input" placeholder="4/4" type="text"/>
-                    </label>
-                    <label>
-                        <span class="field-label">调号</span>
-                        <input id="key-signature-input" placeholder="C" type="text"/>
-                    </label>
-                </div>
                 <div hidden id="dizi-flute-type-field" style="margin-top:12px">
                     <label class="field-label" for="dizi-flute-type-input">笛型</label>
                     <select id="dizi-flute-type-input">
@@ -83,10 +68,6 @@
                     </select>
                     <p class="helper-text">笛子模式下会按所选笛型的筒音关系显示简谱数字和指法。</p>
                 </div>
-
-                <label class="field-label" for="pitch-sequence-input">音高序列 JSON</label>
-                <textarea id="pitch-sequence-input" rows="14"></textarea>
-                <p class="helper-text">请填写标准的音高序列 JSON，也可以直接使用上方示例快速开始。</p>
 
                 <div class="divider" style="margin:12px 0"></div>
                 <label class="field-label" for="pitch-detect-file-input">从音频自动识别音高</label>
@@ -117,7 +98,6 @@
 
                 <div class="divider" style="margin:12px 0"></div>
                 <div class="button-row">
-                    <button class="secondary-button" id="clear-sequence-btn" type="button">清空</button>
                     <button class="primary-button" id="create-score-btn" type="button">生成乐谱</button>
                 </div>
 
@@ -271,7 +251,7 @@
                                 <strong class="stat-value" id="measure-count-display">--</strong>
                             </div>
                         </div>
-                        <p class="helper-text">左侧速度、拍号、调号只用于新建乐谱。当前乐谱的元信息会从 MusicXML 自动解析并展示在这里。</p>
+                        <p class="helper-text">当前乐谱的速度、拍号、调号会从 MusicXML 自动解析并展示在这里。</p>
                     </div>
                 </div>
 

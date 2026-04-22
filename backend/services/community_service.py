@@ -8,12 +8,13 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Iterator
 from uuid import uuid4
-import base64            
-from fastapi import HTTPException 
+import logging
+from fastapi import HTTPException
 import os                 
 from sqlalchemy import select
 
 UPLOAD_DIR = "D:/SeeMusic_data/avatars"
+logger = logging.getLogger(__name__)
 
 
 COMMUNITY_TZ = timezone(timedelta(hours=8))
@@ -1005,8 +1006,8 @@ def get_score_pdf_content(score_id: str) -> tuple[bytes, str]:
             raise HTTPException(status_code=500, detail="文件解码失败")
         
 def save_user_avatar(user_id: str, file_content: bytes, filename: str) -> str:
-    from backend.db.models import User,CommunityPost, CommunityComment 
     # 头像保存路径：D:/SeeMusic_data/avatars/用户ID.png
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
     file_path = os.path.join(UPLOAD_DIR, f"{user_id}.png")
     
     # 写入图片文件
@@ -1015,28 +1016,38 @@ def save_user_avatar(user_id: str, file_content: bytes, filename: str) -> str:
     
     # 生成可访问的URL
     avatar_url = f"/static/avatars/{user_id}.png"
+
+    if not USE_DB:
+        return avatar_url
+
+    from backend.db.models import User, CommunityPost, CommunityComment
     
     # 转换为数字 ID（确保匹配数据库类型）
-    uid = int(user_id)
+    try:
+        uid = int(user_id)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="invalid user_id for avatar update") from exc
     
     with _session_scope() as db:
-        # 1. 更新 User 表
+        # 1) 核心路径：更新用户头像，必须成功。
         user = db.query(User).get(uid)
-        if user:
-            user.avatar = avatar_url
-            
-        # 2. 【核心新增】同步更新评论表中的 avatar_url
-        # 这一步能解决你说的评论区头像不显示的问题
-        db.query(CommunityComment).filter(CommunityComment.user_id == uid).update({
-            "avatar_url": avatar_url
-        })
-        
-        # 3. 【核心新增】同步更新帖子表中的作者头像 (假设字段是 cover_url)
-        # 建议检查 CommunityPost 表中是否有类似 author_avatar 的字段，如果有也一并更新
-        db.query(CommunityPost).filter(CommunityPost.user_id == uid).update({
-            "cover_url": avatar_url 
-        })
-        
-        db.commit() # 👈 确保这几张表的改动全部生效
+        if not user:
+            raise HTTPException(status_code=404, detail="user not found")
+        user.avatar = avatar_url
+
+        # 2) 非关键同步：社区表结构在不同环境可能未完成迁移，失败不应影响主流程。
+        try:
+            db.query(CommunityComment).filter(CommunityComment.user_id == uid).update({
+                "avatar_url": avatar_url
+            })
+        except Exception as exc:  # pragma: no cover - defensive for schema drift
+            logger.warning("Skip syncing avatar_url to community_comment: %s", exc)
+
+        try:
+            db.query(CommunityPost).filter(CommunityPost.user_id == uid).update({
+                "cover_url": avatar_url
+            })
+        except Exception as exc:  # pragma: no cover - defensive for schema drift
+            logger.warning("Skip syncing avatar_url to community_post: %s", exc)
     
     return avatar_url

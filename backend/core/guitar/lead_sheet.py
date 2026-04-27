@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from copy import deepcopy
@@ -92,10 +93,39 @@ STRUMMING_ARROW_MAP = {
     "U": "↑",
     None: "·",
 }
+_CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]")
 
 
 def _local_name(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
+
+
+def _first_child_text(parent: ET.Element | None, child_name: str) -> str:
+    if parent is None:
+        return ""
+    child = next((item for item in parent if _local_name(item.tag) == child_name), None)
+    return str(child.text or "").strip() if child is not None else ""
+
+
+def _is_punctuation(char: str) -> bool:
+    return bool(char) and unicodedata.category(char).startswith("P")
+
+
+def _guess_lyric_joiner(tokens: list[str]) -> str:
+    meaningful = [token for token in tokens if token]
+    if not meaningful:
+        return ""
+    if all(len(token) == 1 and (_CJK_RE.search(token) or _is_punctuation(token)) for token in meaningful):
+        return ""
+    return " "
+
+
+def _join_lyric_tokens(tokens: list[str]) -> str:
+    meaningful = [str(token or "").strip() for token in tokens if str(token or "").strip()]
+    if not meaningful:
+        return ""
+    joiner = _guess_lyric_joiner(meaningful)
+    return joiner.join(meaningful) if joiner else "".join(meaningful)
 
 
 def _note_pitch_class(note: str | None) -> int | None:
@@ -732,6 +762,38 @@ def _build_lyric_lines(measures: list[dict[str, Any]], *, time_signature: str) -
     return lines
 
 
+def _apply_lyric_events_to_lines(
+    lyric_lines: list[dict[str, Any]],
+    lyric_events: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not lyric_lines or not lyric_events:
+        return lyric_lines
+
+    updated_lines: list[dict[str, Any]] = []
+    sorted_events = sorted(
+        [dict(event) for event in lyric_events if str(event.get("text") or "").strip()],
+        key=lambda item: (
+            int(item.get("measure_no") or 1),
+            float(item.get("start_beat") or 1.0),
+            int(item.get("event_index") or 0),
+        ),
+    )
+    for line in lyric_lines:
+        measure_start = int(line.get("measure_start") or 1)
+        measure_end = int(line.get("measure_end") or measure_start)
+        line_tokens = [
+            str(event.get("text") or "").strip()
+            for event in sorted_events
+            if measure_start <= int(event.get("measure_no") or 0) <= measure_end
+        ]
+        line_text = _join_lyric_tokens(line_tokens)
+        updated_line = dict(line)
+        if line_text:
+            updated_line["lyric_text"] = line_text
+        updated_lines.append(updated_line)
+    return updated_lines
+
+
 def _build_sections(
     lyric_lines: list[dict[str, Any]],
     *,
@@ -810,7 +872,7 @@ def _build_display_lines(lyric_lines: list[dict[str, Any]]) -> list[dict[str, An
     lines: list[dict[str, Any]] = []
     for line in lyric_lines:
         measures = list(line.get("measures") or [])
-        lyric_text = str(line.get("lyric_placeholder") or "歌词待补").strip() or "歌词待补"
+        lyric_text = str(line.get("lyric_text") or line.get("lyric_placeholder") or "歌词待补").strip() or "歌词待补"
         lines.append(
             {
                 "line_no": int(line.get("line_no") or (len(lines) + 1)),
@@ -1203,19 +1265,20 @@ def _build_chord_diagrams(
     return diagrams
 
 
-def extract_melody_from_musicxml(musicxml: str) -> list[dict[str, Any]]:
+def extract_lead_sheet_source_from_musicxml(musicxml: str) -> dict[str, Any]:
     root = ET.fromstring(musicxml.encode("utf-8"))
     part = next((child for child in root if _local_name(child.tag) == "part"), None)
     if part is None:
-        return []
+        return {"melody": [], "lyric_events": []}
 
     melody: list[dict[str, Any]] = []
+    lyric_events: list[dict[str, Any]] = []
     current_divisions = 8
     for fallback_index, measure in enumerate(part, start=1):
         if _local_name(measure.tag) != "measure":
             continue
         measure_no = int(measure.attrib.get("number") or fallback_index)
-        cursor = 0.0
+        cursor_by_staff: dict[str, float] = defaultdict(float)
         for child in measure:
             tag = _local_name(child.tag)
             if tag == "attributes":
@@ -1223,37 +1286,31 @@ def extract_melody_from_musicxml(musicxml: str) -> list[dict[str, Any]]:
                 if divisions is not None and (divisions.text or "").strip().isdigit():
                     current_divisions = max(int(divisions.text.strip()), 1)
                 continue
-            if tag == "backup":
-                duration_el = next((item for item in child if _local_name(item.tag) == "duration"), None)
-                if duration_el is not None:
-                    cursor = max(cursor - float(duration_el.text or 0), 0.0)
-                continue
-            if tag == "forward":
-                duration_el = next((item for item in child if _local_name(item.tag) == "duration"), None)
-                if duration_el is not None:
-                    cursor += float(duration_el.text or 0)
-                continue
             if tag != "note":
                 continue
 
+            staff_no = _first_child_text(child, "staff") or "1"
             duration_el = next((item for item in child if _local_name(item.tag) == "duration"), None)
             duration = float(duration_el.text or 0.0) if duration_el is not None else 0.0
             beats = round(duration / current_divisions, 3) if duration > 0 else 0.0
             is_chord_tone = any(_local_name(item.tag) == "chord" for item in child)
+            cursor = float(cursor_by_staff.get(staff_no, 0.0))
             if not is_chord_tone:
                 start_divisions = cursor
-                cursor += duration
+                cursor_by_staff[staff_no] = cursor + duration
             else:
                 start_divisions = max(cursor - duration, 0.0)
             if any(_local_name(item.tag) == "rest" for item in child):
+                continue
+            if staff_no != "1":
                 continue
 
             pitch_el = next((item for item in child if _local_name(item.tag) == "pitch"), None)
             if pitch_el is None:
                 continue
-            step = next((item.text for item in pitch_el if _local_name(item.tag) == "step"), "C")
-            alter_text = next((item.text for item in pitch_el if _local_name(item.tag) == "alter"), "0")
-            octave = next((item.text for item in pitch_el if _local_name(item.tag) == "octave"), "4")
+            step = _first_child_text(pitch_el, "step") or "C"
+            alter_text = _first_child_text(pitch_el, "alter") or "0"
+            octave = _first_child_text(pitch_el, "octave") or "4"
             alter = int(float(alter_text or 0))
             accidental = "#" if alter == 1 else "b" if alter == -1 else ""
             melody.append(
@@ -1264,7 +1321,24 @@ def extract_melody_from_musicxml(musicxml: str) -> list[dict[str, Any]]:
                     "pitch": f"{step}{accidental}{octave}",
                 }
             )
-    return melody
+
+            lyric_el = next((item for item in child if _local_name(item.tag) == "lyric"), None)
+            lyric_text = _first_child_text(lyric_el, "text")
+            if lyric_text:
+                lyric_events.append(
+                    {
+                        "measure_no": measure_no,
+                        "start_beat": round(start_divisions / current_divisions + 1.0, 3),
+                        "text": lyric_text,
+                        "syllabic": _first_child_text(lyric_el, "syllabic") or None,
+                        "event_index": len(lyric_events),
+                    }
+                )
+    return {"melody": melody, "lyric_events": lyric_events}
+
+
+def extract_melody_from_musicxml(musicxml: str) -> list[dict[str, Any]]:
+    return list(extract_lead_sheet_source_from_musicxml(musicxml).get("melody") or [])
 
 
 def generate_guitar_lead_sheet(
@@ -1275,6 +1349,7 @@ def generate_guitar_lead_sheet(
     melody: list[dict[str, Any]],
     time_signature: str = "4/4",
     title: str | None = None,
+    lyric_events: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     normalized_key = normalize_key_signature_text(key, default="C")
     normalized_melody = _normalize_melody(melody, time_signature=time_signature, tempo=tempo)
@@ -1313,6 +1388,7 @@ def generate_guitar_lead_sheet(
     }
     measures = _group_slots_into_measures(chosen_chords, time_signature=time_signature)
     lyric_lines = _build_lyric_lines(measures, time_signature=time_signature)
+    lyric_lines = _apply_lyric_events_to_lines(lyric_lines, list(lyric_events or []))
     sections = _build_sections(lyric_lines, time_signature=time_signature)
     display_lines = _build_display_lines(lyric_lines)
     capo_suggestion = _suggest_capo(chosen_chords, key_signature=normalized_key)
@@ -1368,12 +1444,13 @@ def generate_guitar_lead_sheet_from_musicxml(
     time_signature: str = "4/4",
     title: str | None = None,
 ) -> dict[str, Any]:
-    melody = extract_melody_from_musicxml(musicxml)
+    source = extract_lead_sheet_source_from_musicxml(musicxml)
     return generate_guitar_lead_sheet(
         key=key,
         tempo=tempo,
         style=style,
-        melody=melody,
+        melody=list(source.get("melody") or []),
         time_signature=time_signature,
         title=title,
+        lyric_events=list(source.get("lyric_events") or []),
     )

@@ -297,6 +297,72 @@ def test_score_creation_from_audio_route_accepts_mp3_and_optional_lrc(
     assert "<lyric>" in body["musicxml"]
 
 
+def test_guitar_lead_sheet_from_audio_route_accepts_lrc_lyrics(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_guitar_pipeline(**kwargs):
+        from backend.core.guitar.lead_sheet import generate_guitar_lead_sheet as build_lead_sheet
+
+        captured["lyrics_payload"] = kwargs.get("lyrics_payload")
+        payload = build_lead_sheet(
+            key="C",
+            tempo=120,
+            time_signature="4/4",
+            style="folk",
+            title="带歌词吉他谱",
+            melody=[
+                {"measure_no": 1, "start_beat": 1.0, "beats": 2.0, "pitch": "C4"},
+                {"measure_no": 1, "start_beat": 3.0, "beats": 2.0, "pitch": "D4"},
+            ],
+        )
+        payload.update(
+            {
+                "analysis_id": kwargs["analysis_id"],
+                "pitch_sequence": [],
+                "melody_pitch_sequence": [
+                    {"time": 0.0, "frequency": 261.63, "duration": 0.5, "note": "C4"},
+                    {"time": 0.5, "frequency": 293.66, "duration": 0.5, "note": "D4"},
+                ],
+                "detected_key_signature": "C",
+                "key_detection": {"key_signature": "C", "confidence": 0.88},
+                "melody_track": {"name": "vocal", "source": "separated_track"},
+                "melody_track_candidates": [],
+                "separation": {"status": "completed", "tracks": [{"name": "vocal"}]},
+                "warnings": [],
+                "pipeline": {"separation_enabled": True, "beat_detection_enabled": False},
+                "lyrics_import": kwargs.get("lyrics_payload"),
+            }
+        )
+        return payload
+
+    monkeypatch.setattr(api_routes_module, "generate_guitar_lead_sheet_from_audio", fake_guitar_pipeline)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/generation/guitar-lead-sheet-from-audio",
+            files=[
+                ("file", ("tongnian.mp3", b"demo-audio", "audio/mpeg")),
+                ("lyrics_file", ("tongnian.lrc", "[00:00.00]你 好".encode("utf-8"), "text/plain")),
+            ],
+            data={
+                "title": "带歌词吉他谱",
+                "tempo": "120",
+                "time_signature": "4/4",
+                "style": "folk",
+                "lyrics_mode": "file",
+                "lyrics_language": "zh",
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()["data"]
+    assert captured["lyrics_payload"] is not None
+    assert body["lyrics_import"]["source"] == "lrc"
+    assert body["lyrics_import"]["line_count"] == 1
+    assert body["lyrics_mode"] == "file"
+    assert body["lyrics_language"] == "zh"
+
+
 def test_score_creation_from_audio_route_accepts_async_whisperx_mode(
     score_database: dict[str, int | str],
     monkeypatch,

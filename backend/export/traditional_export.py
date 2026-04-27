@@ -20,10 +20,10 @@ GUZHENG_TECHNIQUE_SYMBOL_MARKUP = {
     # 上下滑音：箭头线（接近通用记谱里 portamento/glissando 的指向）
     '^"上滑"': r'^\markup { \center-align \fontsize #-3 "↗" }',
     '^"下滑"': r'^\markup { \center-align \fontsize #-3 "↘" }',
-    # 按音：用小号汉字 "按" 代替 ⌒（连线弧），避免与 slur 混淆
-    '^"按"': r'^\markup { \center-align \fontsize #-3 "按" }',
-    # 摇指：三斜线，与 LilyPond \tremolo 的视觉惯例一致
-    '^"摇"': r'^\markup { \center-align \fontsize #-3 \concat { "/" "/" "/" } }',
+    # 按音：小号连线弧
+    '^"按"': r'^\markup { \center-align \fontsize #-3 "⌒" }',
+    # 摇指：小号波浪线
+    '^"摇"': r'^\markup { \center-align \fontsize #-4 \concat { "〰" "〰" } }',
 }
 
 # 笛子专属技法符号（jianpu-ly 输出 ^"..."，由 LilyPond markup 替换）

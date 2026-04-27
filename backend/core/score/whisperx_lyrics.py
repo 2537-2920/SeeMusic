@@ -20,6 +20,23 @@ WHISPERX_MODEL_SIZE = "base"
 WHISPERX_DEVICE = "cpu"
 WHISPERX_COMPUTE_TYPE = "int8"
 _WHITESPACE_RE = re.compile(r"\s+")
+_CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
+_LATIN_RE = re.compile(r"[A-Za-z]")
+
+
+def normalize_whisperx_language(value: Any) -> str | None:
+    normalized = str(value or "").strip().lower().replace("_", "-")
+    if not normalized or normalized == "auto":
+        return None
+    if normalized in {"zh-cn", "zh-hans", "cn", "chs", "zh-tw", "zh-hant", "cht"}:
+        return "zh"
+    if normalized == "english":
+        return "en"
+    if normalized == "japanese":
+        return "ja"
+    if normalized == "korean":
+        return "ko"
+    return normalized
 
 
 def validate_whisperx_runtime() -> None:
@@ -38,6 +55,51 @@ def _normalize_track_name(name: Any) -> str:
 def _compact_text(text: Any) -> str:
     normalized = _WHITESPACE_RE.sub(" ", str(text or "").replace("\n", " ").replace("\r", " ")).strip()
     return normalized
+
+
+def _contains_cjk(text: Any) -> bool:
+    return bool(_CJK_RE.search(str(text or "")))
+
+
+def infer_whisperx_retry_language(*context_texts: Any, preferred_language: str | None = None) -> str | None:
+    normalized_preference = normalize_whisperx_language(preferred_language)
+    if normalized_preference:
+        return normalized_preference
+    if any(_contains_cjk(text) for text in context_texts):
+        return "zh"
+    return None
+
+
+def _combined_transcription_text(transcription: dict[str, Any] | None) -> str:
+    segments = [segment for segment in list((transcription or {}).get("segments") or []) if isinstance(segment, dict)]
+    joined = " ".join(_compact_text(segment.get("text")) for segment in segments)
+    return _compact_text(joined)
+
+
+def should_retry_whisperx_transcription(
+    transcription: dict[str, Any] | None,
+    *,
+    retry_language: str | None,
+) -> bool:
+    normalized_retry = normalize_whisperx_language(retry_language)
+    if normalized_retry != "zh":
+        return False
+
+    payload = transcription or {}
+    detected_language = str(payload.get("language") or "").strip().lower()
+    combined_text = _combined_transcription_text(payload)
+    if not combined_text:
+        return True
+    if _contains_cjk(combined_text):
+        return False
+    if detected_language.startswith("zh"):
+        return False
+    if detected_language in {"en", "fr", "de", "es", "it"}:
+        return True
+
+    compact = combined_text.replace(" ", "")
+    latin_ratio = len(_LATIN_RE.findall(compact)) / max(len(compact), 1)
+    return latin_ratio >= 0.4
 
 
 def _guess_language_joiner(language: str | None) -> str:
@@ -136,6 +198,8 @@ def transcribe_audio_with_whisperx(
     *,
     audio_bytes: bytes,
     file_name: str,
+    title: str | None = None,
+    preferred_language: str | None = None,
     model_size: str = WHISPERX_MODEL_SIZE,
     device: str = WHISPERX_DEVICE,
     compute_type: str = WHISPERX_COMPUTE_TYPE,
@@ -145,12 +209,38 @@ def transcribe_audio_with_whisperx(
     try:
         audio = whisperx.load_audio(temp_path)
         model = whisperx.load_model(model_size, device, compute_type=compute_type)
-        transcription = model.transcribe(audio, batch_size=1)
+        requested_language = normalize_whisperx_language(preferred_language)
+        retry_language = infer_whisperx_retry_language(file_name, title, preferred_language=preferred_language)
+
+        def run_transcription(language: str | None) -> dict[str, Any]:
+            kwargs: dict[str, Any] = {"batch_size": 1}
+            if language:
+                kwargs["language"] = language
+            return model.transcribe(audio, **kwargs)
+
+        transcription = run_transcription(requested_language)
+        warnings: list[str] = []
+        retry_language_used: str | None = None
+        if requested_language is None and should_retry_whisperx_transcription(
+            transcription,
+            retry_language=retry_language,
+        ):
+            retry_language_used = retry_language
+            transcription = run_transcription(retry_language)
+            if retry_language_used == "zh":
+                warnings.append("检测到中文上下文且首次转写结果疑似误判，已自动回退为中文重试。")
     except Exception as exc:
         raise RuntimeError(f"WhisperX 转写失败：{exc}") from exc
     finally:
         Path(temp_path).unlink(missing_ok=True)
-    return {"audio": audio, "transcription": transcription}
+    return {
+        "audio": audio,
+        "transcription": transcription,
+        "warnings": warnings,
+        "requested_language": requested_language,
+        "retry_language": retry_language,
+        "retry_language_used": retry_language_used,
+    }
 
 
 def align_transcription_with_whisperx(
@@ -265,8 +355,11 @@ __all__ = [
     "WHISPERX_DEVICE",
     "WHISPERX_MODEL_SIZE",
     "align_transcription_with_whisperx",
+    "infer_whisperx_retry_language",
+    "normalize_whisperx_language",
     "normalize_whisperx_result_to_lyrics_payload",
     "select_whisperx_audio_source",
+    "should_retry_whisperx_transcription",
     "transcribe_audio_with_whisperx",
     "validate_whisperx_runtime",
 ]

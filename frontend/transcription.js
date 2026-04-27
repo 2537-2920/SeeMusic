@@ -13,6 +13,7 @@ const STORAGE_KEYS = {
     diziDebugExpanded: "seemusic.transcription.diziDebugExpanded",
     diziFluteType: "seemusic.transcription.diziFluteType",
     lyricsMode: "seemusic.transcription.lyricsMode",
+    lyricsLanguage: "seemusic.transcription.lyricsLanguage",
     scoreId: "seemusic.transcription.scoreId",
     tempo: "seemusic.transcription.tempo",
     timeSignature: "seemusic.transcription.timeSignature",
@@ -77,6 +78,7 @@ const SUPPORTED_JIANPU_ANNOTATION_LAYERS = new Set(["basic", "fingering", "techn
 const SUPPORTED_GUITAR_VIEW_MODES = new Set(["screen", "print"]);
 const SUPPORTED_DIZI_FLUTE_TYPES = new Set(["C", "D", "E", "F", "G", "A", "Bb"]);
 const SUPPORTED_LYRICS_MODES = new Set(["off", "file", "asr_whisperx"]);
+const SUPPORTED_LYRICS_LANGUAGES = new Set(["auto", "zh", "en", "ja", "ko"]);
 const ANALYSIS_POLL_INTERVAL_MS = 2500;
 const ANALYSIS_POLL_TIMEOUT_MS = 12 * 60 * 1000;
 
@@ -113,6 +115,7 @@ const state = {
     chordGenerationResult: null,
     lyricsImportResult: null,
     lyricsMode: "file",
+    lyricsLanguage: "auto",
     analysisTaskResult: null,
     rhythmScoreResult: null,
     audioLogs: [],
@@ -222,6 +225,8 @@ function cacheElements() {
         "user-beats-input",
         "pitch-detect-file-input",
         "lyrics-mode-input",
+        "lyrics-language-field",
+        "lyrics-language-input",
         "lyrics-file-fields",
         "lyrics-file-input",
         "pitch-detect-algorithm-input",
@@ -367,6 +372,7 @@ function hydrateInputs() {
     state.diziDebugExpanded = localStorage.getItem(STORAGE_KEYS.diziDebugExpanded) === "true";
     state.diziFluteType = resolveDiziFluteType(localStorage.getItem(STORAGE_KEYS.diziFluteType) || "G");
     state.lyricsMode = resolveLyricsMode(localStorage.getItem(STORAGE_KEYS.lyricsMode) || "file");
+    state.lyricsLanguage = resolveLyricsLanguage(localStorage.getItem(STORAGE_KEYS.lyricsLanguage) || "auto");
     state.preferredTempo = parseStoredTempo(localStorage.getItem(STORAGE_KEYS.tempo));
     state.preferredTimeSignature = normalizeTimeSignature(localStorage.getItem(STORAGE_KEYS.timeSignature));
     state.preferredKeySignature = normalizeKeySignature(localStorage.getItem(STORAGE_KEYS.keySignature));
@@ -376,6 +382,9 @@ function hydrateInputs() {
     }
     if (els.lyricsModeInput) {
         els.lyricsModeInput.value = state.lyricsMode;
+    }
+    if (els.lyricsLanguageInput) {
+        els.lyricsLanguageInput.value = state.lyricsLanguage;
     }
     els.pitchDetectAlgorithmInput.value = DEFAULT_PITCH_DETECT_CONFIG.algorithm;
     els.pitchDetectFrameMsInput.value = String(DEFAULT_PITCH_DETECT_CONFIG.frameMs);
@@ -456,6 +465,11 @@ function resolveDiziFluteType(value) {
 function resolveLyricsMode(value) {
     const normalized = String(value || "").trim().toLowerCase();
     return SUPPORTED_LYRICS_MODES.has(normalized) ? normalized : "file";
+}
+
+function resolveLyricsLanguage(value) {
+    const normalized = String(value || "").trim().toLowerCase();
+    return SUPPORTED_LYRICS_LANGUAGES.has(normalized) ? normalized : "auto";
 }
 
 function parseStoredTempo(value) {
@@ -802,14 +816,28 @@ function renderLyricsInputState() {
     if (els.lyricsModeInput && els.lyricsModeInput.value !== lyricsMode) {
         els.lyricsModeInput.value = lyricsMode;
     }
+    const lyricsLanguage = resolveLyricsLanguage(state.lyricsLanguage || els.lyricsLanguageInput?.value || "auto");
+    if (els.lyricsLanguageInput && els.lyricsLanguageInput.value !== lyricsLanguage) {
+        els.lyricsLanguageInput.value = lyricsLanguage;
+    }
     if (els.lyricsFileFields) {
         els.lyricsFileFields.hidden = lyricsMode !== "file";
+    }
+    if (els.lyricsLanguageField) {
+        els.lyricsLanguageField.hidden = lyricsMode !== "asr_whisperx";
     }
 }
 
 function handleLyricsModeChange(event) {
     state.lyricsMode = resolveLyricsMode(event.currentTarget?.value || "file");
     setLocalStorageSafely(STORAGE_KEYS.lyricsMode, state.lyricsMode, { silent: true });
+    renderLyricsInputState();
+    renderAll();
+}
+
+function handleLyricsLanguageChange(event) {
+    state.lyricsLanguage = resolveLyricsLanguage(event.currentTarget?.value || "auto");
+    setLocalStorageSafely(STORAGE_KEYS.lyricsLanguage, state.lyricsLanguage, { silent: true });
     renderLyricsInputState();
     renderAll();
 }
@@ -967,6 +995,7 @@ function bindEvents() {
     els.pianoResultModeButtons.forEach((button) => button.addEventListener("click", handlePianoResultModeChange));
     els.diziFluteTypeInput?.addEventListener("change", handleDiziFluteTypeChange);
     els.lyricsModeInput?.addEventListener("change", handleLyricsModeChange);
+    els.lyricsLanguageInput?.addEventListener("change", handleLyricsLanguageChange);
     els.guzhengScoreView?.addEventListener("click", handleTraditionalScoreInteraction);
     els.guitarLeadSheetView?.addEventListener("click", handleGuitarLeadSheetInteraction);
     els.diziScoreView?.addEventListener("change", handleTraditionalScoreInputChange);
@@ -1050,6 +1079,7 @@ function bindEvents() {
         [els.analysisIdInput, STORAGE_KEYS.analysisId],
         [els.diziFluteTypeInput, STORAGE_KEYS.diziFluteType],
         [els.lyricsModeInput, STORAGE_KEYS.lyricsMode],
+        [els.lyricsLanguageInput, STORAGE_KEYS.lyricsLanguage],
     ].forEach(([element, key]) => {
         if (!element) {
             return;
@@ -1589,6 +1619,7 @@ async function requestPianoScoreFromAudio(file) {
     setAnalysisToolsOpen(true);
     const arrangementMode = resolvePianoArrangementModeValue();
     const lyricsMode = resolveLyricsMode(els.lyricsModeInput?.value || state.lyricsMode || "file");
+    const lyricsLanguage = resolveLyricsLanguage(els.lyricsLanguageInput?.value || state.lyricsLanguage || "auto");
     const lyricsFile = els.lyricsFileInput?.files?.[0] || null;
     const defaultTitle = "Untitled Piano Arrangement";
     const formData = new FormData();
@@ -1597,6 +1628,7 @@ async function requestPianoScoreFromAudio(file) {
         formData.append("lyrics_file", lyricsFile);
     }
     formData.append("lyrics_mode", lyricsMode);
+    formData.append("lyrics_language", lyricsLanguage);
     formData.append("user_id", String(resolvedUserId));
     formData.append("sample_rate", "16000");
     formData.append("frame_ms", String(config.frameMs));
@@ -2014,8 +2046,16 @@ async function requestDiziScoreFromAudio(file) {
 async function requestGuitarLeadSheetFromAudio(file) {
     const config = getPitchDetectConfig();
     const base = resolveCustomLeadSheetBase(null);
+    const lyricsMode = resolveLyricsMode(els.lyricsModeInput?.value || state.lyricsMode || "file");
+    const lyricsLanguage = resolveLyricsLanguage(els.lyricsLanguageInput?.value || state.lyricsLanguage || "auto");
+    const lyricsFile = els.lyricsFileInput?.files?.[0] || null;
     const formData = new FormData();
     formData.append("file", file);
+    if (lyricsMode === "file" && lyricsFile) {
+        formData.append("lyrics_file", lyricsFile);
+    }
+    formData.append("lyrics_mode", lyricsMode);
+    formData.append("lyrics_language", lyricsLanguage);
     formData.append("sample_rate", "16000");
     formData.append("frame_ms", String(config.frameMs));
     formData.append("hop_ms", String(config.hopMs));
@@ -2035,6 +2075,7 @@ async function requestGuitarLeadSheetFromAudio(file) {
     state.guitarLeadSheetResult = result;
     state.chordGenerationResult = result;
     state.separateTracksResult = result.separation || null;
+    state.lyricsImportResult = result.lyrics_import || null;
     setLatestPitchSequence(result.pitch_sequence || []);
     els.analysisIdInput.value = result.analysis_id || "";
     setLocalStorageSafely(STORAGE_KEYS.analysisId, els.analysisIdInput.value, { silent: true });
@@ -2101,10 +2142,11 @@ async function handlePitchDetectAndScore() {
             const warnings = Array.isArray(generatedLeadSheet.warnings) && generatedLeadSheet.warnings.length
                 ? `，附带 ${generatedLeadSheet.warnings.length} 条提示`
                 : "";
+            const lyricsSummary = buildLyricsImportSummary(generatedLeadSheet.lyrics_import);
             setPitchDetectStatus(
-                `吉他弹唱谱生成完成：已优先使用 ${melodyTrackName} 轨识别旋律，生成 ${generatedLeadSheet.measures?.length || 0} 小节${warnings}。`
+                `吉他弹唱谱生成完成：已优先使用 ${melodyTrackName} 轨识别旋律，生成 ${generatedLeadSheet.measures?.length || 0} 小节，${lyricsSummary}${warnings}。`
             );
-            setAppStatus(`吉他弹唱谱已生成，当前调号 ${generatedLeadSheet.key || "--"}，旋律来源 ${melodyTrackName}。`);
+            setAppStatus(`吉他弹唱谱已生成，当前调号 ${generatedLeadSheet.key || "--"}，旋律来源 ${melodyTrackName}，${lyricsSummary}。`);
             return;
         }
         if (instrumentType === "guzheng") {
@@ -3440,8 +3482,33 @@ function renderGuitarInlineStrumming(pattern) {
  * Strategy: split lyric by whitespace; each chord gets one token; the last
  * chord absorbs any overflow tokens so nothing is dropped.
  */
+function splitGuitarLyricSegments(lyricText) {
+    const normalized = String(lyricText || "").trim();
+    if (!normalized) {
+        return [];
+    }
+    if (/\s/.test(normalized)) {
+        return normalized.split(/\s+/).filter((segment) => segment.length > 0);
+    }
+    if (/[\u3400-\u4dbf\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(normalized)) {
+        const tokens = [];
+        Array.from(normalized).forEach((char) => {
+            if (!char.trim()) {
+                return;
+            }
+            if (/[\p{P}\p{S}]/u.test(char) && tokens.length) {
+                tokens[tokens.length - 1] += char;
+                return;
+            }
+            tokens.push(char);
+        });
+        return tokens;
+    }
+    return [normalized];
+}
+
 function buildChordLyricPairs(allChords, lyricText) {
-    const segments = String(lyricText || "").trim().split(/\s+/).filter((s) => s.length > 0);
+    const segments = splitGuitarLyricSegments(lyricText);
     if (!allChords.length && !segments.length) {
         return [];
     }

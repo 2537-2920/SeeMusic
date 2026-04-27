@@ -18,9 +18,10 @@ from backend.core.guzheng.notation import (
     generate_guzheng_score_from_pitch_sequence,
 )
 from backend.core.guitar.audio_pipeline import generate_guitar_lead_sheet_from_audio
-from backend.core.guitar.lead_sheet import generate_guitar_lead_sheet
+from backend.core.guitar.lead_sheet import generate_guitar_lead_sheet, generate_guitar_lead_sheet_from_musicxml
 from backend.core.generation.chord_generation import generate_chord_sequence
 from backend.core.generation.variation_suggestions import generate_variation_suggestions
+from backend.core.score.sheet_extraction import build_score_from_pitch_sequence
 from backend.core.separation.multi_track_separation import separate_tracks
 from backend.core.traditional.traditional_instruments import get_traditional_instruments
 
@@ -117,6 +118,51 @@ def test_generate_guitar_lead_sheet_returns_structured_strumming_guidance():
     assert section_patterns[1]["section_role"] == "chorus"
     assert section_patterns[0]["display_pattern"]
     assert section_patterns[1]["display_pattern"]
+
+
+def test_generate_guitar_lead_sheet_from_musicxml_uses_melody_staff_and_extracts_lyrics():
+    source_score = build_score_from_pitch_sequence(
+        [
+            {"time": 0.0, "frequency": 261.63, "duration": 0.5, "note": "C4"},
+            {"time": 0.5, "frequency": 293.66, "duration": 0.5, "note": "D4"},
+        ],
+        tempo=120,
+        time_signature="4/4",
+        key_signature="C",
+        title="童年",
+        arrangement_mode="piano_solo",
+        lyrics_payload={
+            "status": "imported",
+            "source": "lrc",
+            "has_timestamps": True,
+            "timing_kind": "token",
+            "lines": [
+                {
+                    "time": 0.0,
+                    "text": "你好",
+                    "tokens": [
+                        {"text": "你", "time": 0.0},
+                        {"text": "好", "time": 0.5},
+                    ],
+                }
+            ],
+            "line_count": 1,
+            "warnings": [],
+            "language": "zh",
+        },
+    )
+
+    result = generate_guitar_lead_sheet_from_musicxml(
+        musicxml=source_score["musicxml"],
+        key="C",
+        tempo=120,
+        time_signature="4/4",
+        style="folk",
+        title="童年",
+    )
+
+    assert result["melody_size"] == 2
+    assert result["display_sections"][0]["display_lines"][0]["lyric_text"] == "你好"
 
 
 def test_generate_guitar_lead_sheet_resolves_secondary_dominant_before_target():

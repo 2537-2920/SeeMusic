@@ -69,7 +69,9 @@ STORAGE_PREFIX = "/storage/"
 SCORE_PROJECT_CACHE: Dict[str, int] = {}
 SCORE_EXPORT_CACHE: Dict[str, Dict[str, Any]] = {}
 IN_MEMORY_PROJECT_ID_BASE = 900_000_000
+IN_MEMORY_EXPORT_RECORD_ID_BASE = 950_000_000
 _in_memory_project_id_counter = 0
+_in_memory_export_record_id_counter = 0
 _DB_FALLBACK_RUNTIME_MARKERS = (
     "db mode enabled but no session factory configured",
     "database unavailable",
@@ -95,6 +97,12 @@ def _next_in_memory_project_id() -> int:
     global _in_memory_project_id_counter
     _in_memory_project_id_counter += 1
     return IN_MEMORY_PROJECT_ID_BASE + _in_memory_project_id_counter
+
+
+def _next_in_memory_export_record_id() -> int:
+    global _in_memory_export_record_id_counter
+    _in_memory_export_record_id_counter += 1
+    return IN_MEMORY_EXPORT_RECORD_ID_BASE + _in_memory_export_record_id_counter
 
 
 def _cache_score_runtime_state(score: Dict[str, Any], project_id: int) -> None:
@@ -259,28 +267,49 @@ def _resolve_export_path(file_url: str | None) -> Path | None:
 
 
 def _serialize_export_record(score_id: str, record: ExportRecord) -> Dict[str, Any]:
-    file_path = _resolve_export_path(record.file_url)
+    return _build_export_record_payload(
+        score_id,
+        project_id=int(record.project_id),
+        export_record_id=int(record.id),
+        export_format=str(record.format),
+        file_url=record.file_url,
+        created_at=record.create_time,
+        updated_at=record.update_time,
+    )
+
+
+def _build_export_record_payload(
+    score_id: str,
+    *,
+    project_id: int,
+    export_record_id: int,
+    export_format: str,
+    file_url: str | None,
+    created_at: datetime | None = None,
+    updated_at: datetime | None = None,
+) -> Dict[str, Any]:
+    file_path = _resolve_export_path(file_url)
     exists = bool(file_path and file_path.exists())
     file_name = file_path.name if file_path else None
-    content_type = mimetypes.guess_type(file_name or record.file_url or "")[0] or "application/octet-stream"
+    content_type = mimetypes.guess_type(file_name or file_url or "")[0] or "application/octet-stream"
     return {
-        "export_record_id": int(record.id),
-        "project_id": int(record.project_id),
+        "export_record_id": int(export_record_id),
+        "project_id": int(project_id),
         "score_id": score_id,
-        "format": str(record.format),
+        "format": str(export_format),
         "file_name": file_name,
         "file_path": str(file_path) if file_path else None,
-        "download_url": record.file_url,
-        "detail_url": f"/api/v1/scores/{score_id}/exports/{int(record.id)}",
-        "preview_url": f"/api/v1/scores/{score_id}/exports/{int(record.id)}/preview",
-        "download_api_url": f"/api/v1/scores/{score_id}/exports/{int(record.id)}/download",
-        "regenerate_url": f"/api/v1/scores/{score_id}/exports/{int(record.id)}/regenerate",
-        "delete_url": f"/api/v1/scores/{score_id}/exports/{int(record.id)}",
+        "download_url": file_url,
+        "detail_url": f"/api/v1/scores/{score_id}/exports/{int(export_record_id)}",
+        "preview_url": f"/api/v1/scores/{score_id}/exports/{int(export_record_id)}/preview",
+        "download_api_url": f"/api/v1/scores/{score_id}/exports/{int(export_record_id)}/download",
+        "regenerate_url": f"/api/v1/scores/{score_id}/exports/{int(export_record_id)}/regenerate",
+        "delete_url": f"/api/v1/scores/{score_id}/exports/{int(export_record_id)}",
         "content_type": content_type,
         "exists": exists,
         "size_bytes": file_path.stat().st_size if exists and file_path else 0,
-        "created_at": record.create_time.isoformat() if record.create_time else None,
-        "updated_at": record.update_time.isoformat() if record.update_time else None,
+        "created_at": created_at.isoformat() if created_at else None,
+        "updated_at": updated_at.isoformat() if updated_at else None,
     }
 
 
@@ -340,7 +369,15 @@ def create_score_from_pitch_sequence(payload: Dict[str, Any]) -> Dict[str, Any]:
         time_signature=payload.get("time_signature", "4/4"),
         key_signature=payload.get("key_signature", "C"),
         title=payload.get("title"),
+        auto_detect_key=bool(payload.get("auto_detect_key", False)),
+        arrangement_mode=str(payload.get("arrangement_mode") or "piano_solo"),
+        lyrics_payload=payload.get("lyrics_payload"),
     )
+    extra_payload = {
+        key: value
+        for key, value in score.items()
+        if key not in {"score_id", "version", "title", "tempo", "time_signature", "key_signature", "musicxml", "summary"}
+    }
     user_id = int(payload["user_id"])
     title = _default_project_title(payload.get("title"), score["score_id"])
     if score.get("title") != title:
@@ -350,6 +387,9 @@ def create_score_from_pitch_sequence(payload: Dict[str, Any]) -> Dict[str, Any]:
             score_id=score["score_id"],
             version=int(score.get("version", 1)),
         )
+        score.update(extra_payload)
+    else:
+        score.update(extra_payload)
     score["title"] = title
 
     project_id: int | None = None
@@ -412,17 +452,44 @@ def export_score(score_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     page_size = str(payload.get("page_size", "A4"))
     with_annotations = bool(payload.get("with_annotations", True))
 
-    with session_scope() as session:
-        record = create_export_record(session, project_id=project_id, export_format=export_format, file_url=None)
+    try:
+        with session_scope() as session:
+            record = create_export_record(session, project_id=project_id, export_format=export_format, file_url=None)
+            export_payload = _build_export_for_record(
+                score,
+                export_format=export_format,
+                export_record_id=int(record.id),
+                page_size=page_size,
+                with_annotations=with_annotations,
+            )
+            update_export_record(session, record, file_url=export_payload.get("download_url"))
+            record_payload = _serialize_export_record(score_id, record)
+    except Exception as exc:
+        if not _is_db_fallback_exception(exc):
+            raise
+        logger.warning(
+            "Failed to create export record for %s in DB; using in-memory fallback instead: %s",
+            score_id,
+            exc,
+        )
+        export_record_id = _next_in_memory_export_record_id()
         export_payload = _build_export_for_record(
             score,
             export_format=export_format,
-            export_record_id=int(record.id),
+            export_record_id=export_record_id,
             page_size=page_size,
             with_annotations=with_annotations,
         )
-        update_export_record(session, record, file_url=export_payload.get("download_url"))
-        record_payload = _serialize_export_record(score_id, record)
+        now = datetime.now(timezone.utc)
+        record_payload = _build_export_record_payload(
+            score_id,
+            project_id=project_id,
+            export_record_id=export_record_id,
+            export_format=export_format,
+            file_url=export_payload.get("download_url"),
+            created_at=now,
+            updated_at=now,
+        )
 
     _upsert_cached_export_item(score_id, project_id, record_payload)
     return {"project_id": project_id, **export_payload, **record_payload}

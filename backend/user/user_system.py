@@ -182,6 +182,32 @@ def _get_user_by_token_db(token: str) -> dict:
 
 
 def update_user_info(user_id: str, data: dict) -> dict:
+    if USE_DB:
+        return _update_user_info_db(user_id, data)
+    return _update_user_info_mem(user_id, data)
+
+
+def _update_user_info_mem(user_id: str, data: dict) -> dict:
+    user = USERS.get(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="user not found")
+
+    allowed_fields = ["nickname", "bio", "birthday", "music_taste", "avatar"]
+    for field in allowed_fields:
+        if field in data and data[field] is not None:
+            user[field] = data[field]
+
+    return {
+        "user_id": str(user.get("user_id")),
+        "nickname": user.get("nickname"),
+        "bio": user.get("bio"),
+        "birthday": user.get("birthday"),
+        "music_taste": user.get("music_taste"),
+        "avatar": user.get("avatar"),
+    }
+
+
+def _update_user_info_db(user_id: str, data: dict) -> dict:
     """更新数据库中的用户信息"""
     from backend.db.models import User
     session = _get_session()
@@ -189,13 +215,13 @@ def update_user_info(user_id: str, data: dict) -> dict:
         user = session.get(User, int(user_id))
         if not user:
             raise HTTPException(status_code=404, detail="user not found")
-        
+
         # 批量更新字段
         allowed_fields = ["nickname", "bio", "birthday", "music_taste", "avatar"]
         for field in allowed_fields:
             if field in data and data[field] is not None:
                 setattr(user, field, data[field])
-        
+
         session.commit()
         return {
             "user_id": str(user.id),
@@ -203,7 +229,7 @@ def update_user_info(user_id: str, data: dict) -> dict:
             "bio": user.bio,
             "birthday": user.birthday,
             "music_taste": user.music_taste,
-            "avatar": user.avatar
+            "avatar": user.avatar,
         }
     except Exception as e:
         session.rollback()

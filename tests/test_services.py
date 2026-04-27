@@ -208,6 +208,43 @@ def test_score_service_uses_in_memory_export_cache_when_db_reads_fail(
     assert detail["content_type"] == "image/png"
 
 
+def test_score_service_exports_with_in_memory_fallback_when_db_write_fails(
+    score_database: dict[str, int | str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    score = create_score_from_pitch_sequence(
+        {
+            "user_id": score_database["user_id"],
+            "title": "Fallback Export Score",
+            "tempo": 120,
+            "time_signature": "4/4",
+            "key_signature": "C",
+            "pitch_sequence": [{"time": 0.0, "frequency": 440.0, "duration": 0.5}],
+        }
+    )
+
+    def raise_db_timeout(*args, **kwargs):
+        raise SQLAlchemyError("db write timeout")
+
+    monkeypatch.setattr(score_service, "create_export_record", raise_db_timeout)
+
+    exported = export_score(score["score_id"], {"format": "pdf"})
+
+    monkeypatch.setattr(score_service, "list_export_records_by_project", raise_db_timeout)
+    monkeypatch.setattr(score_service, "get_export_record_by_id", raise_db_timeout)
+
+    listing = list_score_exports(score["score_id"])
+    detail = get_score_export_record(score["score_id"], exported["export_record_id"])
+
+    assert exported["export_record_id"] >= score_service.IN_MEMORY_EXPORT_RECORD_ID_BASE
+    assert exported["download_api_url"].endswith("/download")
+    assert exported["content_type"] == "application/pdf"
+    assert listing["count"] == 1
+    assert listing["items"][0]["export_record_id"] == exported["export_record_id"]
+    assert detail["file_name"] == exported["file_name"]
+    assert detail["download_api_url"].endswith("/download")
+
+
 def test_score_service_creates_score_in_memory_when_db_is_unavailable(
     score_database: dict[str, int | str],
     monkeypatch: pytest.MonkeyPatch,

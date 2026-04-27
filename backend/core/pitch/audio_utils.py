@@ -79,7 +79,13 @@ def _load_librosa():
         raise AudioDependencyError("环境缺少 librosa，无法解码压缩音频格式。") from exc
 
 
-def _decode_with_librosa(audio_bytes: bytes, file_name: str | None, sample_rate: int) -> tuple[list[float], int]:
+def load_audio_waveform(
+    audio_bytes: bytes,
+    *,
+    file_name: str | None = None,
+    sample_rate: int | None = None,
+    mono: bool = True,
+) -> tuple[Any, int]:
     suffix = _file_extension(file_name) or ".audio"
     temp_path: str | None = None
     try:
@@ -88,7 +94,7 @@ def _decode_with_librosa(audio_bytes: bytes, file_name: str | None, sample_rate:
             temp_path = handle.name
             handle.write(audio_bytes)
             handle.flush()
-        samples, decoded_rate = librosa.load(temp_path, sr=None, mono=True)
+        samples, decoded_rate = librosa.load(temp_path, sr=sample_rate, mono=mono)
     except AudioDependencyError:
         raise
     except Exception as exc:
@@ -100,6 +106,16 @@ def _decode_with_librosa(audio_bytes: bytes, file_name: str | None, sample_rate:
         if temp_path:
             Path(temp_path).unlink(missing_ok=True)
 
+    return samples, safe_sample_rate(decoded_rate or sample_rate)
+
+
+def _decode_with_librosa(audio_bytes: bytes, file_name: str | None, sample_rate: int) -> tuple[list[float], int]:
+    samples, decoded_rate = load_audio_waveform(
+        audio_bytes,
+        file_name=file_name,
+        sample_rate=None,
+        mono=True,
+    )
     return _coerce_sample_list(samples), safe_sample_rate(decoded_rate or sample_rate)
 
 

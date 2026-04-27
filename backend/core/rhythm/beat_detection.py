@@ -10,6 +10,8 @@ import soundfile as sf
 from scipy import signal
 from typing import Tuple, List, Dict, Optional, Union, Any
 
+from backend.core.pitch.audio_utils import load_audio_waveform
+
 class AdvancedBeatDetector:
     """Stable beat detection for complex audio and multiple tempo styles.
     
@@ -271,18 +273,12 @@ class AdvancedBeatDetector:
             Mono audio waveform at target sample rate.
         """
         if audio_bytes is not None:
-            # Write bytes to temporary file for audio loading
-            import tempfile
-            from pathlib import Path
-            
-            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
-                temp_path = f.name
-                f.write(audio_bytes)
-            
-            try:
-                y, sr = librosa.load(temp_path, sr=None, mono=True)
-            finally:
-                Path(temp_path).unlink(missing_ok=True)
+            y, sr = load_audio_waveform(
+                audio_bytes,
+                file_name=audio_path,
+                sample_rate=None,
+                mono=True,
+            )
         else:
             y, sr = librosa.load(audio_path, sr=None, mono=True)
 

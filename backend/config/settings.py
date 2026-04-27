@@ -70,6 +70,7 @@ class Settings:
     db_user: str = field(default_factory=lambda: os.getenv("DB_USER", "root"))
     db_password: str = field(default_factory=lambda: os.getenv("DB_PASSWORD", ""))
     db_name: str = field(default_factory=lambda: os.getenv("DB_NAME", "SeeMusic"))
+    reference_audio_remote_dir: str = field(default_factory=lambda: os.getenv("REFERENCE_AUDIO_REMOTE_DIR", ""))
 
     @property
     def database_url(self) -> str:

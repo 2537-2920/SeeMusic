@@ -35,7 +35,9 @@ class PitchToScoreRequest(BaseModel):
     analysis_id: Optional[str] = None
     tempo: int = 120
     time_signature: str = "4/4"
-    key_signature: str = "C"
+    key_signature: Optional[str] = "C"
+    auto_detect_key: bool = False
+    arrangement_mode: Literal["melody", "piano_solo"] = "piano_solo"
     pitch_sequence: List[PitchSequenceItem]
 
 
@@ -122,8 +124,63 @@ class PitchCurveQuery(BaseModel):
 class ChordGenerationRequest(BaseModel):
     key: str = "C"
     tempo: int = 120
+    time_signature: str = "4/4"
     style: str = "pop"
     melody: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class GuitarLeadSheetRequest(BaseModel):
+    score_id: Optional[str] = None
+    analysis_id: Optional[str] = None
+    title: Optional[str] = None
+    key: Optional[str] = None
+    tempo: int = 120
+    time_signature: str = "4/4"
+    style: str = "pop"
+    melody: List[Dict[str, Any]] = Field(default_factory=list)
+    pitch_sequence: List[PitchSequenceItem] = Field(default_factory=list)
+
+
+class GuitarLeadSheetExportRequest(GuitarLeadSheetRequest):
+    format: Literal["pdf"] = "pdf"
+    layout_mode: Literal["screen", "print"] = "print"
+
+
+class GuzhengScoreRequest(BaseModel):
+    score_id: Optional[str] = None
+    analysis_id: Optional[str] = None
+    title: Optional[str] = None
+    key: Optional[str] = None
+    tempo: int = 120
+    time_signature: str = "4/4"
+    style: str = "traditional"
+    melody: List[Dict[str, Any]] = Field(default_factory=list)
+    pitch_sequence: List[PitchSequenceItem] = Field(default_factory=list)
+
+
+class GuzhengScoreExportRequest(GuzhengScoreRequest):
+    format: Literal["jianpu", "ly", "pdf", "svg"] = "jianpu"
+    layout_mode: Literal["preview", "print"] = "preview"
+    annotation_layer: Literal["basic", "fingering", "technique", "all"] = "all"
+
+
+class DiziScoreRequest(BaseModel):
+    score_id: Optional[str] = None
+    analysis_id: Optional[str] = None
+    title: Optional[str] = None
+    key: Optional[str] = None
+    tempo: int = 120
+    time_signature: str = "4/4"
+    style: str = "traditional"
+    flute_type: str = "G"
+    melody: List[Dict[str, Any]] = Field(default_factory=list)
+    pitch_sequence: List[PitchSequenceItem] = Field(default_factory=list)
+
+
+class DiziScoreExportRequest(DiziScoreRequest):
+    format: Literal["jianpu", "ly", "pdf", "svg"] = "jianpu"
+    layout_mode: Literal["preview", "print"] = "preview"
+    annotation_layer: Literal["basic", "fingering", "technique", "all"] = "all"
 
 
 class VariationSuggestionRequest(BaseModel):

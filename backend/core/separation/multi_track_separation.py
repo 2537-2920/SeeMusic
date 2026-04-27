@@ -5,12 +5,14 @@ from __future__ import annotations
 import os
 import io
 import logging
+import ssl
 import shutil
 import tempfile
 from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 
+from backend.core.pitch.audio_utils import load_audio_waveform
 from backend.numba_compat import ensure_numba_cache_dir
 
 ensure_numba_cache_dir()
@@ -31,6 +33,37 @@ STEM_NAMES = {
 
 # Default stem order preference
 DEFAULT_STEMS_ORDER = ["vocal", "drums", "bass", "guitar", "piano", "accompaniment", "other"]
+VOCAL_BAND_LOW_HZ = 80.0
+VOCAL_BAND_HIGH_HZ = 2000.0
+VOCAL_LOW_ATTENUATION_HZ = 150.0
+VOCAL_LOW_ATTENUATION_GAIN = 0.35
+VOCAL_CENTER_BLEND = 0.25
+VOCAL_HPSS_MARGIN = (1.0, 5.0)
+
+
+def _is_certificate_verification_failure(exc: Exception) -> bool:
+    """Return True when the exception chain points to an SSL cert failure."""
+    current: Exception | None = exc
+    seen: set[int] = set()
+    while current and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, ssl.SSLCertVerificationError):
+            return True
+        message = str(current)
+        if "CERTIFICATE_VERIFY_FAILED" in message or "certificate verify failed" in message.lower():
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def _format_demucs_fallback_warning(exc: Exception) -> str:
+    """Provide a user-friendly warning when Demucs falls back to simple separation."""
+    if _is_certificate_verification_failure(exc):
+        return (
+            "Demucs 模型下载时遇到本机 SSL 证书校验失败，已自动回退到内置简易分离。"
+            "如需启用高质量 Demucs 分离，请修复系统证书链或预先准备本地模型。"
+        )
+    return f"Demucs 分离失败，已自动回退到内置简易分离：{exc}"
 
 
 class AudioSeparator:
@@ -45,22 +78,22 @@ class AudioSeparator:
         self.output_dir = output_dir or tempfile.gettempdir()
         self.separator_id = str(uuid4())[:8]
 
-    def _load_audio(self, audio_bytes: bytes, sr: int = 44100) -> tuple[np.ndarray, int]:
+    def _load_audio(
+        self,
+        audio_bytes: bytes,
+        sr: int = 44100,
+        *,
+        file_name: str | None = None,
+    ) -> tuple[np.ndarray, int]:
         """Load audio from bytes."""
         try:
-            # Write bytes to temporary file for audio loading
-            import tempfile
-            from pathlib import Path
-            
-            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
-                temp_path = f.name
-                f.write(audio_bytes)
-            
-            try:
-                y, sr = librosa.load(temp_path, sr=sr, mono=False)
-                return y, sr
-            finally:
-                Path(temp_path).unlink(missing_ok=True)
+            y, loaded_sr = load_audio_waveform(
+                audio_bytes,
+                file_name=file_name,
+                sample_rate=sr,
+                mono=False,
+            )
+            return np.asarray(y, dtype=np.float32), loaded_sr
         except Exception as e:
             logger.error(f"Failed to load audio: {e}")
             raise
@@ -75,6 +108,16 @@ class AudioSeparator:
         更科学的频带划分：使用梅尔频率或KMeans聚类进行分离，支持多声道。
         """
         import sklearn.cluster
+
+        if stems == 2:
+            mono_mix = self._mono_mix(y)
+            vocal = self._enhance_vocal_track(y, original_mix=y, sr=sr)
+            vocal_mono = self._mono_mix(vocal)
+            accompaniment = mono_mix - vocal_mono
+            return {
+                "vocal": np.asarray(vocal_mono, dtype=np.float32),
+                "accompaniment": np.asarray(accompaniment, dtype=np.float32),
+            }
 
         # 保留多声道信息，y: (channels, samples) or (samples,)
         if y.ndim == 1:
@@ -131,6 +174,113 @@ class AudioSeparator:
                     arr = arr[0]
                 results[name] = arr
         return results
+
+    def _channel_first(self, audio_data: np.ndarray) -> np.ndarray:
+        array = np.asarray(audio_data, dtype=np.float32)
+        if array.ndim == 1:
+            return array[np.newaxis, :]
+        if array.ndim == 2 and array.shape[0] <= 8 and array.shape[1] > array.shape[0]:
+            return array
+        if array.ndim == 2:
+            return array.T
+        raise ValueError(f"unsupported audio shape for separation: {array.shape}")
+
+    def _mono_mix(self, audio_data: np.ndarray) -> np.ndarray:
+        channel_first = self._channel_first(audio_data)
+        return np.mean(channel_first, axis=0, dtype=np.float32).astype(np.float32)
+
+    def _center_channel(self, audio_data: np.ndarray) -> np.ndarray:
+        channel_first = self._channel_first(audio_data)
+        if channel_first.shape[0] >= 2:
+            return np.mean(channel_first[:2], axis=0, dtype=np.float32).astype(np.float32)
+        return channel_first[0].astype(np.float32)
+
+    def _spectral_vocal_focus(self, signal: np.ndarray, sr: int) -> np.ndarray:
+        signal = np.asarray(signal, dtype=np.float32).reshape(-1)
+        if signal.size == 0:
+            return signal
+        n_fft = 2048 if signal.size >= 2048 else max(256, 2 ** int(np.floor(np.log2(max(signal.size, 256)))))
+        hop_length = max(n_fft // 4, 64)
+        spectrum = librosa.stft(signal, n_fft=n_fft, hop_length=hop_length)
+        frequencies = librosa.fft_frequencies(sr=sr, n_fft=n_fft)
+        mask = np.ones_like(frequencies, dtype=np.float32)
+        mask[frequencies < VOCAL_BAND_LOW_HZ] = 0.0
+        mask[frequencies > VOCAL_BAND_HIGH_HZ] = 0.0
+        low_band = (frequencies >= VOCAL_BAND_LOW_HZ) & (frequencies < VOCAL_LOW_ATTENUATION_HZ)
+        mask[low_band] *= VOCAL_LOW_ATTENUATION_GAIN
+        focused = librosa.istft(spectrum * mask[:, None], hop_length=hop_length, length=signal.shape[0])
+        return np.asarray(focused, dtype=np.float32)
+
+    def _harmonic_component(self, signal: np.ndarray) -> np.ndarray:
+        signal = np.asarray(signal, dtype=np.float32).reshape(-1)
+        if signal.size == 0:
+            return signal
+        try:
+            harmonic, _ = librosa.effects.hpss(signal, margin=VOCAL_HPSS_MARGIN)
+        except TypeError:
+            harmonic, _ = librosa.effects.hpss(signal)
+        return np.asarray(harmonic, dtype=np.float32)
+
+    def _match_signal_length(self, signal: np.ndarray, target_length: int) -> np.ndarray:
+        target = max(int(target_length or 0), 0)
+        vector = np.asarray(signal, dtype=np.float32).reshape(-1)
+        if target <= 0:
+            return np.zeros(0, dtype=np.float32)
+        if vector.shape[0] == target:
+            return vector
+        if vector.shape[0] > target:
+            return vector[:target]
+        padded = np.zeros(target, dtype=np.float32)
+        padded[: vector.shape[0]] = vector
+        return padded
+
+    def _match_rms(self, signal: np.ndarray, reference: np.ndarray) -> np.ndarray:
+        signal = np.asarray(signal, dtype=np.float32)
+        reference = np.asarray(reference, dtype=np.float32)
+        signal_rms = float(np.sqrt(np.mean(signal * signal))) if signal.size else 0.0
+        reference_rms = float(np.sqrt(np.mean(reference * reference))) if reference.size else 0.0
+        if signal_rms <= 1e-8 or reference_rms <= 1e-8:
+            return signal
+        return signal * min(reference_rms / signal_rms, 2.0)
+
+    def _enhance_vocal_track(
+        self,
+        vocal_audio: np.ndarray,
+        *,
+        original_mix: np.ndarray | None,
+        sr: int,
+    ) -> np.ndarray:
+        reference_mono = self._mono_mix(vocal_audio)
+        if reference_mono.size == 0:
+            return np.asarray(reference_mono, dtype=np.float32)
+
+        focused_vocal = self._spectral_vocal_focus(
+            self._harmonic_component(reference_mono),
+            sr,
+        )
+        enhanced = focused_vocal
+
+        if original_mix is not None:
+            centered_mix = self._center_channel(original_mix)
+            centered_candidate = self._spectral_vocal_focus(
+                self._harmonic_component(centered_mix),
+                sr,
+            )
+            centered_candidate = self._match_signal_length(centered_candidate, enhanced.shape[0])
+            enhanced = (1.0 - VOCAL_CENTER_BLEND) * enhanced + VOCAL_CENTER_BLEND * centered_candidate
+
+        enhanced = self._match_rms(enhanced, reference_mono)
+        return np.asarray(enhanced, dtype=np.float32)
+
+    def _vocal_enhancement_metadata(self, original_mix: np.ndarray) -> dict[str, object]:
+        channel_first = self._channel_first(original_mix)
+        return {
+            "center_extract_used": bool(channel_first.shape[0] >= 2),
+            "hpss_harmonic_used": True,
+            "band_pass_hz": [int(VOCAL_BAND_LOW_HZ), int(VOCAL_BAND_HIGH_HZ)],
+            "low_frequency_attenuation_below_hz": int(VOCAL_LOW_ATTENUATION_HZ),
+            "low_frequency_gain": round(float(VOCAL_LOW_ATTENUATION_GAIN), 2),
+        }
 
     def _normalize_audio(self, audio_data: np.ndarray, peak: float = 0.95) -> np.ndarray:
         """Normalize audio peak before writing to avoid clipping."""
@@ -316,7 +466,7 @@ class AudioSeparator:
             if not audio_bytes:
                 raise ValueError("No audio data provided")
 
-            y, sr = self._load_audio(audio_bytes, sr=sample_rate)
+            y, sr = self._load_audio(audio_bytes, sr=sample_rate, file_name=file_name)
             logger.info(f"Loaded audio: shape={y.shape}, sr={sr}")
             backend_used = "simple"
             fallback_used = False
@@ -328,7 +478,7 @@ class AudioSeparator:
                     backend_used = "demucs"
                 except Exception as exc:
                     fallback_used = True
-                    warnings.append(f"Demucs separation failed: {exc}")
+                    warnings.append(_format_demucs_fallback_warning(exc))
                     logger.warning(
                         "Demucs separation failed for stems=%s, falling back to simple separation: %s",
                         stems,
@@ -337,6 +487,17 @@ class AudioSeparator:
                     separated_tracks = self._simple_separation(y, sr, stems)
             else:
                 separated_tracks = self._simple_separation(y, sr, stems)
+
+            vocal_enhancement = None
+            if "vocal" in separated_tracks and not (backend_used == "simple" and stems == 2):
+                separated_tracks["vocal"] = self._enhance_vocal_track(
+                    separated_tracks["vocal"],
+                    original_mix=y,
+                    sr=sr,
+                )
+                vocal_enhancement = self._vocal_enhancement_metadata(y)
+            elif "vocal" in separated_tracks:
+                vocal_enhancement = self._vocal_enhancement_metadata(y)
 
             # Save separated tracks and prepare output
             tracks = []
@@ -357,6 +518,7 @@ class AudioSeparator:
                         "download_url": f"/api/v1/audio/download/{task_id}_{name}.wav",
                         "file_path": output_path,
                         "duration": (audio_data.shape[0] if audio_data.ndim == 1 else max(audio_data.shape)) / sr,
+                        **({"enhancement": vocal_enhancement} if name == "vocal" and vocal_enhancement else {}),
                     })
 
             return {
@@ -370,6 +532,7 @@ class AudioSeparator:
                 "sample_rate": sr,
                 "status": "completed",
                 "warnings": warnings,
+                **({"vocal_enhancement": vocal_enhancement} if vocal_enhancement else {}),
             }
 
         except Exception as e:

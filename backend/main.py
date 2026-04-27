@@ -18,7 +18,7 @@ import uvicorn
 from backend.api.api_routes import router
 from backend.config.settings import settings
 from backend.db.session import close_mysql_tunnel, get_session_factory, init_database
-from backend.services import analysis_service, community_service, report_service
+from backend.services import analysis_service, community_service, reference_track_service, report_service
 from backend.user import history_manager, user_system
 import os
 
@@ -36,9 +36,10 @@ async def lifespan(_: FastAPI):
         history_manager.set_db_session_factory(factory)
         community_service.set_db_session_factory(factory)
         analysis_service.set_db_session_factory(factory)
+        reference_track_service.set_db_session_factory(factory)
         report_service.set_db_session_factory(factory)
         logger.info(
-            "Database connected – user/history/community/analysis/report modules running in DB mode"
+            "Database connected – user/history/community/analysis/report/reference modules running in DB mode"
         )
     except Exception as exc:
         logger.warning("Database unavailable (%s) – falling back to in-memory mode", exc)
@@ -46,6 +47,7 @@ async def lifespan(_: FastAPI):
         history_manager.USE_DB = False
         community_service.USE_DB = False
         analysis_service.USE_DB = False
+        reference_track_service.USE_DB = False
         report_service.USE_DB = False
     try:
         yield

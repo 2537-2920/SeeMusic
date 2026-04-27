@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace as dataclass_replace
 
 from fastapi import HTTPException
 
@@ -7,7 +8,13 @@ from backend.api.api_routes import (
     auth_login,
     auth_register,
     favorite_score,
+    generation_dizi_score_export_api,
     generation_chords,
+    generation_dizi_score_api,
+    generation_guzheng_score_export_api,
+    generation_guzheng_score_api,
+    generation_guitar_lead_sheet_export,
+    generation_guitar_lead_sheet,
     generation_variations,
     get_history,
     get_user_preferences,
@@ -28,6 +35,12 @@ from backend.api.schemas import (
     AudioLogRequest,
     ChordGenerationRequest,
     CommunityScorePublishRequest,
+    DiziScoreExportRequest,
+    DiziScoreRequest,
+    GuzhengScoreExportRequest,
+    GuzhengScoreRequest,
+    GuitarLeadSheetExportRequest,
+    GuitarLeadSheetRequest,
     HistoryCreateRequest,
     LoginRequest,
     PitchCompareRequest,
@@ -64,6 +77,31 @@ def test_misc_api_routes_cover_compare_community_generation_and_chart():
     )
     chart_result = pitch_curve("an_001", "compare")
     chord_result = generation_chords(ChordGenerationRequest(key="C", tempo=120, style="pop", melody=[]))
+    guitar_result = generation_guitar_lead_sheet(
+        GuitarLeadSheetRequest(
+            key="C",
+            tempo=120,
+            style="folk",
+            melody=[{"measure_no": 1, "start_beat": 1.0, "beats": 1.0, "pitch": "C4"}],
+        )
+    )
+    guzheng_result = generation_guzheng_score_api(
+        GuzhengScoreRequest(
+            key="G",
+            tempo=96,
+            style="traditional",
+            melody=[{"measure_no": 1, "start_beat": 1.0, "beats": 2.0, "pitch": "G4"}],
+        )
+    )
+    dizi_result = generation_dizi_score_api(
+        DiziScoreRequest(
+            key="G",
+            tempo=92,
+            style="traditional",
+            flute_type="G",
+            melody=[{"measure_no": 1, "start_beat": 1.0, "beats": 2.0, "pitch": "G4"}],
+        )
+    )
     variation_result = generation_variations(
         VariationSuggestionRequest(score_id="score_001", style="traditional", difficulty="medium")
     )
@@ -79,7 +117,99 @@ def test_misc_api_routes_cover_compare_community_generation_and_chart():
     assert chart_result["data"]["analysis_id"] == "an_001"
     assert chart_result["data"]["report_payload"]["chart_type"] == "pitch_comparison"
     assert chord_result["data"]["chords"]
+    assert guitar_result["data"]["lead_sheet_type"] == "guitar_chord_chart"
+    assert guitar_result["data"]["guitar_shapes"]
+    assert guzheng_result["data"]["lead_sheet_type"] == "guzheng_jianpu_chart"
+    assert guzheng_result["data"]["instrument_profile"]["tuning"] == "21弦 D调定弦"
+    assert dizi_result["data"]["lead_sheet_type"] == "dizi_jianpu_chart"
+    assert dizi_result["data"]["flute_type"] == "G"
+    assert dizi_result["data"]["fingerings"]
     assert variation_result["data"]["suggestions"]
+
+
+def test_traditional_export_routes_support_jianpu_source(tmp_path, monkeypatch):
+    from backend.config.settings import settings as _orig_settings
+    monkeypatch.setattr("backend.api.api_routes.settings", dataclass_replace(_orig_settings, storage_dir=tmp_path))
+
+    guzheng_export = generation_guzheng_score_export_api(
+        GuzhengScoreExportRequest(
+            key="G",
+            tempo=96,
+            time_signature="4/4",
+            style="traditional",
+            format="jianpu",
+            melody=[{"measure_no": 1, "start_beat": 1.0, "beats": 2.0, "pitch": "G4"}],
+            title="古筝导出",
+        )
+    )
+    dizi_export = generation_dizi_score_export_api(
+        DiziScoreExportRequest(
+            key="G",
+            tempo=92,
+            time_signature="4/4",
+            style="traditional",
+            flute_type="G",
+            format="jianpu",
+            melody=[{"measure_no": 1, "start_beat": 1.0, "beats": 2.0, "pitch": "G4"}],
+            title="笛子导出",
+        )
+    )
+
+    assert guzheng_export["data"]["format"] == "jianpu"
+    assert guzheng_export["data"]["download_url"].endswith(".jianpu")
+    assert dizi_export["data"]["format"] == "jianpu"
+    assert dizi_export["data"]["download_url"].endswith(".jianpu")
+
+
+def test_guzheng_score_api_supports_minor_key_mapping():
+    result = generation_guzheng_score_api(
+        GuzhengScoreRequest(
+            key="Am",
+            tempo=88,
+            time_signature="4/4",
+            style="traditional",
+            melody=[
+                {"measure_no": 1, "start_beat": 1.0, "beats": 1.0, "pitch": "A4"},
+                {"measure_no": 1, "start_beat": 2.0, "beats": 1.0, "pitch": "C5"},
+                {"measure_no": 1, "start_beat": 3.0, "beats": 1.0, "pitch": "D5"},
+                {"measure_no": 1, "start_beat": 4.0, "beats": 1.0, "pitch": "E5"},
+                {"measure_no": 2, "start_beat": 1.0, "beats": 2.0, "pitch": "G5"},
+            ],
+        )
+    )
+
+    notes_by_degree = {
+        int(note["degree_no"]): note
+        for measure in result["data"]["measures"]
+        for note in measure["notes"]
+    }
+
+    assert result["data"]["key"] == "Am"
+    assert notes_by_degree[4]["string_label"].endswith("弦")
+    assert notes_by_degree[4]["press_note_candidate"] is False
+    assert notes_by_degree[7]["press_note_candidate"] is False
+
+
+def test_guitar_lead_sheet_export_route_supports_pdf(tmp_path, monkeypatch):
+    from backend.config.settings import settings as _orig_settings
+    monkeypatch.setattr("backend.api.api_routes.settings", dataclass_replace(_orig_settings, storage_dir=tmp_path))
+
+    export_result = generation_guitar_lead_sheet_export(
+        GuitarLeadSheetExportRequest(
+            key="C",
+            tempo=96,
+            time_signature="4/4",
+            style="folk",
+            format="pdf",
+            layout_mode="print",
+            title="吉他导出",
+            melody=[{"measure_no": 1, "start_beat": 1.0, "beats": 1.0, "pitch": "C4"}],
+        )
+    )
+
+    assert export_result["data"]["format"] == "pdf"
+    assert export_result["data"]["content_type"] == "application/pdf"
+    assert export_result["data"]["download_url"].endswith(".pdf")
 
 
 def test_pitch_compare_accepts_json_paths(tmp_path):

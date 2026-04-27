@@ -12,6 +12,7 @@ from sqlalchemy.exc import OperationalError
 
 import backend.api.api_routes as api_routes_module
 import backend.core.pitch.audio_utils as audio_utils
+import backend.core.rhythm.beat_detection as beat_detection_module
 from backend.services import analysis_service
 from backend.core.pitch.audio_utils import AudioDecodeError, audio_bytes_to_samples, estimate_duration_from_bytes, infer_audio_metadata, preprocess_audio_features
 from backend.core.pitch.pitch_detection import detect_pitch_sequence
@@ -93,6 +94,30 @@ def test_audio_bytes_to_samples_rejects_invalid_compressed_upload(monkeypatch: p
 
     with pytest.raises(AudioDecodeError, match="无法解码"):
         audio_bytes_to_samples(b"broken", sample_rate=16000, file_name="broken.mp3")
+
+
+def test_beat_detector_load_audio_uses_original_extension_for_compressed_upload(monkeypatch: pytest.MonkeyPatch):
+    detector = beat_detection_module.AdvancedBeatDetector(sr=22050)
+    captured = {}
+
+    def fake_load(audio_bytes: bytes, *, file_name=None, sample_rate=None, mono=True):
+        captured["audio_bytes"] = audio_bytes
+        captured["file_name"] = file_name
+        captured["sample_rate"] = sample_rate
+        captured["mono"] = mono
+        return [0.1, -0.1, 0.2], 22050
+
+    monkeypatch.setattr(beat_detection_module, "load_audio_waveform", fake_load)
+
+    waveform = detector._load_audio("demo.mp3", audio_bytes=b"compressed-audio")
+
+    assert waveform == [0.1, -0.1, 0.2]
+    assert captured == {
+        "audio_bytes": b"compressed-audio",
+        "file_name": "demo.mp3",
+        "sample_rate": None,
+        "mono": True,
+    }
 
 
 def test_preprocess_audio_features_supports_named_multitrack_input():

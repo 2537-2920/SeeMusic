@@ -288,6 +288,7 @@ def musicxml_page_count(musicxml: str) -> int:
 def build_score_summary(musicxml: str) -> dict[str, Any]:
     root = _score_root_from_xml(musicxml)
     measures = _find_all(root, "measure")
+    notes = _find_all(root, "note")
     title = _title_from_root(root) or DEFAULT_TITLE
 
     first_attributes = _find_first(root, "attributes")
@@ -322,6 +323,13 @@ def build_score_summary(musicxml: str) -> dict[str, Any]:
             except ValueError:
                 tempo = 120
 
+    lyric_note_count = 0
+    for note in notes:
+        lyric_el = _find_first(note, "lyric")
+        lyric_text = _first_text(_find_first(lyric_el, "text")) if lyric_el is not None else None
+        if lyric_text:
+            lyric_note_count += 1
+
     return {
         "title": title,
         "tempo": tempo,
@@ -330,6 +338,8 @@ def build_score_summary(musicxml: str) -> dict[str, Any]:
         "summary": {
             "measure_count": max(len(measures), 1),
             "page_hint": musicxml_page_count(musicxml),
+            "has_lyrics": lyric_note_count > 0,
+            "lyric_note_count": lyric_note_count,
         },
     }
 
@@ -436,6 +446,15 @@ def _append_note_xml(
     ET.SubElement(note_el, "type").text = note_type
     for _ in range(dots):
         ET.SubElement(note_el, "dot")
+
+    lyric_payload = note.get("lyric") if isinstance(note.get("lyric"), dict) else None
+    lyric_text = str((lyric_payload or {}).get("text") or "").strip()
+    if lyric_text and not is_rest:
+        lyric_el = ET.SubElement(note_el, "lyric")
+        syllabic = str((lyric_payload or {}).get("syllabic") or "").strip().lower()
+        if syllabic in {"single", "begin", "middle", "end"}:
+            ET.SubElement(lyric_el, "syllabic").text = syllabic
+        ET.SubElement(lyric_el, "text").text = lyric_text
 
     if not is_rest:
         tied_from_previous = bool(note.get("tied_from_previous"))

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 import os
 import uuid
@@ -75,7 +76,16 @@ from backend.core.pitch.pitch_detection import detect_pitch_sequence
 from backend.core.pitch.realtime_tuning import analyze_audio_frame
 from backend.core.score.audio_pipeline import prepare_piano_score_from_audio
 from backend.core.score.key_detection import analyze_key_signature
+from backend.core.score.lyrics_import import import_lyrics_payload
 from backend.core.score.sheet_extraction import build_score_from_pitch_sequence
+from backend.core.score.whisperx_lyrics import (
+    MAX_ASR_AUDIO_DURATION_SECONDS,
+    align_transcription_with_whisperx,
+    normalize_whisperx_result_to_lyrics_payload,
+    select_whisperx_audio_source,
+    transcribe_audio_with_whisperx,
+    validate_whisperx_runtime,
+)
 from backend.services import analysis_service
 from backend.services.reference_track_service import (
     get_reference_track_by_ref_id,
@@ -119,7 +129,13 @@ from backend.user.user_system import get_current_user, get_user_by_token, login_
 from backend.utils.audio_logger import record_audio_log, record_audio_processing_log, get_audio_logs, read_audio_logs_from_file
 
 # 引入节奏处理服务与项目配置项
-from backend.services.analysis_service import cache_analysis_result, get_saved_pitch_sequence, process_rhythm_scoring, save_analysis_result
+from backend.services.analysis_service import (
+    cache_analysis_result,
+    get_analysis_result,
+    get_saved_pitch_sequence,
+    process_rhythm_scoring,
+    save_analysis_result,
+)
 from backend.config.settings import settings
 
 
@@ -146,6 +162,19 @@ COMMUNITY_COVER_TYPES = {
     "image/gif": ".gif",
 }
 COMMUNITY_COVER_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+SUPPORTED_LYRICS_MODES = {"off", "file", "asr_whisperx"}
+ASYNC_ANALYSIS_STATUS_PENDING = "pending"
+ASYNC_ANALYSIS_STATUS_RUNNING = "running"
+ASYNC_ANALYSIS_STATUS_COMPLETED = "completed"
+ASYNC_ANALYSIS_STATUS_FAILED = "failed"
+ASYNC_ANALYSIS_STAGE_QUEUED = "queued"
+ASYNC_ANALYSIS_STAGE_SEPARATION = "separation"
+ASYNC_ANALYSIS_STAGE_PITCH_DETECTION = "pitch_detection"
+ASYNC_ANALYSIS_STAGE_ASR_TRANSCRIPTION = "asr_transcription"
+ASYNC_ANALYSIS_STAGE_ASR_ALIGNMENT = "asr_alignment"
+ASYNC_ANALYSIS_STAGE_SCORE_BUILD = "score_build"
+ASYNC_ANALYSIS_STAGE_COMPLETED = "completed"
+ASYNC_ANALYSIS_STAGE_FAILED = "failed"
 
 def ok(data: Any, message: str = "success") -> Dict[str, Any]:
     return {"code": 0, "message": message, "data": data}
@@ -234,6 +263,318 @@ def _persist_analysis_result_non_blocking(
     cache_analysis_result(**payload)
     if not analysis_service.USE_DB:
         return
+    if background_tasks is None:
+        save_analysis_result(**payload)
+        return
+    background_tasks.add_task(analysis_service.save_analysis_result, **payload)
+
+
+def _missing_lyrics_payload(
+    *,
+    warnings: list[str] | None = None,
+    language: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "status": "missing",
+        "source": "none",
+        "has_timestamps": False,
+        "timing_kind": "none",
+        "lines": [],
+        "line_count": 0,
+        "warnings": list(warnings or []),
+        "language": language,
+    }
+
+
+def _resolve_lyrics_mode(value: str | None) -> str:
+    normalized = str(value or "file").strip().lower() or "file"
+    if normalized not in SUPPORTED_LYRICS_MODES:
+        raise HTTPException(status_code=400, detail="lyrics_mode 必须是 off、file 或 asr_whisperx。")
+    return normalized
+
+
+def _analysis_status_code(task_status: str) -> int:
+    if task_status == ASYNC_ANALYSIS_STATUS_COMPLETED:
+        return 1
+    if task_status == ASYNC_ANALYSIS_STATUS_FAILED:
+        return -1
+    return 0
+
+
+def _build_async_analysis_payload(
+    *,
+    task_status: str,
+    task_stage: str,
+    lyrics_mode: str,
+    arrangement_mode: str,
+    warnings: list[str] | None = None,
+    error: str | None = None,
+    **extra: Any,
+) -> dict[str, Any]:
+    payload = {
+        "task_status": task_status,
+        "task_stage": task_stage,
+        "lyrics_mode": lyrics_mode,
+        "arrangement_mode": arrangement_mode,
+        "warnings": list(warnings or []),
+        "error": error,
+    }
+    payload.update({key: value for key, value in extra.items() if value is not None})
+    return payload
+
+
+def _persist_async_piano_analysis_state(
+    *,
+    analysis_id: str,
+    file_name: str,
+    sample_rate: int,
+    duration: float,
+    bpm: int | None,
+    user_id: int,
+    params: dict[str, Any],
+    result_data: dict[str, Any],
+    pitch_sequence: list[dict[str, Any]] | None = None,
+) -> None:
+    save_analysis_result(
+        analysis_id=analysis_id,
+        file_name=file_name,
+        sample_rate=sample_rate,
+        duration=duration,
+        bpm=bpm,
+        status=_analysis_status_code(str(result_data.get("task_status") or ASYNC_ANALYSIS_STATUS_PENDING)),
+        params=params,
+        result_data=result_data,
+        pitch_sequence=pitch_sequence,
+        user_id=user_id,
+    )
+
+
+def _run_async_piano_score_from_audio_task(
+    *,
+    analysis_id: str,
+    file_name: str,
+    audio_bytes: bytes,
+    user_id: int,
+    title: str | None,
+    sample_rate: int,
+    duration: float,
+    frame_ms: int,
+    hop_ms: int,
+    algorithm: str,
+    tempo: int,
+    time_signature: str,
+    bpm_hint: int | None,
+    beat_sensitivity: float,
+    separation_model: str,
+    separation_stems: int,
+    arrangement_mode: str,
+    log_id: str | None,
+) -> None:
+    params = {
+        "frame_ms": frame_ms,
+        "hop_ms": hop_ms,
+        "algorithm": algorithm,
+        "time_signature": time_signature,
+        "bpm_hint": bpm_hint,
+        "beat_sensitivity": beat_sensitivity,
+        "separation_model": separation_model,
+        "separation_stems": separation_stems,
+        "arrangement_mode": arrangement_mode,
+        "source": "score_from_audio",
+        "lyrics_mode": "asr_whisperx",
+    }
+    warnings: list[str] = []
+    result_data = _build_async_analysis_payload(
+        task_status=ASYNC_ANALYSIS_STATUS_PENDING,
+        task_stage=ASYNC_ANALYSIS_STAGE_QUEUED,
+        lyrics_mode="asr_whisperx",
+        arrangement_mode=arrangement_mode,
+        warnings=warnings,
+        log_id=log_id,
+    )
+    pitch_sequence: list[dict[str, Any]] | None = None
+    bpm: int | None = None
+
+    def persist_state() -> None:
+        _persist_async_piano_analysis_state(
+            analysis_id=analysis_id,
+            file_name=file_name,
+            sample_rate=sample_rate,
+            duration=duration,
+            bpm=bpm,
+            user_id=user_id,
+            params=params,
+            result_data=result_data,
+            pitch_sequence=pitch_sequence,
+        )
+
+    def mark_stage(stage: str) -> None:
+        result_data.update(
+            _build_async_analysis_payload(
+                task_status=ASYNC_ANALYSIS_STATUS_RUNNING,
+                task_stage=stage,
+                lyrics_mode="asr_whisperx",
+                arrangement_mode=arrangement_mode,
+                warnings=warnings,
+                error=None,
+                log_id=log_id,
+            )
+        )
+        persist_state()
+
+    try:
+        persist_state()
+        pipeline_result = prepare_piano_score_from_audio(
+            file_name=file_name,
+            audio_bytes=audio_bytes,
+            analysis_id=analysis_id,
+            fallback_tempo=int(tempo or 120),
+            time_signature=time_signature,
+            sample_rate=sample_rate,
+            frame_ms=frame_ms,
+            hop_ms=hop_ms,
+            algorithm=algorithm,
+            bpm_hint=bpm_hint,
+            beat_sensitivity=beat_sensitivity,
+            separation_model=separation_model,
+            separation_stems=separation_stems,
+            stage_callback=mark_stage,
+        )
+        pitch_sequence = list(pipeline_result.get("pitch_sequence") or [])
+        bpm = int(pipeline_result.get("tempo") or 0) or None
+        warnings[:] = list(pipeline_result.get("warnings") or [])
+        result_data.update(
+            _build_async_analysis_payload(
+                task_status=ASYNC_ANALYSIS_STATUS_RUNNING,
+                task_stage=ASYNC_ANALYSIS_STAGE_ASR_TRANSCRIPTION,
+                lyrics_mode="asr_whisperx",
+                arrangement_mode=arrangement_mode,
+                warnings=warnings,
+                error=None,
+                log_id=log_id,
+                beat_result=pipeline_result.get("beat_result"),
+                tempo_detection=pipeline_result.get("tempo_detection"),
+                key_detection=pipeline_result.get("key_detection"),
+                separation=pipeline_result.get("separation"),
+                melody_track=pipeline_result.get("melody_track"),
+                melody_track_candidates=pipeline_result.get("melody_track_candidates"),
+                detected_key_signature=pipeline_result.get("detected_key_signature"),
+                pipeline=pipeline_result.get("pipeline"),
+            )
+        )
+        persist_state()
+
+        lyrics_source = select_whisperx_audio_source(
+            file_name=file_name,
+            audio_bytes=audio_bytes,
+            separation_result=pipeline_result.get("separation"),
+            melody_track=pipeline_result.get("melody_track"),
+        )
+        warnings.extend(list(lyrics_source.get("warnings") or []))
+        transcription_context = transcribe_audio_with_whisperx(
+            audio_bytes=bytes(lyrics_source["audio_bytes"]),
+            file_name=str(lyrics_source.get("file_name") or file_name),
+        )
+        result_data.update(
+            _build_async_analysis_payload(
+                task_status=ASYNC_ANALYSIS_STATUS_RUNNING,
+                task_stage=ASYNC_ANALYSIS_STAGE_ASR_ALIGNMENT,
+                lyrics_mode="asr_whisperx",
+                arrangement_mode=arrangement_mode,
+                warnings=warnings,
+                error=None,
+                log_id=log_id,
+                beat_result=pipeline_result.get("beat_result"),
+                tempo_detection=pipeline_result.get("tempo_detection"),
+                key_detection=pipeline_result.get("key_detection"),
+                separation=pipeline_result.get("separation"),
+                melody_track=pipeline_result.get("melody_track"),
+                melody_track_candidates=pipeline_result.get("melody_track_candidates"),
+                detected_key_signature=pipeline_result.get("detected_key_signature"),
+                pipeline=pipeline_result.get("pipeline"),
+            )
+        )
+        persist_state()
+
+        aligned_result, alignment_warnings = align_transcription_with_whisperx(
+            transcription_context["transcription"],
+            audio=transcription_context["audio"],
+        )
+        warnings.extend(alignment_warnings)
+        lyrics_payload = normalize_whisperx_result_to_lyrics_payload(aligned_result, warnings=warnings)
+
+        result_data.update(
+            _build_async_analysis_payload(
+                task_status=ASYNC_ANALYSIS_STATUS_RUNNING,
+                task_stage=ASYNC_ANALYSIS_STAGE_SCORE_BUILD,
+                lyrics_mode="asr_whisperx",
+                arrangement_mode=arrangement_mode,
+                warnings=list(lyrics_payload.get("warnings") or warnings),
+                error=None,
+                log_id=log_id,
+                beat_result=pipeline_result.get("beat_result"),
+                tempo_detection=pipeline_result.get("tempo_detection"),
+                key_detection=pipeline_result.get("key_detection"),
+                separation=pipeline_result.get("separation"),
+                melody_track=pipeline_result.get("melody_track"),
+                melody_track_candidates=pipeline_result.get("melody_track_candidates"),
+                detected_key_signature=pipeline_result.get("detected_key_signature"),
+                pipeline=pipeline_result.get("pipeline"),
+                lyrics_import=lyrics_payload,
+            )
+        )
+        persist_state()
+
+        score_payload = {
+            "user_id": int(user_id),
+            "title": title or None,
+            "analysis_id": analysis_id,
+            "tempo": int(pipeline_result.get("tempo") or tempo or 120),
+            "time_signature": time_signature,
+            "key_signature": pipeline_result.get("detected_key_signature") or "C",
+            "auto_detect_key": False,
+            "arrangement_mode": arrangement_mode,
+            "pitch_sequence": pitch_sequence,
+            "lyrics_payload": lyrics_payload,
+        }
+        score = create_score_from_pitch_sequence(score_payload)
+        result_data.update(
+            _build_async_analysis_payload(
+                task_status=ASYNC_ANALYSIS_STATUS_COMPLETED,
+                task_stage=ASYNC_ANALYSIS_STAGE_COMPLETED,
+                lyrics_mode="asr_whisperx",
+                arrangement_mode=arrangement_mode,
+                warnings=list(score.get("lyrics_import", {}).get("warnings") or lyrics_payload.get("warnings") or []),
+                error=None,
+                log_id=log_id,
+                score_id=score["score_id"],
+                score_mode=score.get("score_mode"),
+                beat_result=pipeline_result.get("beat_result"),
+                tempo_detection=pipeline_result.get("tempo_detection"),
+                key_detection=pipeline_result.get("key_detection"),
+                separation=pipeline_result.get("separation"),
+                melody_track=pipeline_result.get("melody_track"),
+                melody_track_candidates=pipeline_result.get("melody_track_candidates"),
+                detected_key_signature=pipeline_result.get("detected_key_signature"),
+                pipeline=pipeline_result.get("pipeline"),
+                piano_arrangement=score.get("piano_arrangement"),
+                lyrics_import=score.get("lyrics_import") or lyrics_payload,
+            )
+        )
+        persist_state()
+    except Exception as exc:
+        result_data.update(
+            _build_async_analysis_payload(
+                task_status=ASYNC_ANALYSIS_STATUS_FAILED,
+                task_stage=ASYNC_ANALYSIS_STAGE_FAILED,
+                lyrics_mode="asr_whisperx",
+                arrangement_mode=arrangement_mode,
+                warnings=warnings,
+                error=str(exc),
+                log_id=log_id,
+            )
+        )
+        persist_state()
 
 
 def _resolve_dizi_score_result(payload: DiziScoreRequest | DiziScoreExportRequest) -> dict[str, Any]:
@@ -380,10 +721,6 @@ def _resolve_guzheng_score_result(payload: GuzhengScoreRequest | GuzhengScoreExp
         style=style,
         title=title,
     )
-    if background_tasks is None:
-        save_analysis_result(**payload)
-        return
-    background_tasks.add_task(analysis_service.save_analysis_result, **payload)
 
 
 def _resolve_reference_audio_source(ref_id: str) -> tuple[str, dict[str, Any] | None]:
@@ -665,6 +1002,8 @@ def score_from_pitch_sequence(payload: PitchToScoreRequest, authorization: str =
 async def score_from_audio(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
+    lyrics_file: UploadFile | None = File(default=None),
+    lyrics_mode: str = Form("file"),
     user_id: int = Form(...),
     title: str = Form(""),
     sample_rate: Optional[int] = Form(None),
@@ -683,10 +1022,22 @@ async def score_from_audio(
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="上传的音频文件为空。")
+    lyrics_content = await lyrics_file.read() if lyrics_file is not None else None
+    resolved_lyrics_mode = _resolve_lyrics_mode(lyrics_mode)
 
     resolved_sample_rate = sample_rate or 16000
     estimated_duration = estimate_duration_from_bytes(content, resolved_sample_rate)
     metadata = infer_audio_metadata(file.filename or "audio", resolved_sample_rate, estimated_duration or None)
+    if resolved_lyrics_mode == "asr_whisperx":
+        if float(metadata["duration"] or 0.0) > MAX_ASR_AUDIO_DURATION_SECONDS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"自动歌词识别目前仅支持最长 {int(MAX_ASR_AUDIO_DURATION_SECONDS // 60)} 分钟的音频。",
+            )
+        try:
+            validate_whisperx_runtime()
+        except AudioDependencyError as exc:
+            raise _normalize_pitch_detect_error(exc) from exc
     log_entry = record_audio_processing_log(
         file_name=file.filename or "audio",
         audio_bytes=content,
@@ -706,9 +1057,77 @@ async def score_from_audio(
             "separation_model": separation_model,
             "separation_stems": separation_stems,
             "arrangement_mode": arrangement_mode,
+            "lyrics_mode": resolved_lyrics_mode,
         },
     )
     resolved_arrangement_mode = "piano_solo"
+    if resolved_lyrics_mode == "asr_whisperx":
+        initial_result = _build_async_analysis_payload(
+            task_status=ASYNC_ANALYSIS_STATUS_PENDING,
+            task_stage=ASYNC_ANALYSIS_STAGE_QUEUED,
+            lyrics_mode=resolved_lyrics_mode,
+            arrangement_mode=resolved_arrangement_mode,
+            warnings=[],
+            error=None,
+            log_id=log_entry["log_id"],
+        )
+        _persist_analysis_result_non_blocking(
+            background_tasks,
+            analysis_id=metadata["analysis_id"],
+            file_name=file.filename or "audio",
+            sample_rate=metadata["sample_rate"],
+            duration=metadata["duration"],
+            bpm=None,
+            status=0,
+            params={
+                "frame_ms": frame_ms,
+                "hop_ms": hop_ms,
+                "algorithm": algorithm,
+                "time_signature": time_signature,
+                "bpm_hint": bpm_hint,
+                "beat_sensitivity": beat_sensitivity,
+                "separation_model": separation_model,
+                "separation_stems": separation_stems,
+                "arrangement_mode": resolved_arrangement_mode,
+                "source": "score_from_audio",
+                "lyrics_mode": resolved_lyrics_mode,
+            },
+            result_data=initial_result,
+            user_id=int(user_id),
+        )
+        background_tasks.add_task(
+            _run_async_piano_score_from_audio_task,
+            analysis_id=metadata["analysis_id"],
+            file_name=file.filename or "audio",
+            audio_bytes=content,
+            user_id=int(user_id),
+            title=title or None,
+            sample_rate=metadata["sample_rate"],
+            duration=float(metadata["duration"] or 0.0),
+            frame_ms=frame_ms,
+            hop_ms=hop_ms,
+            algorithm=algorithm,
+            tempo=int(tempo or 120),
+            time_signature=time_signature,
+            bpm_hint=bpm_hint,
+            beat_sensitivity=beat_sensitivity,
+            separation_model=separation_model,
+            separation_stems=separation_stems,
+            arrangement_mode=resolved_arrangement_mode,
+            log_id=log_entry["log_id"],
+        )
+        return ok(
+            {
+                "analysis_id": metadata["analysis_id"],
+                "task_status": ASYNC_ANALYSIS_STATUS_PENDING,
+                "task_stage": ASYNC_ANALYSIS_STAGE_QUEUED,
+                "accepted": True,
+                "lyrics_mode": resolved_lyrics_mode,
+                "audio_log": log_entry,
+                "arrangement_mode": resolved_arrangement_mode,
+                "message": "WhisperX 自动歌词识别任务已提交。",
+            }
+        )
     try:
         pipeline_result = prepare_piano_score_from_audio(
             file_name=file.filename or "audio",
@@ -732,6 +1151,20 @@ async def score_from_audio(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"钢琴智能识谱失败：{exc}") from exc
 
+    if resolved_lyrics_mode == "off":
+        lyrics_payload = _missing_lyrics_payload()
+    else:
+        try:
+            lyrics_payload = import_lyrics_payload(
+                file_name=file.filename or "audio",
+                audio_bytes=content,
+                lyrics_file_name=lyrics_file.filename if lyrics_file is not None else None,
+                lyrics_file_bytes=lyrics_content,
+            )
+        except Exception as exc:
+            logger.warning("Failed to import lyrics for %s: %s", file.filename or "audio", exc)
+            lyrics_payload = _missing_lyrics_payload(warnings=[f"歌词导入失败：{exc}"])
+
     score_payload = {
         "user_id": int(user_id),
         "title": title or None,
@@ -742,6 +1175,7 @@ async def score_from_audio(
         "auto_detect_key": False,
         "arrangement_mode": resolved_arrangement_mode,
         "pitch_sequence": pipeline_result["pitch_sequence"],
+        "lyrics_payload": lyrics_payload,
     }
     try:
         score = create_score_from_pitch_sequence(score_payload)
@@ -780,6 +1214,7 @@ async def score_from_audio(
             "separation_stems": separation_stems,
             "arrangement_mode": resolved_arrangement_mode,
             "source": "score_from_audio",
+            "lyrics_mode": resolved_lyrics_mode,
         },
         result_data={
             "score_id": score["score_id"],
@@ -790,9 +1225,15 @@ async def score_from_audio(
             "key_detection": pipeline_result.get("key_detection"),
             "separation": pipeline_result.get("separation"),
             "melody_track": pipeline_result.get("melody_track"),
+            "melody_track_candidates": pipeline_result.get("melody_track_candidates"),
+            "lyrics_import": score.get("lyrics_import"),
             "log_id": log_entry["log_id"],
+            "task_status": ASYNC_ANALYSIS_STATUS_COMPLETED,
+            "task_stage": ASYNC_ANALYSIS_STAGE_COMPLETED,
+            "lyrics_mode": resolved_lyrics_mode,
         },
         pitch_sequence=pipeline_result["pitch_sequence"],
+        user_id=int(user_id),
     )
     return ok(
         {
@@ -809,11 +1250,79 @@ async def score_from_audio(
             "warnings": pipeline_result.get("warnings"),
             "pipeline": pipeline_result.get("pipeline"),
             "piano_arrangement": score.get("piano_arrangement"),
+            "lyrics_import": score.get("lyrics_import") or lyrics_payload,
             "audio_log": log_entry,
             "arrangement_mode": score.get("arrangement_mode") or resolved_arrangement_mode,
             "score_mode": score.get("score_mode") or "melody_transcription",
+            "task_status": ASYNC_ANALYSIS_STATUS_COMPLETED,
+            "task_stage": ASYNC_ANALYSIS_STAGE_COMPLETED,
+            "lyrics_mode": resolved_lyrics_mode,
         }
     )
+
+
+@router.get("/analysis/{analysis_id}")
+def analysis_detail(analysis_id: str):
+    analysis_payload = get_analysis_result(analysis_id)
+    if analysis_payload is None:
+        raise HTTPException(status_code=404, detail=f"analysis {analysis_id} not found")
+
+    result_data = deepcopy(analysis_payload.get("result_data") or {})
+    pitch_sequence = list(analysis_payload.get("pitch_sequence") or [])
+    if not pitch_sequence:
+        pitch_sequence = get_saved_pitch_sequence(analysis_id, populate_cache=False) or []
+
+    task_status = str(
+        result_data.get("task_status")
+        or (ASYNC_ANALYSIS_STATUS_COMPLETED if int(analysis_payload.get("status", 0) or 0) > 0 else ASYNC_ANALYSIS_STATUS_PENDING)
+    )
+    task_stage = str(
+        result_data.get("task_stage")
+        or (ASYNC_ANALYSIS_STAGE_COMPLETED if task_status == ASYNC_ANALYSIS_STATUS_COMPLETED else ASYNC_ANALYSIS_STAGE_QUEUED)
+    )
+
+    response_payload: dict[str, Any] = {
+        "analysis_id": analysis_id,
+        "task_status": task_status,
+        "task_stage": task_stage,
+        "status": int(analysis_payload.get("status", 0) or 0),
+        "file_name": analysis_payload.get("file_name"),
+        "sample_rate": analysis_payload.get("sample_rate"),
+        "duration": analysis_payload.get("duration"),
+        "bpm": analysis_payload.get("bpm"),
+        "params": analysis_payload.get("params") or {},
+        "error": result_data.get("error"),
+        "warnings": result_data.get("warnings") or [],
+        "lyrics_mode": result_data.get("lyrics_mode"),
+    }
+
+    score_id = str(result_data.get("score_id") or "").strip()
+    if score_id:
+        try:
+            score = get_score(score_id)
+            response_payload.update(score)
+        except ScoreNotFoundError:
+            response_payload["score_id"] = score_id
+
+    response_payload.update(
+        {
+            "score_id": response_payload.get("score_id") or score_id or None,
+            "pitch_sequence": pitch_sequence,
+            "detected_key_signature": result_data.get("detected_key_signature"),
+            "key_detection": result_data.get("key_detection"),
+            "beat_result": result_data.get("beat_result"),
+            "tempo_detection": result_data.get("tempo_detection"),
+            "melody_track": result_data.get("melody_track"),
+            "melody_track_candidates": result_data.get("melody_track_candidates"),
+            "separation": result_data.get("separation"),
+            "pipeline": result_data.get("pipeline"),
+            "piano_arrangement": response_payload.get("piano_arrangement") or result_data.get("piano_arrangement"),
+            "lyrics_import": response_payload.get("lyrics_import") or result_data.get("lyrics_import"),
+            "arrangement_mode": response_payload.get("arrangement_mode") or result_data.get("arrangement_mode"),
+            "score_mode": response_payload.get("score_mode") or result_data.get("score_mode"),
+        }
+    )
+    return ok(response_payload)
 
 
 @router.get("/scores/{score_id}")

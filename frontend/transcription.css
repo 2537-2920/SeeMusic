@@ -17,6 +17,9 @@
     --danger: #d96570;
     --shadow: 0 12px 32px rgba(15, 23, 42, 0.06);
     --radius: 28px;
+    --page-shell-padding: 28px;
+    --topbar-fixed-gap: 16px;
+    --topbar-reserved-height: 0px;
     --staff-top: 42px;
     --staff-spacing: 15px;
     --staff-bottom: calc(var(--staff-top) + 60px);
@@ -51,7 +54,7 @@ button {
 
 .page-shell {
     min-height: 100vh;
-    padding: 28px;
+    padding: var(--page-shell-padding);
 }
 
 .topbar,
@@ -70,9 +73,9 @@ button {
     align-items: center;
     gap: 24px;
     padding: 22px 26px;
-    position: sticky;
-    top: 16px;
-    z-index: 10;
+    position: static;
+    z-index: 120;
+    margin-bottom: 26px;
 }
 
 .brand-block {
@@ -192,10 +195,15 @@ button {
     display: grid;
     grid-template-columns: minmax(300px, 340px) minmax(0, 1fr) minmax(330px, 390px);
     gap: 22px;
-    margin-top: 26px;
+    margin-top: 10px;
     align-items: start;
 }
 
+body.export-workbench-hidden .workspace-grid {
+    grid-template-columns: minmax(300px, 340px) minmax(0, 1fr);
+}
+
+.left-column,
 .center-column {
     display: grid;
     gap: 22px;
@@ -649,6 +657,30 @@ select:focus {
     overflow: auto;
 }
 
+.verovio-stage.preview {
+    max-height: 720px;
+    resize: vertical;
+}
+
+.preview-page-nav {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px;
+    border-radius: 999px;
+    border: 1px solid #d9e4ec;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(244, 248, 250, 0.96));
+}
+
+.preview-page-nav .ghost-button {
+    min-width: 32px;
+    padding: 6px 10px;
+}
+
+.preview-page-nav .count-pill {
+    font-variant-numeric: tabular-nums;
+}
+
 .verovio-stage.viewer {
     border-radius: 0;
     background: transparent;
@@ -833,6 +865,12 @@ select:focus {
     border-bottom: none;
 }
 
+.guzheng-jianpu-running-page,
+.guzheng-jianpu-page-footer,
+.traditional-engraved-caption {
+    display: none;
+}
+
 .guzheng-jianpu-page-footer {
     justify-self: end;
     color: #8a6542;
@@ -842,7 +880,7 @@ select:focus {
 
 .guzheng-jianpu-running-header {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 12px;
     align-items: center;
     padding-bottom: 10px;
@@ -1470,6 +1508,13 @@ select:focus {
 
 .traditional-export-button {
     flex: 0 0 auto;
+}
+
+.instrument-pdf-export-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 148px;
 }
 
 .traditional-engraved-shell {
@@ -4334,7 +4379,9 @@ textarea:disabled {
 
 @media (max-width: 1024px) {
     .page-shell {
-        padding: 16px;
+        --page-shell-padding: 16px;
+        --topbar-fixed-gap: 10px;
+        padding: var(--page-shell-padding);
     }
 
     .workspace-grid,
@@ -4603,4 +4650,347 @@ textarea:disabled {
         min-width: 0;
         flex: 1 1 10.5rem;
     }
+}
+
+/* ===== Manual edit workbench (MVP) ===== */
+.edit-workbench-panel .panel-header-actions {
+    gap: 10px;
+}
+
+.edit-workbench-body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-top: 12px;
+}
+
+.edit-selection-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: rgba(99, 102, 241, 0.08);
+    border: 1px solid rgba(99, 102, 241, 0.18);
+}
+
+.edit-selection-card .selection-label {
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+    color: rgba(67, 56, 202, 0.78);
+    text-transform: uppercase;
+}
+
+.edit-selection-card .selection-summary {
+    font-size: 0.95rem;
+    color: #1e1b4b;
+    font-weight: 600;
+}
+
+.edit-save-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    align-self: flex-start;
+    background: rgba(148, 163, 184, 0.12);
+    color: #475569;
+    border: 1px solid rgba(148, 163, 184, 0.28);
+}
+
+.edit-save-status .save-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.8;
+}
+
+.edit-save-status[data-status="saving"] {
+    background: rgba(234, 179, 8, 0.12);
+    color: #b45309;
+    border-color: rgba(234, 179, 8, 0.35);
+}
+
+.edit-save-status[data-status="saved"] {
+    background: rgba(34, 197, 94, 0.12);
+    color: #15803d;
+    border-color: rgba(34, 197, 94, 0.35);
+}
+
+.edit-save-status[data-status="error"] {
+    background: rgba(220, 38, 38, 0.1);
+    color: #b91c1c;
+    border-color: rgba(220, 38, 38, 0.4);
+}
+
+.edit-note-nav {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    border-radius: 12px;
+    background: rgba(99, 102, 241, 0.04);
+    border: 1px solid rgba(99, 102, 241, 0.12);
+}
+
+.edit-note-jump {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1 1 220px;
+}
+
+.edit-note-jump .palette-title {
+    margin: 0;
+}
+
+.edit-note-jump input[type="number"] {
+    width: 110px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    background: #fff;
+    font-size: 0.9rem;
+}
+
+.edit-note-jump .edit-note-total {
+    color: #64748b;
+    font-size: 0.82rem;
+    white-space: nowrap;
+}
+
+/* Per-instrument palette section — show only the matching one */
+.palette-section { display: flex; flex-direction: column; gap: 12px; }
+.palette-section[hidden] { display: none; }
+
+/* Chord palette (guitar) */
+.chord-root-row .chord-root-btn,
+.chord-alter-row .chord-alter-btn,
+.chord-kind-row .chord-kind-btn {
+    min-width: 56px;
+}
+
+.chord-root-btn.selected,
+.chord-alter-btn.selected,
+.chord-kind-btn.selected {
+    background: rgba(99, 102, 241, 0.18);
+    border-color: rgba(99, 102, 241, 0.6);
+    color: #312e81;
+}
+
+.chord-preview {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(99, 102, 241, 0.08);
+    color: #312e81;
+    font-size: 0.86rem;
+    font-weight: 500;
+}
+
+.chord-preview strong {
+    font-family: "SF Mono", Menlo, monospace;
+    color: #312e81;
+}
+
+/* Toggle "active" state on technique palette buttons */
+.palette-btn.is-active {
+    background: rgba(34, 197, 94, 0.14);
+    border-color: rgba(34, 197, 94, 0.5);
+    color: #166534;
+}
+
+/* Click target on jianpu */
+.guzheng-jianpu-note-group[data-mxml-index],
+.guitar-inline-pair[data-mxml-index] {
+    cursor: pointer;
+    transition: filter 0.15s ease, background 0.15s ease;
+}
+
+.guzheng-jianpu-note-group[data-mxml-index]:hover,
+.guitar-inline-pair[data-mxml-index]:hover {
+    filter: drop-shadow(0 0 6px rgba(99, 102, 241, 0.36));
+}
+
+.guzheng-jianpu-note-group.is-edit-selected,
+.guitar-inline-pair.is-edit-selected {
+    background: rgba(99, 102, 241, 0.12);
+    border-radius: 8px;
+    outline: 2px solid rgba(99, 102, 241, 0.55);
+    outline-offset: 2px;
+}
+
+/* Frontend overlay: technique badges on jianpu */
+.guzheng-jianpu-technique-badges {
+    position: absolute;
+    top: -10px;
+    right: -10px;
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px 4px;
+    border-radius: 8px;
+    background: rgba(126, 34, 206, 0.95);
+    color: #fff;
+    font-size: 0.62rem;
+    line-height: 1;
+    font-weight: 700;
+    pointer-events: none;
+    box-shadow: 0 2px 6px rgba(126, 34, 206, 0.35);
+}
+
+.guzheng-jianpu-note-group {
+    position: relative;
+}
+
+/* Frontend overlay: chord override badge on guitar chip */
+.guitar-inline-chord.has-override {
+    background: rgba(126, 34, 206, 0.16);
+    color: #6b21a8;
+    border-radius: 6px;
+    padding: 0 4px;
+    box-shadow: inset 0 0 0 1px rgba(126, 34, 206, 0.4);
+}
+
+/* Manual-edit shell beneath LilyPond engraved preview (guzheng / dizi) */
+.traditional-edit-shell {
+    margin-top: 18px;
+    padding: 18px;
+    border-radius: 18px;
+    border: 1px dashed rgba(99, 102, 241, 0.45);
+    background: linear-gradient(180deg, rgba(99, 102, 241, 0.04), rgba(255, 255, 255, 0.96));
+}
+
+.traditional-edit-shell-head {
+    margin-bottom: 12px;
+}
+
+.traditional-edit-shell-head h4 {
+    margin: 4px 0 6px;
+    color: #312e81;
+}
+
+.traditional-edit-shell-head .helper-text {
+    color: #475569;
+    margin: 0;
+}
+
+/* Replacement symbols for HTML jianpu */
+.traditional-jianpu-trill {
+    display: inline-block;
+    font-style: italic;
+    font-size: 0.78em;
+    color: #1e293b;
+    line-height: 1;
+    transform: translateY(-2px);
+}
+
+.guzheng-jianpu-yao-mark {
+    display: inline-block;
+    font-weight: 700;
+    font-size: 0.82em;
+    color: #1e293b;
+    letter-spacing: -0.05em;
+    line-height: 1;
+    transform: translateY(-2px);
+}
+
+.dizi-jianpu-grace-mark {
+    display: inline-block;
+    font-size: 0.78em;
+    color: #475569;
+    line-height: 1;
+}
+
+/* Slide arrow — restore visible glyph (was empty before) */
+.guzheng-jianpu-slide-arc {
+    display: inline-block;
+    font-size: 0.82em;
+    color: #1e293b;
+    line-height: 1;
+    transform: translateY(-1px);
+}
+
+.palette-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.palette-title {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #475569;
+    margin: 0;
+    letter-spacing: 0.02em;
+}
+
+.palette-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.palette-btn {
+    appearance: none;
+    border: 1px solid rgba(99, 102, 241, 0.25);
+    background: #ffffff;
+    color: #1e1b4b;
+    border-radius: 10px;
+    padding: 8px 14px;
+    font-size: 0.92rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+    min-width: 64px;
+}
+
+.palette-btn:hover:not(:disabled) {
+    background: rgba(99, 102, 241, 0.1);
+    border-color: rgba(99, 102, 241, 0.45);
+}
+
+.palette-btn:active:not(:disabled) {
+    transform: translateY(1px);
+}
+
+.palette-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.palette-btn.danger {
+    color: #b91c1c;
+    border-color: rgba(220, 38, 38, 0.3);
+}
+
+.palette-btn.danger:hover:not(:disabled) {
+    background: rgba(220, 38, 38, 0.08);
+    border-color: rgba(220, 38, 38, 0.55);
+}
+
+/* Selection highlight on Verovio SVG (workbench reuses existing .is-selected) */
+.verovio-pane .note.is-selected,
+.verovio-pane .rest.is-selected {
+    fill: #6366f1 !important;
+    stroke: #6366f1 !important;
+}
+
+.verovio-pane .note.is-selected ellipse,
+.verovio-pane .note.is-selected path,
+.verovio-pane .rest.is-selected path {
+    fill: #6366f1 !important;
+    stroke: #6366f1 !important;
+}
+
+.verovio-pane .note,
+.verovio-pane .rest {
+    cursor: pointer;
 }

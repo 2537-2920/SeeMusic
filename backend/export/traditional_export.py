@@ -17,10 +17,25 @@ SUPPORTED_TRADITIONAL_EXPORT_FORMATS = {"jianpu", "ly", "pdf", "svg"}
 SEGMENT_VALUES = (4.0, 3.0, 2.0, 1.5, 1.0, 0.75, 0.5, 0.25)
 SAFE_NAME_PATTERN = re.compile(r"[^A-Za-z0-9_.-]+")
 GUZHENG_TECHNIQUE_SYMBOL_MARKUP = {
+    # 上下滑音：箭头线（接近通用记谱里 portamento/glissando 的指向）
     '^"上滑"': r'^\markup { \center-align \fontsize #-3 "↗" }',
     '^"下滑"': r'^\markup { \center-align \fontsize #-3 "↘" }',
-    '^"按"': r'^\markup { \center-align \fontsize #-3 "⌒" }',
-    '^"摇"': r'^\markup { \center-align \fontsize #-4 \concat { "〰" "〰" } }',
+    # 按音：用小号汉字 "按" 代替 ⌒（连线弧），避免与 slur 混淆
+    '^"按"': r'^\markup { \center-align \fontsize #-3 "按" }',
+    # 摇指：三斜线，与 LilyPond \tremolo 的视觉惯例一致
+    '^"摇"': r'^\markup { \center-align \fontsize #-3 \concat { "/" "/" "/" } }',
+}
+
+# 笛子专属技法符号（jianpu-ly 输出 ^"..."，由 LilyPond markup 替换）
+DIZI_TECHNIQUE_SYMBOL_MARKUP = {
+    # 颤音：通用斜体 tr 标记
+    '^"颤"': r'^\markup { \center-align \italic \fontsize #-3 "tr" }',
+    # 滑音：箭头线
+    '^"滑"': r'^\markup { \center-align \fontsize #-3 "↗" }',
+    # 倚音：小字号 "倚"，比单纯文字更紧凑
+    '^"倚"': r'^\markup { \center-align \italic \fontsize #-4 "倚" }',
+    # 换气点：通用换气逗号
+    '^"换"': r'^\markup { \center-align \fontsize #-3 "," }',
 }
 
 
@@ -297,12 +312,13 @@ def _measure_tokens(
 
 
 def _apply_traditional_symbol_markup(lilypond_text: str, *, instrument_type: str) -> str:
-    if instrument_type != "guzheng":
-        return lilypond_text
-
     updated = str(lilypond_text or "")
-    for source, replacement in GUZHENG_TECHNIQUE_SYMBOL_MARKUP.items():
-        updated = updated.replace(source, replacement)
+    if instrument_type == "guzheng":
+        for source, replacement in GUZHENG_TECHNIQUE_SYMBOL_MARKUP.items():
+            updated = updated.replace(source, replacement)
+    elif instrument_type == "dizi":
+        for source, replacement in DIZI_TECHNIQUE_SYMBOL_MARKUP.items():
+            updated = updated.replace(source, replacement)
     return updated
 
 

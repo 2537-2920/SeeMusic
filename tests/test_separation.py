@@ -12,6 +12,7 @@ import librosa
 import soundfile as sf
 import pytest
 
+import backend.core.separation.multi_track_separation as separation_module
 from backend.core.separation.multi_track_separation import (
     AudioSeparator,
     separate_tracks,
@@ -66,6 +67,31 @@ class TestAudioSeparator:
         assert isinstance(y, np.ndarray)
         assert sr == 44100
         assert y.shape[0] > 0
+
+    def test_load_audio_uses_original_extension_for_compressed_upload(self, monkeypatch):
+        """Test that compressed uploads keep their original suffix when decoded."""
+        separator = AudioSeparator()
+        captured = {}
+
+        def fake_load(audio_bytes, *, file_name=None, sample_rate=None, mono=True):
+            captured["audio_bytes"] = audio_bytes
+            captured["file_name"] = file_name
+            captured["sample_rate"] = sample_rate
+            captured["mono"] = mono
+            return np.zeros(16, dtype=np.float32), 48000
+
+        monkeypatch.setattr(separation_module, "load_audio_waveform", fake_load)
+
+        y, sr = separator._load_audio(b"compressed-audio", sr=48000, file_name="demo.mp3")
+
+        assert isinstance(y, np.ndarray)
+        assert sr == 48000
+        assert captured == {
+            "audio_bytes": b"compressed-audio",
+            "file_name": "demo.mp3",
+            "sample_rate": 48000,
+            "mono": False,
+        }
 
     def test_separate_two_stems(self, temp_audio_bytes, temp_dir):
         """Test basic 2-stem separation."""

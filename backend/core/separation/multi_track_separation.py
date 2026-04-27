@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 
+from backend.core.pitch.audio_utils import load_audio_waveform
 from backend.numba_compat import ensure_numba_cache_dir
 
 ensure_numba_cache_dir()
@@ -77,22 +78,22 @@ class AudioSeparator:
         self.output_dir = output_dir or tempfile.gettempdir()
         self.separator_id = str(uuid4())[:8]
 
-    def _load_audio(self, audio_bytes: bytes, sr: int = 44100) -> tuple[np.ndarray, int]:
+    def _load_audio(
+        self,
+        audio_bytes: bytes,
+        sr: int = 44100,
+        *,
+        file_name: str | None = None,
+    ) -> tuple[np.ndarray, int]:
         """Load audio from bytes."""
         try:
-            # Write bytes to temporary file for audio loading
-            import tempfile
-            from pathlib import Path
-            
-            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
-                temp_path = f.name
-                f.write(audio_bytes)
-            
-            try:
-                y, sr = librosa.load(temp_path, sr=sr, mono=False)
-                return y, sr
-            finally:
-                Path(temp_path).unlink(missing_ok=True)
+            y, loaded_sr = load_audio_waveform(
+                audio_bytes,
+                file_name=file_name,
+                sample_rate=sr,
+                mono=False,
+            )
+            return np.asarray(y, dtype=np.float32), loaded_sr
         except Exception as e:
             logger.error(f"Failed to load audio: {e}")
             raise
@@ -465,7 +466,7 @@ class AudioSeparator:
             if not audio_bytes:
                 raise ValueError("No audio data provided")
 
-            y, sr = self._load_audio(audio_bytes, sr=sample_rate)
+            y, sr = self._load_audio(audio_bytes, sr=sample_rate, file_name=file_name)
             logger.info(f"Loaded audio: shape={y.shape}, sr={sr}")
             backend_used = "simple"
             fallback_used = False

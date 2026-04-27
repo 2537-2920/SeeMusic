@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any, Dict, List
 from uuid import uuid4
 
 from backend.core.piano.arrangement import generate_piano_arrangement
 from backend.core.pitch.pitch_sequence_utils import is_note_event_item
 from backend.core.score.key_detection import detect_key_signature, normalize_key_signature_text, respell_pitch_sequence_for_key
+from backend.core.score.lyrics_import import align_lyrics_to_measures
 from backend.core.score.melody_materialization import materialize_melody_from_pitch_sequence as shared_materialize_melody_from_pitch_sequence
 from backend.core.score.musicxml_utils import build_musicxml_from_measures
 from backend.core.score.note_mapping import (
@@ -462,6 +464,7 @@ def build_score_from_pitch_sequence(
     title: str | None = None,
     auto_detect_key: bool = False,
     arrangement_mode: str = "piano_solo",
+    lyrics_payload: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     resolved_arrangement_mode = "piano_solo" if str(arrangement_mode or "piano_solo").strip().lower() == "piano_solo" else "melody"
     melody_materialized = materialize_melody_from_pitch_sequence(
@@ -484,6 +487,18 @@ def build_score_from_pitch_sequence(
             title=title,
         )
         measures_for_export = list(arrangement_payload.get("arranged_measures") or measures)
+    lyrics_import: Dict[str, Any] | None = None
+    if lyrics_payload is not None:
+        measures_for_export, lyrics_import = align_lyrics_to_measures(
+            measures_for_export,
+            lyrics_payload,
+            tempo=int(tempo),
+            time_signature=time_signature,
+        )
+        if arrangement_payload is not None:
+            arrangement_payload["arranged_measures"] = deepcopy(measures_for_export)
+        else:
+            measures = deepcopy(measures_for_export)
     musicxml = build_musicxml_from_measures(
         measures_for_export,
         tempo=tempo,
@@ -501,4 +516,6 @@ def build_score_from_pitch_sequence(
         score["score_mode"] = "piano_two_hand_arrangement"
     else:
         score["score_mode"] = "melody_transcription"
+    if lyrics_import is not None:
+        score["lyrics_import"] = lyrics_import
     return score

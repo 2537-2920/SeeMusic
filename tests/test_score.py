@@ -45,6 +45,12 @@ def _all_elements(root: ET.Element, tag_name: str) -> list[ET.Element]:
     return [element for element in root.iter() if _local_name(element.tag) == tag_name]
 
 
+def _child_text(element: ET.Element, tag_name: str, default: str = "") -> str:
+    child = next((node for node in element if _local_name(node.tag) == tag_name), None)
+    text = child.text if child is not None else None
+    return (text or default).strip()
+
+
 def _replace_tempo(musicxml: str, tempo: int) -> str:
     root = _xml_root(musicxml)
     for element in _all_elements(root, "per-minute"):
@@ -217,6 +223,81 @@ def test_build_score_from_pitch_sequence_can_generate_two_hand_piano_arrangement
     assert staves
     assert backups
     assert {"1", "2"} <= staff_numbers
+
+
+def test_build_score_from_pitch_sequence_writes_lyrics_to_right_hand_only():
+    score = build_score_from_pitch_sequence(
+        [
+            {"time": 0.0, "frequency": 392.0, "duration": 0.5},
+            {"time": 0.5, "frequency": 440.0, "duration": 0.5},
+            {"time": 1.0, "frequency": 493.88, "duration": 0.5},
+            {"time": 1.5, "frequency": 523.25, "duration": 0.5},
+        ],
+        tempo=120,
+        time_signature="4/4",
+        key_signature="G",
+        title="Lyrics Piano Arrangement",
+        arrangement_mode="piano_solo",
+        lyrics_payload={
+            "status": "imported",
+            "source": "id3_sylt",
+            "has_timestamps": True,
+            "timing_kind": "token",
+            "lines": [
+                {
+                    "time": 0.0,
+                    "text": "你好世界",
+                    "tokens": [
+                        {"text": "你", "time": 0.0},
+                        {"text": "好", "time": 0.5},
+                        {"text": "世", "time": 1.0},
+                        {"text": "界", "time": 1.5},
+                    ],
+                }
+            ],
+            "line_count": 1,
+            "warnings": [],
+        },
+    )
+
+    root = _xml_root(score["musicxml"])
+    lyric_notes = [note for note in _all_elements(root, "note") if next((child for child in note if _local_name(child.tag) == "lyric"), None)]
+
+    assert score["lyrics_import"]["source"] == "id3_sylt"
+    assert score["lyrics_import"]["alignment_mode"] == "timestamped_tokens"
+    assert score["summary"]["has_lyrics"] is True
+    assert score["summary"]["lyric_note_count"] == 4
+    assert [_child_text(next(child for child in note if _local_name(child.tag) == "lyric"), "text") for note in lyric_notes] == ["你", "好", "世", "界"]
+    assert all(_child_text(note, "staff", "1") == "1" for note in lyric_notes)
+
+
+def test_build_score_from_pitch_sequence_only_labels_first_segment_of_tied_note():
+    score = build_score_from_pitch_sequence(
+        [
+            {"time": 0.0, "frequency": 440.0, "duration": 2.5},
+        ],
+        tempo=120,
+        time_signature="4/4",
+        key_signature="C",
+        title="Tied Lyrics Score",
+        arrangement_mode="piano_solo",
+        lyrics_payload={
+            "status": "imported",
+            "source": "id3_uslt",
+            "has_timestamps": False,
+            "timing_kind": "none",
+            "lines": [{"time": None, "text": "长音", "tokens": []}],
+            "line_count": 1,
+            "warnings": [],
+        },
+    )
+
+    root = _xml_root(score["musicxml"])
+    lyric_notes = [note for note in _all_elements(root, "note") if next((child for child in note if _local_name(child.tag) == "lyric"), None)]
+
+    assert len(lyric_notes) == 1
+    assert score["summary"]["lyric_note_count"] == 1
+    assert _child_text(next(child for child in lyric_notes[0] if _local_name(child.tag) == "lyric"), "text") == "长音"
 
 
 def test_build_score_from_pitch_sequence_trims_trailing_full_rest_measures():
@@ -536,6 +617,15 @@ def test_score_editing_and_history_round_trip(score_database: dict[str, int | st
             "time_signature": "4/4",
             "key_signature": "C",
             "pitch_sequence": [{"time": 0.0, "frequency": 440.0, "duration": 0.5}],
+            "lyrics_payload": {
+                "status": "imported",
+                "source": "id3_uslt",
+                "has_timestamps": False,
+                "timing_kind": "none",
+                "lines": [{"time": None, "text": "测试歌词", "tokens": []}],
+                "line_count": 1,
+                "warnings": [],
+            },
         }
     )
     score_id = score["score_id"]
@@ -547,14 +637,19 @@ def test_score_editing_and_history_round_trip(score_database: dict[str, int | st
     assert updated["version"] == 2
     assert fetched["tempo"] == 96
     assert "96" in updated["musicxml"]
+    assert "测试歌词" in updated["musicxml"]
+    assert updated["summary"]["has_lyrics"] is True
+    assert updated["summary"]["lyric_note_count"] == 1
 
     reverted = undo_score(score_id)
     assert reverted["tempo"] == 120
     assert reverted["version"] == 1
+    assert "测试歌词" in reverted["musicxml"]
 
     redone = redo_score(score_id)
     assert redone["tempo"] == 96
     assert redone["version"] == 2
+    assert "测试歌词" in redone["musicxml"]
 
     with session_scope() as session:
         sheet = session.query(Sheet).filter_by(score_id=score_id).one()

@@ -383,6 +383,57 @@ def save_pitch_sequence_cache(
         logger.warning("Failed to persist pitch_sequence cache for %s: %s", analysis_id, exc)
 
 
+def get_analysis_result(analysis_id: str) -> dict[str, Any] | None:
+    stored = ANALYSIS_RESULTS.get(analysis_id)
+    if stored is not None:
+        return {
+            "analysis_id": analysis_id,
+            "file_name": stored.get("file_name"),
+            "file_url": stored.get("file_url"),
+            "sample_rate": stored.get("sample_rate"),
+            "duration": stored.get("duration"),
+            "bpm": stored.get("bpm"),
+            "status": int(stored.get("status", 0) or 0),
+            "params": _json_ready(deepcopy(stored.get("params") or {})),
+            "result_data": _json_ready(deepcopy(stored.get("result_data") or {})),
+            "pitch_sequence": _json_ready(deepcopy(stored.get("pitch_sequence") or [])),
+            "user_id": stored.get("user_id"),
+        }
+
+    if not USE_DB:
+        return None
+
+    from backend.db.models import AudioAnalysis
+
+    try:
+        with _session_scope() as session:
+            analysis = session.execute(
+                select(AudioAnalysis).where(AudioAnalysis.analysis_id == analysis_id)
+            ).scalar_one_or_none()
+            if analysis is None:
+                return None
+            return {
+                "analysis_id": analysis.analysis_id,
+                "file_name": analysis.file_name,
+                "file_url": analysis.file_url,
+                "sample_rate": analysis.sample_rate,
+                "duration": analysis.duration,
+                "bpm": analysis.bpm,
+                "status": int(analysis.status or 0),
+                "params": _json_ready(deepcopy(analysis.params or {})),
+                "result_data": _json_ready(deepcopy(analysis.result or {})),
+                "pitch_sequence": [],
+                "user_id": analysis.user_id,
+            }
+    except SQLAlchemyError as exc:
+        logger.warning(
+            "Failed to load analysis result %s from DB; using in-memory fallback if available: %s",
+            analysis_id,
+            exc,
+        )
+        return None
+
+
 def get_saved_pitch_sequence(
     analysis_id: str,
     *,

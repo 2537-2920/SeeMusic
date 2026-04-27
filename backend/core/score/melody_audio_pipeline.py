@@ -197,6 +197,7 @@ def extract_melody_from_audio(
     beat_sensitivity: float = 0.5,
     enable_beat_detection: bool = True,
     key_hint: str | None = None,
+    stage_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     warnings: list[str] = []
     beat_result: dict[str, Any] | None = None
@@ -211,6 +212,8 @@ def extract_melody_from_audio(
     else:
         tempo_detection = _disabled_tempo_detection(fallback_tempo=fallback_tempo)
 
+    if stage_callback is not None:
+        stage_callback("separation")
     separation_result = separate_tracks_fn(
         file_name,
         model=separation_model,
@@ -223,8 +226,12 @@ def extract_melody_from_audio(
     selected_track: dict[str, Any] | None = None
     track_evaluations: list[dict[str, Any]] = []
     raw_pitch_sequence: list[dict[str, Any]] = []
+    pitch_stage_marked = False
 
     if separation_result.get("status") == "completed":
+        if stage_callback is not None:
+            stage_callback("pitch_detection")
+            pitch_stage_marked = True
         selected_track, track_evaluations, evaluation_warnings = pick_best_melody_track(
             list(separation_result.get("tracks") or []),
             sample_rate=sample_rate,
@@ -239,6 +246,8 @@ def extract_melody_from_audio(
 
     if not raw_pitch_sequence:
         warnings.append("未能从分离轨中稳定提取主旋律，已回退为直接对混音进行旋律识别。")
+        if stage_callback is not None and not pitch_stage_marked:
+            stage_callback("pitch_detection")
         raw_pitch_sequence = detect_pitch_sequence_fn(
             file_name=file_name,
             sample_rate=sample_rate,

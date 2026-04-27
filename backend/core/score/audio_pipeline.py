@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from backend.core.pitch.pitch_detection import detect_pitch_sequence
 from backend.core.rhythm.beat_detection import detect_beats
@@ -33,6 +33,7 @@ def prepare_piano_score_from_audio(
     beat_sensitivity: float = 0.5,
     separation_model: str = "demucs",
     separation_stems: int = 2,
+    stage_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     extraction = extract_melody_from_audio(
         file_name=file_name,
@@ -52,6 +53,7 @@ def prepare_piano_score_from_audio(
         bpm_hint=bpm_hint,
         beat_sensitivity=beat_sensitivity,
         enable_beat_detection=True,
+        stage_callback=stage_callback,
     )
 
     return {

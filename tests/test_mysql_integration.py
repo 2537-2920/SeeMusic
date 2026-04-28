@@ -14,6 +14,7 @@ from backend.db.models import (
     CommunityFavorite,
     CommunityLike,
     CommunityPost,
+    PitchSequence,
     Project,
     Report,
     Sheet,
@@ -21,8 +22,11 @@ from backend.db.models import (
     UserHistory,
 )
 from backend.db.repositories import get_sheet_by_score_id
-from backend.db.session import get_engine, reset_database_state, resolve_database_url, session_scope
+from backend.db.session import get_engine, get_session_factory, reset_database_state, resolve_database_url, session_scope
+from backend.services import analysis_service, community_service, report_service
+from backend.services.analysis_service import clear_analysis_results, get_saved_pitch_sequence, save_analysis_result
 from backend.services.score_service import create_score_from_pitch_sequence
+from backend.user import history_manager, user_system
 
 
 MYSQL_INTEGRATION_DATABASE_URL_ENV = "MYSQL_INTEGRATION_DATABASE_URL"
@@ -75,11 +79,28 @@ def mysql_database(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     monkeypatch.setenv("DATABASE_URL", database_url)
     reset_database_state()
     _recreate_schema()
+    factory = get_session_factory()
+    user_system.set_db_session_factory(factory)
+    user_system.USE_DB = True
+    history_manager.set_db_session_factory(factory)
+    history_manager.USE_DB = True
+    analysis_service.set_db_session_factory(factory)
+    analysis_service.USE_DB = True
+    report_service.set_db_session_factory(factory)
+    report_service.USE_DB = True
+    community_service.set_db_session_factory(factory)
+    community_service.USE_DB = True
 
     try:
         yield {"database_url": resolve_database_url()}
     finally:
         try:
+            user_system.USE_DB = False
+            history_manager.USE_DB = False
+            analysis_service.USE_DB = False
+            report_service.USE_DB = False
+            community_service.USE_DB = False
+            clear_analysis_results()
             _recreate_schema()
         finally:
             reset_database_state()
@@ -139,6 +160,8 @@ class TestMySQLConnection:
             "price",
             "cover_url",
             "source_file_name",
+            "file_content_base64",
+            "file_content_type",
             "favorite_count",
             "download_count",
         }.issubset(community_post_columns)
@@ -184,9 +207,68 @@ class TestMySQLScoreService:
             assert sheet.time_sign == "3/4"
             assert isinstance(sheet.note_data, dict)
             assert sheet.note_data["title"] == "MySQL Integration Score"
+            assert isinstance(sheet.musicxml, str)
+            assert sheet.musicxml.startswith("<?xml")
 
 
 class TestMySQLDomainPersistence:
+    def test_mysql_pitch_persistence_uses_note_events_and_lazy_cache(
+        self,
+        mysql_database: dict[str, str],
+    ) -> None:
+        frames = [
+            {"time": 0.0, "frequency": 440.0, "duration": 0.01, "note": "A4", "voiced": True},
+            {"time": 0.01, "frequency": 441.0, "duration": 0.01, "note": "A4", "voiced": True},
+            {"time": 0.05, "frequency": 493.88, "duration": 0.01, "note": "B4", "voiced": True},
+        ]
+
+        save_analysis_result(
+            analysis_id="an_mysql_pitch_events",
+            file_name="demo.wav",
+            sample_rate=16000,
+            duration=0.5,
+            status=1,
+            params={"frame_ms": 20, "hop_ms": 10, "algorithm": "yin"},
+            result_data={"log_id": "log_mysql_pitch"},
+            pitch_sequence=frames,
+        )
+        clear_analysis_results()
+
+        with session_scope() as session:
+            analysis = session.scalar(select(AudioAnalysis).where(AudioAnalysis.analysis_id == "an_mysql_pitch_events"))
+            cache_count = session.scalar(
+                select(func.count()).select_from(PitchSequence).where(PitchSequence.analysis_id == "an_mysql_pitch_events")
+            )
+
+            assert analysis is not None
+            assert analysis.result["pitch_sequence_format"] == "note_events"
+            assert analysis.result["pitch_sequence"] == [
+                {"start": 0.0, "end": 0.02, "note": "A4", "frequency_avg": 440.5},
+                {"start": 0.05, "end": 0.06, "note": "B4", "frequency_avg": 493.88},
+            ]
+            assert analysis.result["pitch_meta"]["original_point_count"] == len(frames)
+            assert cache_count == 0
+
+        rebuilt = get_saved_pitch_sequence("an_mysql_pitch_events", populate_cache=False)
+        assert rebuilt
+        assert rebuilt[0]["note"] == "A4"
+
+        with session_scope() as session:
+            cache_count = session.scalar(
+                select(func.count()).select_from(PitchSequence).where(PitchSequence.analysis_id == "an_mysql_pitch_events")
+            )
+            assert cache_count == 0
+
+        cached = get_saved_pitch_sequence("an_mysql_pitch_events", populate_cache=True)
+
+        with session_scope() as session:
+            cache_count = session.scalar(
+                select(func.count()).select_from(PitchSequence).where(PitchSequence.analysis_id == "an_mysql_pitch_events")
+            )
+
+        assert cached
+        assert cache_count == len(cached)
+
     def test_report_audio_analysis_and_community_tables_round_trip(
         self,
         mysql_database: dict[str, str],
@@ -202,6 +284,14 @@ class TestMySQLDomainPersistence:
                 project_id=int(project.id),
                 score_id="score_mysql_001",
                 note_data={"score_id": "score_mysql_001", "tempo": 120, "key_signature": "C", "time_signature": "4/4"},
+                musicxml=(
+                    "<?xml version='1.0' encoding='utf-8'?>"
+                    "<score-partwise version='4.0'>"
+                    "<part-list><score-part id='P1'><part-name>Music</part-name></score-part></part-list>"
+                    "<part id='P1'><measure number='1'><attributes><divisions>8</divisions><key><fifths>0</fifths></key>"
+                    "<time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>"
+                    "<note><rest/><duration>8</duration><voice>1</voice><type>quarter</type></note></measure></part></score-partwise>"
+                ),
                 bpm=120,
                 key_sign="C",
                 time_sign="4/4",

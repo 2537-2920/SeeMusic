@@ -21,119 +21,277 @@ body {
     border: 1px solid rgba(255, 255, 255, 0.5);
 }
 
-/* 乐谱纸张样式 */
-.sheet-paper {
-    background-color: var(--paper-color);
-    background-image: radial-gradient(#d1d1d1 1px, transparent 1px);
-    background-size: 20px 20px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.05);
-    min-height: 800px;
-    position: relative;
-    padding: 60px 40px;
-    border-radius: 4px;
+/* 个人中心核心样式 */
+.card {
+    background: white;
+    border-radius: 32px;
+    padding: 2rem;
+    box-shadow: 0 10px 40px -10px rgba(29, 53, 87, 0.05);
+    border: 1px solid rgba(237, 242, 247, 0.8);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
 
-.staff-line-group {
-    margin-bottom: 60px;
-    position: relative;
+.section-title {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: #1d3557;
+    margin-bottom: 1.5rem;
 }
 
-.staff-line {
-    height: 1px;
-    background-color: var(--staff-line);
-    margin-bottom: 12px;
+.section-title iconify-icon {
+    font-size: 1.5rem;
+    color: #457b9d;
+}
+
+/* 活跃度柱状图增强 */
+.chart-bar-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    height: 100%;
+}
+
+.chart-bar {
     width: 100%;
-}
-
-.staff-line:last-child {
-    margin-bottom: 0;
-}
-
-/* ================= 核心修复：专业印刷级音符结构 ================= */
-.note-wrapper {
-    position: absolute;
+    max-width: 40px;
+    background: linear-gradient(180deg, #a8dadc 0%, #457b9d 100%);
+    border-radius: 12px 12px 6px 6px;
+    transition: all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+    position: relative;
     cursor: pointer;
-    z-index: 10;
-    width: 14px;
-    height: 10px;
+    box-shadow: 0 4px 12px -2px rgba(69, 123, 157, 0.2);
 }
 
-/* 符头：标准的斜椭圆 */
-.note-head {
-    width: 14.5px;
-    height: 10px;
-    background: var(--note-color);
-    border-radius: 50%;
-    transform: rotate(-24deg);
+.chart-bar:hover {
+    filter: brightness(1.1);
+    transform: scaleX(1.1) translateY(-2px);
+    box-shadow: 0 8px 20px -4px rgba(69, 123, 157, 0.4);
+}
+
+/* Tooltip 提示气泡 */
+.chart-bar::after {
+    content: attr(data-count);
+    position: absolute;
+    top: -40px;
+    left: 50%;
+    transform: translateX(-50%) translateY(5px);
+    background: #1d3557;
+    color: white;
+    padding: 6px 12px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 700;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s cubic-bezier(0.19, 1, 0.22, 1);
+    pointer-events: none;
+    white-space: nowrap;
+    box-shadow: 0 10px 25px -5px rgba(0,0,0,0.2);
+    z-index: 50;
+}
+
+.chart-bar::before {
+    content: '';
+    position: absolute;
+    top: -12px;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: #1d3557;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s cubic-bezier(0.19, 1, 0.22, 1);
+    z-index: 49;
+}
+
+.chart-bar:hover::after {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(0);
+}
+
+.chart-bar:hover::before {
+    opacity: 1;
+    visibility: visible;
+}
+
+.chart-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+}
+
+/* ================= 个人详情修改弹窗样式 ================= */
+#edit-profile-modal.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+#edit-profile-modal.active > div:last-child {
+    transform: scale(1);
+}
+
+.taste-chip {
+    cursor: pointer;
+    padding: 6px 14px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #457b9d;
+    background: rgba(69, 123, 157, 0.05);
+    border: 1px solid rgba(69, 123, 157, 0.1);
+    transition: all 0.2s ease;
+    user-select: none;
+}
+
+.taste-chip:hover {
+    background: rgba(69, 123, 157, 0.1);
+    border-color: rgba(69, 123, 157, 0.2);
+}
+
+.taste-chip.active {
+    background: #457b9d;
+    color: white;
+    border-color: #457b9d;
+    box-shadow: 0 4px 10px rgba(69, 123, 157, 0.3);
+}
+
+/* ================= 历史看板分类样式 ================= */
+#history-filter-tabs {
+    gap: 8px;
+    padding: 6px;
+    background: #f1f5f9;
+}
+
+.history-tab {
+    padding: 8px 18px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #475569;
+    border-radius: 12px;
+    transition: all 0.3s ease;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+}
+
+.history-tab.active {
+    background: #1d3557;
+    color: white;
+    box-shadow: 0 4px 12px rgba(29, 53, 87, 0.2);
+}
+
+#history-list {
+    background: #f8fafc; /* 浅柔和灰底盘 */
+    padding: 24px;
+    border-radius: 24px;
+    border: 1px solid #edf2f7;
+    min-height: 400px;
+}
+
+.history-card {
+    background: white;
+    border: 1px solid #e2e8f0; /* 给个明确的边框线 */
+    border-radius: 20px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); /* 加深阴影 */
+    z-index: 1;
+}
+
+/* 左侧彩色标识条 - 强制显示 */
+.history-card::before {
+    content: '';
     position: absolute;
     left: 0;
     top: 0;
-    z-index: 2; /* 关键：把符头图层置于符干上方 */
-    transition: filter 0.2s; /* 去掉容易导致错位的 scale 放大 */
+    bottom: 0;
+    width: 6px;
+    border-radius: 20px 0 0 20px;
+    z-index: 2;
 }
 
-/* 1. 二分音符空心符头：必须真正透明，让背后的五线谱横线穿透显示 */
-.note-head.half {
-    background: transparent;
-    border: 1.5px solid var(--note-color);
-    box-sizing: border-box;
+.type-audio::before { background: #3b82f6 !important; }
+.type-transcription::before { background: #10b981 !important; }
+.type-evaluation::before { background: #8b5cf6 !important; } /* 紫色标识测评 */
+.type-community::before { background: #f59e0b !important; }
+
+.history-card:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.08);
 }
 
-/* 2. 🎵 终极修复：二分音符的专属符干 */
-/* 利用 CSS 相邻兄弟选择器，单独让它停在圆圈外缘，绝不穿模进入内部 */
-.note-head.half + .note-stem {
-    bottom: 7px;    /* 精准卡在倾斜椭圆右上角的几何切点上 */
-    height: 32px;   /* 底部缩短了，所以高度也相应减去 3px 保持顶部平齐 */
+.history-icon-box {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.3rem;
 }
 
-.note-wrapper:hover .note-head {
-    filter: drop-shadow(0 0 6px var(--primary)); /* 悬停时用蓝色辉光代替放大 */
+.type-audio .history-icon-box { background: #eff6ff; color: #3b82f6; }
+.type-transcription .history-icon-box { background: #ecfdf5; color: #10b981; }
+.type-evaluation .history-icon-box { background: #f5f3ff; color: #8b5cf6; }
+.type-community .history-icon-box { background: #fff7ed; color: #f59e0b; }
+
+.history-meta {
+    font-size: 11px;
+    font-weight: 700;
+    color: #94a3b8;
+    text-transform: uppercase;
 }
 
-/* 符干：笔直向上，无缝连接 */
-.note-stem {
-    width: 1.5px;
-    height: 35px;
-    background: var(--note-color);
-    position: absolute;
-    left: 12.5px; 
-    bottom: 4px;  /* ⬆️ 核心修复：把底边往上提，藏进翘起的符头内部，杜绝“穿模”露头 */
-    z-index: 1;   
-    pointer-events: none;
+.history-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: #1e293b;
+    margin-top: 8px;
+    display: block;
 }
 
-/* 八分音符的优美印刷体符尾 */
-.note-tail {
-    position: absolute;
-    width: 13px;
-    height: 30px;
-    left: 13px;  
-    bottom: 9px; /* ⬆️ 核心修复：符尾也同步上提 2px，确保始终与符干的最高点严丝合缝 (35-30+4=9) */
-    z-index: 1;
-    pointer-events: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 15 30'%3E%3Cpath d='M 0 0 C 10 2 15 12 8 28 C 12 16 8 4 0 0 Z' fill='%232c3e50'/%3E%3C/svg%3E");
-    background-size: contain;
-    background-repeat: no-repeat;
+.history-tag {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 8px;
+    font-size: 10px;
+    font-weight: 800;
+    background: #f1f5f9;
+    color: #64748b;
 }
-/* ======================================================= */
 
-/* 侧边栏按钮 */
-.tool-btn {
-    @apply flex flex-col items-center justify-center p-3 rounded-xl transition-all duration-300;
+/* 加载更多按钮 */
+.load-more-btn {
+    grid-column: 1 / -1;
+    margin-top: 12px;
+    padding: 14px;
+    border-radius: 16px;
     background: white;
-    border: 1px solid #edf2f7;
+    border: 1px solid #f1f5f9;
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 600;
+    transition: all 0.2s;
+    cursor: pointer;
 }
 
-.tool-btn:hover {
-    background: #f7fafc;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-}
-
-.tool-btn.active {
-    background: var(--primary);
-    color: white;
-    border-color: var(--primary);
+.load-more-btn:hover {
+    background: #f8fafc;
+    color: #1d3557;
+    border-color: #e2e8f0;
 }
 
 /* 录音动画 */
@@ -145,4 +303,34 @@ body {
     0% { box-shadow: 0 0 0 0 rgba(230, 57, 70, 0.4); }
     70% { box-shadow: 0 0 0 15px rgba(230, 57, 70, 0); }
     100% { box-shadow: 0 0 0 0 rgba(230, 57, 70, 0); }
+}
+
+/* 搜索交互增强 */
+.search-active iconify-icon[icon="solar:magnifer-linear"] {
+    animation: search-pulse 1.5s infinite;
+    color: #457b9d;
+}
+
+@keyframes search-pulse {
+    0% { transform: translateY(-50%) scale(1); opacity: 1; }
+    50% { transform: translateY(-50%) scale(1.2); opacity: 0.7; }
+    100% { transform: translateY(-50%) scale(1); opacity: 1; }
+}
+
+.history-card.slide-in {
+    animation: card-fade-in 0.4s cubic-bezier(0, 0, 0.2, 1) forwards;
+}
+
+@keyframes card-fade-in {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+#search-status-bar {
+    animation: slide-down 0.3s ease-out;
+}
+
+@keyframes slide-down {
+    from { transform: translateY(-10px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
 }

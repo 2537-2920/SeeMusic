@@ -12,18 +12,22 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.db.base import Base
 
 
 BIGINT_COMPAT = BigInteger().with_variant(Integer, "sqlite")
+LONGTEXT_COMPAT = Text().with_variant(mysql.LONGTEXT(), "mysql")
 
 
 class User(Base):
@@ -35,6 +39,9 @@ class User(Base):
     nickname: Mapped[str | None] = mapped_column(String(50), nullable=True)
     avatar: Mapped[str | None] = mapped_column(String(255), nullable=True)
     email: Mapped[str | None] = mapped_column(String(128), unique=True, nullable=True)
+    bio: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    birthday: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    music_taste: Mapped[list | None] = mapped_column(JSON, nullable=True)
     create_time: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)
     update_time: Mapped[datetime] = mapped_column(
         DateTime,
@@ -80,6 +87,7 @@ class Sheet(Base):
     )
     score_id: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
     note_data: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    musicxml: Mapped[str | None] = mapped_column(LONGTEXT_COMPAT, nullable=True)
     bpm: Mapped[int] = mapped_column(Integer, default=120, nullable=False)
     key_sign: Mapped[str] = mapped_column(String(10), default="C", nullable=False)
     time_sign: Mapped[str] = mapped_column(String(10), default="4/4", nullable=False)
@@ -170,7 +178,16 @@ class CommunityPost(Base):
     instrument: Mapped[str | None] = mapped_column(String(64), nullable=True)
     price: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     cover_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    cover_image: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    cover_content_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     source_file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    file_content_base64: Mapped[str | None] = mapped_column(LONGTEXT_COMPAT, nullable=True)
+    file_content_type: Mapped[str] = mapped_column(
+        String(64),
+        default="application/pdf",
+        server_default="application/pdf",
+        nullable=False,
+    )
     tags: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     is_public: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     like_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -226,6 +243,9 @@ class AudioAnalysis(Base):
 
 class PitchSequence(Base):
     __tablename__ = "pitch_sequence"
+    __table_args__ = (
+        Index("ix_pitch_sequence_analysis_id_is_reference", "analysis_id", "is_reference"),
+    )
 
     id: Mapped[int] = mapped_column(BIGINT_COMPAT, primary_key=True, autoincrement=True)
     analysis_id: Mapped[str] = mapped_column(
@@ -240,6 +260,28 @@ class PitchSequence(Base):
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     cents_offset: Mapped[float | None] = mapped_column(Float, nullable=True)
     is_reference: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+
+class ReferenceTrack(Base):
+    __tablename__ = "reference_track"
+    __table_args__ = (
+        UniqueConstraint("ref_id", name="uq_reference_track_ref_id"),
+        UniqueConstraint("song_name", "artist_name", name="uq_reference_track_song_artist"),
+    )
+
+    id: Mapped[int] = mapped_column(BIGINT_COMPAT, primary_key=True, autoincrement=True)
+    ref_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    song_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    artist_name: Mapped[str] = mapped_column(String(255), nullable=False, default="未知歌手")
+    audio_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    create_time: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)
+    update_time: Mapped[datetime] = mapped_column(
+        DateTime,
+        server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        nullable=False,
+    )
 
 
 class CommunityComment(Base):
@@ -323,7 +365,6 @@ class UserHistory(Base):
     metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict, nullable=False)
     create_time: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)
 
-
 class UserToken(Base):
     __tablename__ = "user_token"
 
@@ -337,7 +378,6 @@ class UserToken(Base):
     token: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
     expired_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)
-
 
 class UserPreference(Base):
     __tablename__ = "user_preference"

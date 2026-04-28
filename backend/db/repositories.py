@@ -8,6 +8,11 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from backend.core.score.musicxml_utils import (
+    build_canonical_score_from_musicxml,
+    build_score_metadata_snapshot,
+    musicxml_from_legacy_score,
+)
 from backend.db.models import ExportRecord, Project, Sheet, User
 
 
@@ -44,20 +49,26 @@ def get_sheet_by_score_id(session: Session, score_id: str) -> Sheet | None:
 
 
 def _score_snapshot(score: dict[str, Any]) -> dict[str, Any]:
-    snapshot = deepcopy(score)
-    snapshot.pop("undo_stack", None)
-    snapshot.pop("redo_stack", None)
-    return snapshot
+    return build_score_metadata_snapshot(score)
 
 
 def score_from_sheet(sheet: Sheet) -> dict[str, Any]:
-    score = deepcopy(sheet.note_data or {})
-    score["score_id"] = score.get("score_id") or sheet.score_id
-    score["tempo"] = int(score.get("tempo", sheet.bpm or 120))
-    score["key_signature"] = str(score.get("key_signature", sheet.key_sign or "C"))
-    score["time_signature"] = str(score.get("time_signature", sheet.time_sign or "4/4"))
-    score["version"] = int(score.get("version", 1))
-    return score
+    metadata = deepcopy(sheet.note_data or {})
+    musicxml = sheet.musicxml
+    if not musicxml:
+        legacy_payload = deepcopy(sheet.note_data or {})
+        if legacy_payload.get("measures"):
+            musicxml = musicxml_from_legacy_score(legacy_payload, fallback_title=metadata.get("title"))
+        else:
+            raise ValueError(f"sheet {sheet.id} is missing canonical MusicXML data")
+
+    return build_canonical_score_from_musicxml(
+        musicxml,
+        score_id=metadata.get("score_id") or sheet.score_id,
+        title=metadata.get("title"),
+        version=int(metadata.get("version", 1)),
+        project_id=int(sheet.project_id),
+    )
 
 
 def create_sheet(session: Session, *, project_id: int, score: dict[str, Any]) -> Sheet:
@@ -66,6 +77,7 @@ def create_sheet(session: Session, *, project_id: int, score: dict[str, Any]) ->
         project_id=project_id,
         score_id=snapshot["score_id"],
         note_data=snapshot,
+        musicxml=str(score.get("musicxml") or ""),
         bpm=int(snapshot.get("tempo", 120)),
         key_sign=str(snapshot.get("key_signature", "C")),
         time_sign=str(snapshot.get("time_signature", "4/4")),
@@ -79,6 +91,7 @@ def update_sheet_from_score(session: Session, sheet: Sheet, score: dict[str, Any
     snapshot = _score_snapshot(score)
     sheet.note_data = snapshot
     sheet.score_id = snapshot.get("score_id")
+    sheet.musicxml = str(score.get("musicxml") or "")
     sheet.bpm = int(snapshot.get("tempo", 120))
     sheet.key_sign = str(snapshot.get("key_signature", "C"))
     sheet.time_sign = str(snapshot.get("time_signature", "4/4"))

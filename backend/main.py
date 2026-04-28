@@ -18,8 +18,11 @@ import uvicorn
 from backend.api.api_routes import router
 from backend.config.settings import settings
 from backend.db.session import close_mysql_tunnel, get_session_factory, init_database
-from backend.services import analysis_service, community_service, report_service
+from backend.services import analysis_service, community_service, reference_track_service, report_service
 from backend.user import history_manager, user_system
+import os
+
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -30,17 +33,13 @@ async def lifespan(_: FastAPI):
         init_database()
         factory = get_session_factory()
         user_system.set_db_session_factory(factory)
-        user_system.USE_DB = True
         history_manager.set_db_session_factory(factory)
-        history_manager.USE_DB = True
         community_service.set_db_session_factory(factory)
-        community_service.USE_DB = True
         analysis_service.set_db_session_factory(factory)
-        analysis_service.USE_DB = True
+        reference_track_service.set_db_session_factory(factory)
         report_service.set_db_session_factory(factory)
-        report_service.USE_DB = True
         logger.info(
-            "Database connected – user/history/community/analysis/report modules running in DB mode"
+            "Database connected – user/history/community/analysis/report/reference modules running in DB mode"
         )
     except Exception as exc:
         logger.warning("Database unavailable (%s) – falling back to in-memory mode", exc)
@@ -48,6 +47,7 @@ async def lifespan(_: FastAPI):
         history_manager.USE_DB = False
         community_service.USE_DB = False
         analysis_service.USE_DB = False
+        reference_track_service.USE_DB = False
         report_service.USE_DB = False
     try:
         yield
@@ -78,6 +78,10 @@ def root():
 def health():
     return {"status": "ok"}
 
+UPLOAD_DIR = "D:/SeeMusic_data/avatars"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+app.mount("/static/avatars", StaticFiles(directory=UPLOAD_DIR), name="avatars")
 
 if __name__ == "__main__":
     uvicorn.run(app, host=settings.host, port=settings.port, reload=settings.debug)

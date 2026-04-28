@@ -14,6 +14,15 @@ NOTE_ALIASES = {
     "Gb": "F#",
     "Ab": "G#",
 }
+NATURAL_NOTE_TO_SEMITONE = {
+    "C": 0,
+    "D": 2,
+    "E": 4,
+    "F": 5,
+    "G": 7,
+    "A": 9,
+    "B": 11,
+}
 DURATION_TO_BEATS = {
     "sixteenth": 0.25,
     "eighth": 0.5,
@@ -48,11 +57,17 @@ def note_to_midi(note: str) -> int | None:
     if not match:
         raise ValueError(f"unsupported note name: {note}")
     name, octave_text = match.groups()
-    normalized_name = NOTE_ALIASES.get(name, name)
-    if normalized_name not in NOTE_NAMES:
+    step = name[0]
+    accidental = name[1:] if len(name) > 1 else ""
+    if step not in NATURAL_NOTE_TO_SEMITONE:
         raise ValueError(f"unsupported note name: {note}")
     octave = int(octave_text)
-    return NOTE_NAMES.index(normalized_name) + (octave + 1) * 12
+    semitone = NATURAL_NOTE_TO_SEMITONE[step]
+    if accidental == "#":
+        semitone += 1
+    elif accidental == "b":
+        semitone -= 1
+    return semitone + (octave + 1) * 12
 
 
 def midi_to_frequency(midi: int | None) -> float:

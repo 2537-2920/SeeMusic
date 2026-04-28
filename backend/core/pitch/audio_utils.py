@@ -8,14 +8,29 @@ sample arrays, and multi-track payloads.
 from __future__ import annotations
 
 import io
+import importlib
 import math
+import tempfile
 import wave
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from statistics import mean
 from typing import Any
 from uuid import uuid4
 
+from backend.numba_compat import ensure_numba_cache_dir
+
 DEFAULT_SAMPLE_RATE = 16000
+RAW_PCM_EXTENSIONS = {".raw", ".pcm", ".s16", ".f32"}
+COMPRESSED_AUDIO_EXTENSIONS = {".mp3", ".m4a", ".aac", ".ogg", ".oga", ".flac", ".opus", ".webm"}
+
+
+class AudioDecodeError(ValueError):
+    """Raised when uploaded audio bytes cannot be decoded into samples."""
+
+
+class AudioDependencyError(RuntimeError):
+    """Raised when optional audio decoding dependencies are unavailable."""
 
 
 def infer_audio_metadata(file_name: str, sample_rate: int | None = None, duration: float | None = None) -> dict:
@@ -36,6 +51,72 @@ def estimate_duration_from_bytes(audio_bytes: bytes, sample_rate: int = DEFAULT_
 def safe_sample_rate(sample_rate: int | None) -> int:
     rate = sample_rate or DEFAULT_SAMPLE_RATE
     return int(rate) if int(rate) > 0 else DEFAULT_SAMPLE_RATE
+
+
+def _file_extension(file_name: str | None) -> str:
+    if not file_name:
+        return ""
+    return Path(file_name).suffix.lower()
+
+
+def _is_wave_bytes(audio_bytes: bytes) -> bool:
+    return audio_bytes[:4] == b"RIFF" and audio_bytes[8:12] == b"WAVE"
+
+
+def _should_allow_raw_pcm(file_name: str | None, allow_raw_pcm: bool | None) -> bool:
+    if allow_raw_pcm is not None:
+        return allow_raw_pcm
+    if file_name is None:
+        return True
+    return _file_extension(file_name) in RAW_PCM_EXTENSIONS
+
+
+def _load_librosa():
+    try:
+        ensure_numba_cache_dir()
+        return importlib.import_module("librosa")
+    except ModuleNotFoundError as exc:
+        raise AudioDependencyError("环境缺少 librosa，无法解码压缩音频格式。") from exc
+
+
+def load_audio_waveform(
+    audio_bytes: bytes,
+    *,
+    file_name: str | None = None,
+    sample_rate: int | None = None,
+    mono: bool = True,
+) -> tuple[Any, int]:
+    suffix = _file_extension(file_name) or ".audio"
+    temp_path: str | None = None
+    try:
+        librosa = _load_librosa()
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
+            temp_path = handle.name
+            handle.write(audio_bytes)
+            handle.flush()
+        samples, decoded_rate = librosa.load(temp_path, sr=sample_rate, mono=mono)
+    except AudioDependencyError:
+        raise
+    except Exception as exc:
+        readable_name = file_name or "音频文件"
+        raise AudioDecodeError(
+            f"无法解码该音频格式：{readable_name}。请上传有效的 WAV、MP3、M4A、OGG 或显式 RAW/PCM 音频。"
+        ) from exc
+    finally:
+        if temp_path:
+            Path(temp_path).unlink(missing_ok=True)
+
+    return samples, safe_sample_rate(decoded_rate or sample_rate)
+
+
+def _decode_with_librosa(audio_bytes: bytes, file_name: str | None, sample_rate: int) -> tuple[list[float], int]:
+    samples, decoded_rate = load_audio_waveform(
+        audio_bytes,
+        file_name=file_name,
+        sample_rate=None,
+        mono=True,
+    )
+    return _coerce_sample_list(samples), safe_sample_rate(decoded_rate or sample_rate)
 
 
 def _normalize_int_samples(raw: bytes, sample_width: int, channels: int) -> list[float]:
@@ -66,24 +147,38 @@ def _normalize_int_samples(raw: bytes, sample_width: int, channels: int) -> list
     return values
 
 
-def audio_bytes_to_samples(audio_bytes: bytes | None, sample_rate: int | None = None) -> tuple[list[float], int]:
-    """Decode WAV or raw signed 16-bit PCM bytes into mono float samples."""
+def audio_bytes_to_samples(
+    audio_bytes: bytes | None,
+    sample_rate: int | None = None,
+    *,
+    file_name: str | None = None,
+    allow_raw_pcm: bool | None = None,
+) -> tuple[list[float], int]:
+    """Decode uploaded audio bytes into mono float samples.
+
+    WAV files are decoded with the standard library. Compressed formats are
+    decoded via the project's optional audio stack. Raw PCM fallback is only
+    enabled for explicit RAW/PCM inputs or callers that opt in.
+    """
 
     rate = safe_sample_rate(sample_rate)
     if not audio_bytes:
         return [], rate
 
-    if audio_bytes[:4] == b"RIFF" and audio_bytes[8:12] == b"WAVE":
+    if _is_wave_bytes(audio_bytes):
         try:
             with wave.open(io.BytesIO(audio_bytes), "rb") as wav_file:
                 rate = wav_file.getframerate() or rate
                 raw = wav_file.readframes(wav_file.getnframes())
                 samples = _normalize_int_samples(raw, wav_file.getsampwidth(), wav_file.getnchannels())
                 return samples, rate
-        except (wave.Error, EOFError):
-            return [], rate
+        except (wave.Error, EOFError) as exc:
+            raise AudioDecodeError("WAV 音频文件损坏或无法读取。") from exc
 
-    return _normalize_int_samples(audio_bytes, sample_width=2, channels=1), rate
+    if _should_allow_raw_pcm(file_name, allow_raw_pcm):
+        return _normalize_int_samples(audio_bytes, sample_width=2, channels=1), rate
+
+    return _decode_with_librosa(audio_bytes, file_name, rate)
 
 
 def extract_audio_features(frame: Sequence[float]) -> dict[str, float]:
@@ -201,23 +296,34 @@ def _decode_track_payload(payload: Any, default_rate: int, name: str) -> dict[st
         track_rate = safe_sample_rate(payload.get("sample_rate") or default_rate)
         track_name = str(payload.get("name") or payload.get("track") or name)
         byte_payload = payload.get("audio_bytes") or payload.get("bytes") or payload.get("pcm_bytes")
+        allow_raw_pcm = payload.get("allow_raw_pcm")
         if isinstance(byte_payload, str):
             byte_payload = byte_payload.encode("utf-8")
         if isinstance(byte_payload, (bytes, bytearray)):
-            samples, decoded_rate = audio_bytes_to_samples(bytes(byte_payload), track_rate)
+            samples, decoded_rate = audio_bytes_to_samples(
+                bytes(byte_payload),
+                track_rate,
+                file_name=track_name,
+                allow_raw_pcm=allow_raw_pcm,
+            )
             return {"name": track_name, "samples": samples, "sample_rate": decoded_rate}
 
         sample_payload = payload.get("samples", payload.get("data", payload.get("frames", [])))
         return {"name": track_name, "samples": _coerce_sample_list(sample_payload), "sample_rate": track_rate}
 
     if isinstance(payload, (bytes, bytearray)):
-        samples, decoded_rate = audio_bytes_to_samples(bytes(payload), default_rate)
+        samples, decoded_rate = audio_bytes_to_samples(bytes(payload), default_rate, file_name=name)
         return {"name": name, "samples": samples, "sample_rate": decoded_rate}
 
     return {"name": name, "samples": _coerce_sample_list(payload), "sample_rate": default_rate}
 
 
-def decode_audio_tracks(audio_input: Any, sample_rate: int | None = None) -> tuple[list[dict[str, Any]], int]:
+def decode_audio_tracks(
+    audio_input: Any,
+    sample_rate: int | None = None,
+    *,
+    default_name: str = "mix",
+) -> tuple[list[dict[str, Any]], int]:
     """Normalize mono or complex multi-track input into named sample tracks.
 
     Supported forms include raw/WAV bytes, a single sample sequence, a sequence
@@ -271,9 +377,9 @@ def decode_audio_tracks(audio_input: Any, sample_rate: int | None = None) -> tup
         if audio_input and all(
             isinstance(item, Sequence) and not isinstance(item, (str, bytes, bytearray)) for item in audio_input
         ):
-            return [_decode_track_payload(audio_input, target_rate, "mix")], target_rate
+            return [_decode_track_payload(audio_input, target_rate, default_name)], target_rate
 
-    return [_decode_track_payload(audio_input, target_rate, "mix")], target_rate
+    return [_decode_track_payload(audio_input, target_rate, default_name)], target_rate
 
 
 def mix_audio_tracks(tracks: Sequence[dict[str, Any]], sample_rate: int, normalize: bool = True) -> list[float]:
@@ -316,6 +422,7 @@ def preprocess_audio_features(
     audio_input: Any,
     sample_rate: int | None = None,
     *,
+    file_name: str = "mix",
     remove_dc: bool = True,
     noise_gate: float = 0.003,
     normalize: bool = True,
@@ -323,7 +430,7 @@ def preprocess_audio_features(
     """Decode, clean, align, and mix audio before pitch feature extraction."""
 
     target_rate = safe_sample_rate(sample_rate)
-    decoded_tracks, target_rate = decode_audio_tracks(audio_input, target_rate)
+    decoded_tracks, target_rate = decode_audio_tracks(audio_input, target_rate, default_name=file_name)
     tracks: list[dict[str, Any]] = []
     for index, track in enumerate(decoded_tracks):
         raw_samples = track.get("samples", [])
@@ -346,4 +453,3 @@ def preprocess_audio_features(
         "samples": mixed,
         "features": extract_audio_features(mixed),
     }
-

@@ -1,8 +1,22 @@
+import xml.etree.ElementTree as ET
+
 import pytest
 from fastapi import HTTPException
 
-from backend.api.api_routes import patch_score, score_export, score_from_pitch_sequence, score_redo, score_undo
-from backend.api.schemas import PitchToScoreRequest, ScoreEditRequest, ScoreExportRequest
+from backend.api.api_routes import patch_score, score_detail, score_export, score_from_pitch_sequence, score_redo, score_undo
+from backend.api.schemas import PitchToScoreRequest, ScoreExportRequest, ScoreUpdateRequest
+
+
+def _replace_tempo(musicxml: str, tempo: int) -> str:
+    root = ET.fromstring(musicxml.encode("utf-8"))
+    for element in root.iter():
+        tag = element.tag.rsplit("}", 1)[-1]
+        if tag == "per-minute":
+            element.text = str(tempo)
+        if tag == "sound" and "tempo" in element.attrib:
+            element.set("tempo", str(tempo))
+    ET.indent(root, space="  ")
+    return ET.tostring(root, encoding="unicode", xml_declaration=True)
 
 
 def test_score_routes_happy_path(score_database: dict[str, int | str]):
@@ -21,27 +35,21 @@ def test_score_routes_happy_path(score_database: dict[str, int | str]):
     created_score = create_response["data"]
     score_id = created_score["score_id"]
 
+    detail_response = score_detail(score_id)
     edit_response = patch_score(
         score_id,
-        ScoreEditRequest(
-            operations=[
-                {
-                    "type": "add_note",
-                    "measure_no": 1,
-                    "beat": 3,
-                    "note": {"pitch": "C5", "beats": 1.0},
-                }
-            ]
-        ),
+        ScoreUpdateRequest(musicxml=_replace_tempo(created_score["musicxml"], 96)),
     )
     edited_score = edit_response["data"]
-    assert len(edited_score["measures"][0]["notes"]) == 3
+    assert detail_response["data"]["score_id"] == score_id
+    assert edited_score["tempo"] == 96
+    assert edited_score["version"] == 2
 
     undo_response = score_undo(score_id)
-    assert len(undo_response["data"]["measures"][0]["notes"]) == 2
+    assert undo_response["data"]["tempo"] == 120
 
     redo_response = score_redo(score_id)
-    assert len(redo_response["data"]["measures"][0]["notes"]) == 3
+    assert redo_response["data"]["tempo"] == 96
 
     export_response = score_export(
         score_id,

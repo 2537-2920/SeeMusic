@@ -12,7 +12,8 @@ from fastapi import HTTPException
 # ---------------------------------------------------------------------------
 # Mode toggle – flipped by conftest.py or application bootstrap
 # ---------------------------------------------------------------------------
-USE_DB: bool = False
+# 默认关闭数据库模式，由 application 或 conftest 手动开启
+USE_DB: bool = True
 _session_factory = None
 
 
@@ -94,23 +95,100 @@ def _list_history_mem(user_id: str) -> dict:
 
 
 def _list_history_db(user_id: str) -> dict:
-    from backend.db.models import UserHistory
     session = _get_session()
     try:
+        from backend.db.models import UserHistory, Project, AudioAnalysis, CommunityPost
         db_user_id = _parse_db_user_id(user_id)
+        all_items = []
+        
+        # 1. 聚合 Project 表 (归类为“识谱/转谱”)
+        projects = session.query(Project).filter_by(user_id=db_user_id).all()
+        for p in projects:
+            all_items.append({
+                "history_id": str(p.id),
+                "type": "transcription",
+                "resource_id": p.analysis_id,
+                "info": {
+                    "title": p.title or "音频转谱项目",
+                    "duration": f"{p.duration:.1f}s" if p.duration else "未知",
+                    "label": "音轨识谱"
+                },
+                "created_at": p.create_time.isoformat() if p.create_time else None
+            })
+
+        # 2. 聚合 AudioAnalysis 表 (区分识谱和唱歌测评)
+        analyses = session.query(AudioAnalysis).filter_by(user_id=db_user_id).all()
+        for a in analyses:
+            params = a.params or {}
+            source = params.get("source", "")
+            
+            # 判断逻辑：如果有节奏报告或是专门的测评上传，归类为测评
+            is_evaluation = (
+                source == "analyze_rhythm_upload" or 
+                "rhythm_report" in (a.result or {}) or
+                "ref_id" in params
+            )
+            
+            # 三分法：测评用 audio，识谱用 transcription，与 UserHistory 的 schema 保持一致
+            h_type = "audio" if is_evaluation else "transcription"
+            h_label = "唱歌测评" if is_evaluation else "识谱分析"
+            
+            # 提取详细信息
+            info_data = {
+                "title": a.file_name or h_label,
+                "label": h_label,
+            }
+            if a.result:
+                if "rhythm_report" in a.result:
+                    report = a.result["rhythm_report"]
+                    info_data.update({
+                        "score": report.get("score"),
+                        "timing_accuracy": report.get("timing_accuracy"),
+                        "feedback": report.get("feedback")
+                    })
+                else:
+                    info_data.update(a.result)
+            
+            all_items.append({
+                "history_id": str(a.id),
+                "type": h_type,
+                "resource_id": a.analysis_id,
+                "info": info_data,
+                "created_at": a.create_time.isoformat() if a.create_time else None
+            })
+
+        # 3. 聚合 CommunityPost 表 (社区贡献)
+        posts = session.query(CommunityPost).filter_by(user_id=db_user_id).all()
+        for s in posts:
+            all_items.append({
+                "history_id": str(s.id),
+                "type": "community",
+                "resource_id": s.score_id,
+                "info": {
+                    "title": s.title or "乐谱发布",
+                    "likes": s.like_count, 
+                    "downloads": s.download_count
+                },
+                "created_at": s.create_time.isoformat() if s.create_time else None
+            })
+
+        # 4. 聚合 UserHistory 表 (其他操作)
         rows = session.query(UserHistory).filter_by(user_id=db_user_id).all()
-        items = [
-            {
+        for r in rows:
+            all_items.append({
                 "history_id": str(r.id),
                 "type": r.type,
                 "resource_id": r.resource_id,
-                "title": r.title,
-                "metadata": deepcopy(r.metadata_ or {}),
-                "created_at": r.create_time.isoformat() if r.create_time else None,
-            }
-            for r in rows
-        ]
-        return {"items": items}
+                "metadata": r.metadata_ or {},
+                "info": {
+                    "title": r.title,
+                    **(r.metadata_ or {})
+                },
+                "created_at": r.create_time.isoformat() if r.create_time else None
+            })
+
+        all_items.sort(key=lambda x: x["created_at"] or "", reverse=True)
+        return {"items": all_items}
     finally:
         session.close()
 

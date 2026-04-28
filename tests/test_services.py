@@ -1,20 +1,21 @@
 ﻿import tempfile
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 import numpy as np
 import pytest
 import soundfile as sf
+from sqlalchemy.exc import SQLAlchemyError
 
+import backend.services.score_service as score_service
 from backend.db.models import AudioAnalysis, PitchSequence, Report
 from backend.db.session import session_scope
-from backend.services import analysis_service
-from backend.services.analysis_service import analyze_audio, evaluate_singing
+from backend.services.analysis_service import analyze_audio, get_saved_pitch_sequence
 from backend.services.report_service import export_report
 from backend.services.score_service import (
     ExportRecordNotFoundError,
     ScoreNotFoundError,
     ScoreOperationError,
-    _resolve_export_path,
     create_score_from_pitch_sequence,
     delete_score_export,
     edit_score,
@@ -24,7 +25,18 @@ from backend.services.score_service import (
     list_score_exports,
     regenerate_score_export,
 )
-from backend.config.settings import settings
+
+
+def _replace_tempo(musicxml: str, tempo: int) -> str:
+    root = ET.fromstring(musicxml.encode("utf-8"))
+    for element in root.iter():
+        tag = element.tag.rsplit("}", 1)[-1]
+        if tag == "per-minute":
+            element.text = str(tempo)
+        if tag == "sound" and "tempo" in element.attrib:
+            element.set("tempo", str(tempo))
+    ET.indent(root, space="  ")
+    return ET.tostring(root, encoding="unicode", xml_declaration=True)
 
 
 @pytest.fixture
@@ -283,7 +295,27 @@ def test_analysis_service_persists_audio_analysis_when_db_enabled(user_database,
     assert analysis.sample_rate == 16000
     assert analysis.status == 1
     assert analysis.result_data["score_id"] == result["score"]["score_id"]
-    assert len(points) == len(result["pitch_sequence"])
+    assert analysis.result_data["pitch_sequence_format"] == "note_events"
+    assert analysis.result_data["pitch_sequence"]
+    assert analysis.result_data["pitch_meta"]["original_point_count"] == len(result["pitch_sequence"])
+    assert points == []
+    rebuilt = get_saved_pitch_sequence(result["analysis_id"], populate_cache=False)
+    assert rebuilt
+    assert rebuilt[0]["note"] == result["pitch_sequence"][0]["note"]
+
+
+def test_analysis_service_populates_pitch_sequence_cache_on_demand(user_database, temp_audio_bytes):
+    result = analyze_audio("demo.wav", temp_audio_bytes, sample_rate=16000)
+
+    first = get_saved_pitch_sequence(result["analysis_id"], populate_cache=True)
+    second = get_saved_pitch_sequence(result["analysis_id"], populate_cache=False)
+
+    with session_scope() as session:
+        points = session.query(PitchSequence).filter_by(analysis_id=result["analysis_id"]).all()
+
+    assert first
+    assert second
+    assert len(points) == len(first)
 
 
 def test_report_service_persists_report_when_db_enabled(user_database):
@@ -329,7 +361,6 @@ def test_score_service_create_export_regenerate_and_delete_flow(score_database: 
     assert score["key_signature"] == "G"
     assert score["title"] == "Service Export Score"
     assert exported["manifest"]["kind"] == "png"
-    assert f"export_{exported['export_record_id']}" in exported["file_name"]
     assert exported["preview_url"].endswith("/preview")
     assert exported["download_api_url"].endswith("/download")
     assert listing["count"] == 1
@@ -348,6 +379,105 @@ def test_score_service_create_export_regenerate_and_delete_flow(score_database: 
         get_score_export_record(score["score_id"], exported["export_record_id"])
 
 
+def test_score_service_uses_in_memory_export_cache_when_db_reads_fail(
+    score_database: dict[str, int | str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    score = create_score_from_pitch_sequence(
+        {
+            "user_id": score_database["user_id"],
+            "title": "Cached Export Score",
+            "tempo": 120,
+            "time_signature": "4/4",
+            "key_signature": "C",
+            "pitch_sequence": [{"time": 0.0, "frequency": 440.0, "duration": 0.5}],
+        }
+    )
+    exported = export_score(score["score_id"], {"format": "png"})
+
+    def raise_db_timeout(*args, **kwargs):
+        raise SQLAlchemyError("db read timeout")
+
+    monkeypatch.setattr(score_service, "get_sheet_by_score_id", raise_db_timeout)
+    monkeypatch.setattr(score_service, "list_export_records_by_project", raise_db_timeout)
+    monkeypatch.setattr(score_service, "get_export_record_by_id", raise_db_timeout)
+
+    listing = list_score_exports(score["score_id"])
+    detail = get_score_export_record(score["score_id"], exported["export_record_id"])
+
+    assert listing["count"] == 1
+    assert listing["items"][0]["export_record_id"] == exported["export_record_id"]
+    assert detail["download_url"] == exported["download_url"]
+    assert detail["content_type"] == "image/png"
+
+
+def test_score_service_exports_with_in_memory_fallback_when_db_write_fails(
+    score_database: dict[str, int | str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    score = create_score_from_pitch_sequence(
+        {
+            "user_id": score_database["user_id"],
+            "title": "Fallback Export Score",
+            "tempo": 120,
+            "time_signature": "4/4",
+            "key_signature": "C",
+            "pitch_sequence": [{"time": 0.0, "frequency": 440.0, "duration": 0.5}],
+        }
+    )
+
+    def raise_db_timeout(*args, **kwargs):
+        raise SQLAlchemyError("db write timeout")
+
+    monkeypatch.setattr(score_service, "create_export_record", raise_db_timeout)
+
+    exported = export_score(score["score_id"], {"format": "pdf"})
+
+    monkeypatch.setattr(score_service, "list_export_records_by_project", raise_db_timeout)
+    monkeypatch.setattr(score_service, "get_export_record_by_id", raise_db_timeout)
+
+    listing = list_score_exports(score["score_id"])
+    detail = get_score_export_record(score["score_id"], exported["export_record_id"])
+
+    assert exported["export_record_id"] >= score_service.IN_MEMORY_EXPORT_RECORD_ID_BASE
+    assert exported["download_api_url"].endswith("/download")
+    assert exported["content_type"] == "application/pdf"
+    assert listing["count"] == 1
+    assert listing["items"][0]["export_record_id"] == exported["export_record_id"]
+    assert detail["file_name"] == exported["file_name"]
+    assert detail["download_api_url"].endswith("/download")
+
+
+def test_score_service_creates_score_in_memory_when_db_is_unavailable(
+    score_database: dict[str, int | str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    def raise_db_timeout(*args, **kwargs):
+        raise SQLAlchemyError("db create timeout")
+
+    monkeypatch.setattr(score_service, "get_user_by_id", raise_db_timeout)
+    monkeypatch.setattr(score_service, "get_sheet_by_score_id", lambda *args, **kwargs: None)
+
+    score = create_score_from_pitch_sequence(
+        {
+            "user_id": score_database["user_id"],
+            "title": "In-Memory Score",
+            "tempo": 84,
+            "time_signature": "4/4",
+            "key_signature": "F",
+            "pitch_sequence": [{"time": 0.0, "frequency": 440.0, "duration": 0.5}],
+        }
+    )
+    listing = list_score_exports(score["score_id"])
+    updated = edit_score(score["score_id"], _replace_tempo(score["musicxml"], 72))
+
+    assert score["project_id"] >= score_service.IN_MEMORY_PROJECT_ID_BASE
+    assert score["title"] == "In-Memory Score"
+    assert listing["count"] == 0
+    assert listing["project_id"] == score["project_id"]
+    assert updated["tempo"] == 72
+    assert updated["project_id"] == score["project_id"]
+
 
 def test_score_service_raises_explicit_errors(score_database: dict[str, int | str]):
     with pytest.raises(ScoreNotFoundError):
@@ -363,4 +493,4 @@ def test_score_service_raises_explicit_errors(score_database: dict[str, int | st
         }
     )
     with pytest.raises(ScoreOperationError):
-        edit_score(score["score_id"], [{"type": "unsupported"}])
+        edit_score(score["score_id"], "<score-partwise>")

@@ -3,9 +3,12 @@
 <head>
     <meta charset="utf-8"/>
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <meta content="no-store, max-age=0" http-equiv="Cache-Control"/>
+    <meta content="no-cache" http-equiv="Pragma"/>
+    <meta content="0" http-equiv="Expires"/>
     <title>智能识谱 - SeeMusic</title>
     <script src="https://modao.cc/agent-py/static/source/js/iconify-icon.min.1.0.7.js"></script>
-    <link href="transcription.css" rel="stylesheet"/>
+    <link href="transcription.css?v=20260427-traditional-edit-shell-v1" rel="stylesheet"/>
 </head>
 <body>
     <div class="page-shell">
@@ -29,210 +32,165 @@
                     <span id="backend-status-text">服务检查中</span>
                 </div>
                 <div class="status-chip">
-                    <span>当前乐谱</span>
+                    <span id="linkage-label">当前乐谱</span>
                     <strong id="score-linkage-status">未连接</strong>
                 </div>
             </div>
         </header>
 
         <main class="workspace-grid">
-            <section class="panel left-panel">
-                <div class="panel-header">
-                    <div>
-                        <p class="eyebrow">识谱准备</p>
-                        <h2>基础信息</h2>
-                    </div>
-                    <button class="ghost-button" id="load-sample-btn" type="button">载入示例</button>
-                </div>
-
-                <input id="user-id-input" min="1" step="1" type="hidden"/>
-                <input id="analysis-id-input" type="hidden"/>
-
-                <label class="field-label" for="project-title-input">项目标题</label>
-                <div class="field-grid">
-                    <input id="project-title-input" placeholder="我的智能识谱项目" type="text"/>
-                </div>
-
-                <div class="meta-row">
-                    <label>
-                        <span class="field-label">速度</span>
-                        <input id="tempo-input" min="40" step="1" type="number"/>
-                    </label>
-                    <label>
-                        <span class="field-label">拍号</span>
-                        <input id="time-signature-input" placeholder="4/4" type="text"/>
-                    </label>
-                    <label>
-                        <span class="field-label">调号</span>
-                        <input id="key-signature-input" placeholder="C" type="text"/>
-                    </label>
-                </div>
-
-                <label class="field-label" for="pitch-sequence-input">音高序列 JSON</label>
-                <textarea id="pitch-sequence-input" rows="14"></textarea>
-                <p class="helper-text">请填写标准的音高序列 JSON，也可以直接使用上方示例快速开始。</p>
-
-                <div class="divider" style="margin:12px 0"></div>
-                <label class="field-label" for="pitch-detect-file-input">从音频自动识别音高</label>
-                <input accept=".wav,.mp3,.ogg,.m4a,audio/*" id="pitch-detect-file-input" type="file"/>
-                <p class="helper-text">选择音频后点击「识别音高」，系统将自动检测音高序列并回填到上方文本框。</p>
-                <div class="button-row">
-                    <button class="secondary-button" id="pitch-detect-btn" type="button">识别音高</button>
-                    <button class="secondary-button" id="pitch-detect-and-score-btn" type="button">识别并直接生成乐谱</button>
-                </div>
-                <p id="pitch-detect-status" class="helper-text" style="min-height:1.4em"></p>
-
-                <div class="divider" style="margin:12px 0"></div>
-                <div class="button-row">
-                    <button class="secondary-button" id="clear-sequence-btn" type="button">清空</button>
-                    <button class="primary-button" id="create-score-btn" type="button">生成乐谱</button>
-                </div>
-
-                <details class="advanced-panel">
-                    <summary>高级设置</summary>
-                    <div class="advanced-body">
-                        <p class="helper-text">普通使用通常无需改动。这里收纳服务连接、分析微调以及手动节奏评分参数。</p>
-
-                        <div class="advanced-section">
-                            <h3>服务与调试</h3>
-                            <label class="field-label" for="api-base-input">服务地址</label>
-                            <div class="inline-field">
-                                <input id="api-base-input" placeholder="http://127.0.0.1:8000/api/v1" type="text"/>
-                                <button class="secondary-button" id="save-api-base-btn" type="button">保存</button>
-                            </div>
-                            <div class="button-row">
-                                <button class="ghost-button" id="ping-backend-btn" type="button">检查服务</button>
-                            </div>
-                        </div>
-
-                        <div class="advanced-section">
-                            <h3>分析微调</h3>
-                            <div class="field-grid">
-                                <label class="field-label" for="beat-bpm-hint-input">BPM 预估提示</label>
-                                <input id="beat-bpm-hint-input" min="0" placeholder="可选，帮助系统更快估计 BPM" step="1" type="number"/>
-
-                                <label class="field-label" for="beat-sensitivity-input">节拍检测灵敏度</label>
-                                <input id="beat-sensitivity-input" max="1" min="0" step="0.1" type="number" value="0.5"/>
-                            </div>
-
-                            <div class="field-grid">
-                                <label class="field-label" for="separation-model-input">分离模型</label>
-                                <input id="separation-model-input" placeholder="demucs" type="text" value="demucs"/>
-
-                                <label class="field-label" for="separation-stems-input">目标分轨数</label>
-                                <input id="separation-stems-input" min="2" step="1" type="number" value="2"/>
-                            </div>
-
-                            <div class="field-grid">
-                                <label class="field-label" for="rhythm-language-input">反馈语言</label>
-                                <select id="rhythm-language-input">
-                                    <option value="zh">中文</option>
-                                    <option value="en">英文</option>
-                                </select>
-
-                                <input id="rhythm-model-input" type="hidden" value="balanced"/>
-
-                                <label class="field-label" for="rhythm-threshold-input">判定阈值（毫秒）</label>
-                                <input id="rhythm-threshold-input" min="1" step="1" type="number" value="50"/>
-                            </div>
-                        </div>
-
-                        <div class="advanced-section">
-                            <h3>手动节奏评分</h3>
-                            <label class="field-label" for="reference-beats-input">参考拍点 JSON</label>
-                            <textarea id="reference-beats-input" rows="4">[0,1,2,3]</textarea>
-
-                            <label class="field-label" for="user-beats-input">用户拍点 JSON</label>
-                            <textarea id="user-beats-input" rows="4">[0,1.02,2.04,3.01]</textarea>
-                        </div>
-                    </div>
-                </details>
-
-                <div class="divider"></div>
-
-                <div class="panel-header compact">
-                    <div>
-                        <p class="eyebrow">分析工具</p>
-                        <h2>音频分析工作台</h2>
-                    </div>
-                </div>
-
-                <label class="field-label" for="analysis-file-input">音频文件</label>
-                <input accept=".wav,.mp3,.ogg,.m4a,audio/*" id="analysis-file-input" type="file"/>
-
-                <div class="field-grid">
-                    <label class="field-label" for="chord-style-input">和弦风格</label>
-                    <input id="chord-style-input" placeholder="例如：流行 / 爵士 / 民谣" type="text" value="pop"/>
-                </div>
-                <p class="helper-text">常用操作已保留在当前面板，更细的检测参数可以在上方高级设置中调整。</p>
-
-                <div class="button-row">
-                    <button class="secondary-button" id="beat-detect-btn" type="button">节拍检测</button>
-                    <button class="secondary-button" id="separate-tracks-btn" type="button">音轨分离</button>
-                    <button class="secondary-button" id="generate-chords-btn" type="button">生成和弦</button>
-                    <button class="secondary-button" id="rhythm-score-btn" type="button">节奏评分</button>
-                    <button class="ghost-button" id="refresh-audio-logs-btn" type="button">刷新日志</button>
-                </div>
-            </section>
-
-            <section class="center-column">
-                <div class="panel summary-panel">
-                    <div class="summary-head">
+            <div class="left-column">
+                <section class="panel left-panel">
+                    <div class="panel-header">
                         <div>
-                            <p class="eyebrow">当前关联</p>
-                            <h2 id="score-title-display">尚未载入乐谱</h2>
-                        </div>
-                        <div class="summary-badges">
-                            <span class="pill"><span>乐谱</span><strong id="score-id-badge">--</strong></span>
-                            <span class="pill"><span>项目</span><strong id="project-id-badge">--</strong></span>
-                            <span class="pill"><span>版本</span><strong id="score-version-badge">--</strong></span>
+                            <p class="eyebrow">识谱准备</p>
+                            <h2>基础信息</h2>
                         </div>
                     </div>
-                    <div class="toolbar">
-                        <button class="tool-button" id="apply-score-settings-btn" type="button">同步速度 / 拍号 / 调号</button>
-                        <button class="tool-button" id="undo-btn" type="button">撤销</button>
-                        <button class="tool-button" id="redo-btn" type="button">重做</button>
-                        <button class="tool-button" id="pitch-up-btn" type="button">升高半音</button>
-                        <button class="tool-button" id="pitch-down-btn" type="button">降低半音</button>
-                        <button class="tool-button danger" id="delete-note-btn" type="button">删除音符</button>
-                    </div>
-                </div>
 
-                <div class="editor-grid">
-                    <div class="panel note-panel">
-                        <div class="panel-header compact">
-                            <div>
-                                <p class="eyebrow">编辑音符</p>
-                                <h2>当前音符</h2>
+                    <input id="user-id-input" min="1" step="1" type="hidden"/>
+                    <input id="analysis-id-input" type="hidden"/>
+
+                    <label class="field-label" for="project-title-input">项目标题</label>
+                    <div class="field-grid">
+                        <input id="project-title-input" placeholder="我的智能识谱项目" type="text"/>
+                    </div>
+
+                    <div hidden id="dizi-flute-type-field" style="margin-top:12px">
+                        <label class="field-label" for="dizi-flute-type-input">笛型</label>
+                        <select id="dizi-flute-type-input">
+                            <option value="C">C 调笛</option>
+                            <option value="D">D 调笛</option>
+                            <option value="E">E 调笛</option>
+                            <option value="F">F 调笛</option>
+                            <option value="G">G 调笛</option>
+                            <option value="A">A 调笛</option>
+                            <option value="Bb">Bb 调笛</option>
+                        </select>
+                        <p class="helper-text">笛子模式下会按所选笛型的筒音关系显示简谱数字和指法。</p>
+                    </div>
+
+                    <div class="divider" style="margin:12px 0"></div>
+                    <label class="field-label" for="pitch-detect-file-input">上传识谱音频</label>
+                    <input accept=".wav,.mp3,.ogg,.m4a,audio/*" id="pitch-detect-file-input" type="file"/>
+                    <p class="helper-text">支持 WAV、MP3、M4A、OGG。选择音频后直接点击下方“生成乐谱”即可，系统会使用固定参数完成识别与生成。</p>
+                    <label class="field-label" for="lyrics-mode-input" style="margin-top:12px">歌词来源</label>
+                    <select id="lyrics-mode-input">
+                        <option value="file">使用文件歌词</option>
+                        <option value="off">不导入歌词</option>
+                        <option value="asr_whisperx">自动识别歌词（WhisperX）</option>
+                    </select>
+                    <p class="helper-text">默认优先读取 MP3 内嵌歌词或外部 `.lrc`。切到 WhisperX 后，会改为本地离线自动识别并异步返回结果。</p>
+                    <div hidden id="lyrics-language-field" style="margin-top:12px">
+                        <label class="field-label" for="lyrics-language-input">歌词识别语言</label>
+                        <select id="lyrics-language-input">
+                            <option value="auto">自动判断</option>
+                            <option value="zh">中文</option>
+                            <option value="en">英文</option>
+                            <option value="ja">日文</option>
+                            <option value="ko">韩文</option>
+                        </select>
+                        <p class="helper-text">中文歌建议直接选“中文”。自动模式会先按上下文判断，必要时回退为中文重试。</p>
+                    </div>
+                    <div id="lyrics-file-fields">
+                        <label class="field-label" for="lyrics-file-input" style="margin-top:12px">可选歌词文件（LRC）</label>
+                        <input accept=".lrc,.txt,text/plain" id="lyrics-file-input" type="file"/>
+                        <p class="helper-text">系统会优先读取 MP3 内嵌歌词；如果文件没有内嵌歌词，可以额外上传 `.lrc` 作为歌词对齐来源。</p>
+                    </div>
+                    <input id="pitch-detect-algorithm-input" type="hidden" value="yin"/>
+                    <input id="pitch-detect-frame-ms-input" type="hidden" value="20"/>
+                    <input id="pitch-detect-hop-ms-input" type="hidden" value="10"/>
+                    <p id="pitch-detect-status" class="helper-text status-text" style="min-height:1.4em"></p>
+
+                    <div class="divider" style="margin:12px 0"></div>
+                    <div class="button-row">
+                        <button class="primary-button" id="create-score-btn" type="button">生成乐谱</button>
+                    </div>
+
+                    <details class="advanced-panel" hidden id="analysis-tools-panel">
+                        <summary>高级功能与调试</summary>
+                        <div class="advanced-body">
+                            <p class="helper-text">主流程只保留识别与生成乐谱。服务连接、音频分析工具和手动节奏评分参数统一收纳在这里。</p>
+
+                            <div class="advanced-section">
+                                <h3>服务与调试</h3>
+                                <label class="field-label" for="api-base-input">服务地址</label>
+                                <div class="inline-field">
+                                    <input id="api-base-input" placeholder="http://127.0.0.1:8000/api/v1" type="text"/>
+                                    <button class="secondary-button" id="save-api-base-btn" type="button">保存</button>
+                                </div>
+                                <div class="button-row">
+                                    <button class="ghost-button" id="ping-backend-btn" type="button">检查服务</button>
+                                </div>
                             </div>
-                            <button class="ghost-button" id="clear-note-selection-btn" type="button">清除选中</button>
-                        </div>
-                        <p class="helper-text" id="selected-note-summary">请先在谱面中选择一个音符，或直接新增音符。</p>
-                        <div class="note-form-grid">
-                            <label>
-                                <span class="field-label">小节</span>
-                                <input id="note-measure-input" min="1" step="1" type="number"/>
-                            </label>
-                            <label>
-                                <span class="field-label">拍点</span>
-                                <input id="note-beat-input" min="1" step="0.25" type="number"/>
-                            </label>
-                            <label>
-                                <span class="field-label">音高</span>
-                                <input id="note-pitch-input" placeholder="例如 C4，休止符可写 Rest" type="text"/>
-                            </label>
-                            <label>
-                                <span class="field-label">时值</span>
-                                <input id="note-beats-input" min="0.25" step="0.25" type="number"/>
-                            </label>
-                        </div>
-                        <div class="button-row">
-                            <button class="secondary-button" id="add-note-btn" type="button">新增音符</button>
-                            <button class="primary-button" id="update-note-btn" type="button">更新选中音符</button>
-                        </div>
-                        <p class="helper-text">点击谱面中的某个小节可以自动带入小节与拍点，再结合音高与时值完成编辑。</p>
-                    </div>
 
+                            <div class="advanced-section">
+                                <h3>高级分析工具</h3>
+                                <label class="field-label" for="analysis-file-input">音频文件</label>
+                                <input accept=".wav,.mp3,.ogg,.m4a,audio/*" id="analysis-file-input" type="file"/>
+
+                                <div class="field-grid">
+                                    <label class="field-label" for="chord-style-input">和弦风格</label>
+                                    <input id="chord-style-input" placeholder="例如：流行 / 爵士 / 民谣" type="text" value="pop"/>
+                                </div>
+                                <p class="helper-text">节拍检测、音轨分离、和弦生成和节奏评分都需要在这里选择音频或参数，结果会展示在中间分析面板。</p>
+
+                                <div class="field-grid">
+                                    <label class="field-label" for="beat-bpm-hint-input">BPM 预估提示</label>
+                                    <input id="beat-bpm-hint-input" min="0" placeholder="可选，帮助系统更快估计 BPM" step="1" type="number"/>
+
+                                    <label class="field-label" for="beat-sensitivity-input">节拍检测灵敏度</label>
+                                    <input id="beat-sensitivity-input" max="1" min="0" step="0.1" type="number" value="0.5"/>
+                                </div>
+
+                                <div class="field-grid">
+                                    <label class="field-label" for="separation-model-input">分离模型</label>
+                                    <input id="separation-model-input" placeholder="demucs" type="text" value="demucs"/>
+
+                                    <label class="field-label" for="separation-stems-input">目标分轨数</label>
+                                    <input id="separation-stems-input" min="2" step="1" type="number" value="2"/>
+                                </div>
+
+                                <div class="field-grid">
+                                    <label class="field-label" for="rhythm-language-input">反馈语言</label>
+                                    <select id="rhythm-language-input">
+                                        <option value="zh">中文</option>
+                                        <option value="en">英文</option>
+                                    </select>
+
+                                    <label class="field-label" for="rhythm-model-input">评分方式</label>
+                                    <select id="rhythm-model-input">
+                                        <option value="balanced">平衡</option>
+                                        <option value="strict">严格</option>
+                                        <option value="lenient">宽松</option>
+                                    </select>
+
+                                    <label class="field-label" for="rhythm-threshold-input">判定阈值（毫秒）</label>
+                                    <input id="rhythm-threshold-input" min="1" step="1" type="number" value="50"/>
+                                </div>
+
+                                <div class="button-row" style="margin-top:12px">
+                                    <button class="secondary-button" id="beat-detect-btn" type="button">节拍检测</button>
+                                    <button class="secondary-button" id="separate-tracks-btn" type="button">音轨分离</button>
+                                    <button class="secondary-button" id="generate-chords-btn" type="button">生成和弦</button>
+                                    <button class="secondary-button" id="rhythm-score-btn" type="button">节奏评分</button>
+                                    <button class="ghost-button" id="refresh-audio-logs-btn" type="button">刷新日志</button>
+                                </div>
+                            </div>
+
+                            <div class="advanced-section">
+                                <h3>手动节奏评分</h3>
+                                <label class="field-label" for="reference-beats-input">参考拍点 JSON</label>
+                                <textarea id="reference-beats-input" rows="4">[0,1,2,3]</textarea>
+
+                                <label class="field-label" for="user-beats-input">用户拍点 JSON</label>
+                                <textarea id="user-beats-input" rows="4">[0,1.02,2.04,3.01]</textarea>
+                            </div>
+                        </div>
+                    </details>
+                </section>
+
+                <div id="score-editor-grid">
                     <div class="panel note-panel">
                         <div class="panel-header compact">
                             <div>
@@ -258,33 +216,239 @@
                                 <strong class="stat-value" id="measure-count-display">--</strong>
                             </div>
                         </div>
-                        <p class="helper-text">左侧的速度、拍号和调号既能用于创建乐谱，也能用于当前乐谱的实时更新。</p>
+                        <p class="helper-text">当前乐谱的速度、拍号、调号会从 MusicXML 自动解析并展示在这里。</p>
                     </div>
                 </div>
+            </div>
 
+            <section class="center-column">
                 <div class="panel score-panel">
                     <div class="panel-header">
                         <div>
                             <p class="eyebrow">识谱结果</p>
-                            <h2>交互谱面</h2>
+                            <h2 id="preview-panel-title">Verovio 谱面预览</h2>
                         </div>
-                        <button class="ghost-button" id="refresh-score-view-btn" type="button">刷新视图</button>
+                        <div class="panel-header-actions">
+                            <div class="instrument-switch">
+                                <span class="instrument-switch-label">识谱模式</span>
+                                <div class="instrument-toggle" id="instrument-toggle" role="tablist" aria-label="识谱模式切换">
+                                    <button class="instrument-toggle-button" data-instrument-type="piano" role="tab" type="button">钢琴</button>
+                                    <button class="instrument-toggle-button" data-instrument-type="guzheng" role="tab" type="button">古筝</button>
+                                    <button class="instrument-toggle-button" data-instrument-type="guitar" role="tab" type="button">吉他</button>
+                                    <button class="instrument-toggle-button" data-instrument-type="dizi" role="tab" type="button">笛子</button>
+                                </div>
+                            </div>
+                            <div class="preview-page-nav" hidden id="preview-page-nav">
+                                <button aria-label="上一页" class="ghost-button" id="preview-page-prev-btn" type="button">‹</button>
+                                <span class="count-pill" id="preview-page-status">第 1 / 1 页</span>
+                                <button aria-label="下一页" class="ghost-button" id="preview-page-next-btn" type="button">›</button>
+                            </div>
+                            <button class="secondary-button" id="export-score-pdf-btn" type="button">导出 PDF</button>
+                        </div>
                     </div>
+                    <p class="helper-text" id="preview-panel-copy">钢琴模式固定输出双手钢琴谱；切到古筝、吉他或笛子模式后，这里会切成各自的专属结果页。</p>
                     <div class="score-empty" id="score-empty">
                         <h3>当前还没有关联乐谱</h3>
-                        <p>请先生成一份乐谱，随后就可以直接在谱面中编辑音符并实时保存。</p>
+                        <p>请先生成一份乐谱。生成完成后，这里会出现由 Verovio 渲染的轻量预览，并可进入纸质乐谱风格查看器查看完整分页谱面。</p>
                     </div>
-                    <div class="score-canvas" id="score-canvas"></div>
+                    <div class="score-entry-card" hidden id="score-viewer-entry"></div>
+                    <div class="score-empty" hidden id="guzheng-score-empty">
+                        <h3>当前还没有生成古筝谱</h3>
+                        <p>切换到古筝模式后，系统会基于当前旋律生成简谱、弦位与基础技法建议，并在这里展示古筝专属结果页。</p>
+                    </div>
+                    <div class="guzheng-score-view" hidden id="guzheng-score-view"></div>
+                    <div class="score-empty" hidden id="guitar-lead-sheet-empty">
+                        <h3>当前还没有生成吉他弹唱谱</h3>
+                        <p>切换到吉他模式后，系统会基于当前旋律生成 lead sheet 风格的吉他弹唱谱，并在这里优先展示正文、常用和弦图与基础扫弦建议。</p>
+                    </div>
+                    <div class="guitar-lead-sheet-view" hidden id="guitar-lead-sheet-view"></div>
+                    <div class="score-empty" hidden id="dizi-score-empty">
+                        <h3>当前还没有生成笛子谱</h3>
+                        <p>切换到笛子模式后，系统会基于当前旋律生成笛子简谱，并在这里展示筒音关系、指法/孔位和基础技法建议。</p>
+                    </div>
+                    <div class="dizi-score-view" hidden id="dizi-score-view"></div>
+                </div>
+
+                <div class="panel score-panel edit-workbench-panel" hidden id="edit-workbench-panel">
+                    <div class="panel-header">
+                        <div>
+                            <p class="eyebrow">谱面工作台</p>
+                            <h2 id="edit-workbench-title">手动修改</h2>
+                        </div>
+                    </div>
+                    <p class="helper-text" id="edit-workbench-intro">点击上方谱面里的音符或和弦以选中，再点下方按钮做出修改。所有改动写入当前扒谱结果的 MusicXML，并支持撤销/重做。</p>
+
+                    <div class="edit-workbench-body" id="edit-workbench-body">
+                        <div class="edit-selection-card">
+                            <span class="selection-label">当前选中</span>
+                            <strong class="selection-summary" id="edit-selection-summary">尚未选中音符</strong>
+                        </div>
+
+                        <div aria-live="polite" class="edit-save-status" data-status="idle" id="edit-save-status">
+                            <span class="save-status-dot"></span>
+                            <span class="save-status-text" id="edit-save-status-text">尚未做修改</span>
+                        </div>
+
+                        <div class="edit-note-nav">
+                            <button class="palette-btn" id="edit-note-prev-btn" type="button" title="选中上一个音符">‹ 上一个</button>
+                            <label class="edit-note-jump">
+                                <span class="palette-title">音符序号</span>
+                                <input id="edit-note-index-input" min="1" step="1" type="number" placeholder="输入并回车跳转" />
+                                <span class="edit-note-total" id="edit-note-total">/ --</span>
+                            </label>
+                            <button class="palette-btn" id="edit-note-next-btn" type="button" title="选中下一个音符">下一个 ›</button>
+                        </div>
+                        <p class="helper-text" id="edit-nav-hint-piano">钢琴模式下可直接点谱面音符；上一个/下一个按钮也能用来切换。</p>
+                        <p class="helper-text" hidden id="edit-nav-hint-traditional">古筝 / 笛子模式下可直接点 jianpu 数字；如果点不准也可以用上一个/下一个切换。</p>
+                        <p class="helper-text" hidden id="edit-nav-hint-guitar">吉他模式下点击 lead-sheet 中的和弦芯片选中位置；上一个/下一个切换不同小节的和弦锚点。</p>
+
+                        <!-- Piano-specific palette -->
+                        <div data-palette-for="piano" class="palette-section">
+                            <div class="palette-group">
+                                <h3 class="palette-title">音符时值</h3>
+                                <div class="palette-row">
+                                    <button class="palette-btn" data-edit-action="duration" data-edit-value="whole" title="全音符" type="button">𝅝 全</button>
+                                    <button class="palette-btn" data-edit-action="duration" data-edit-value="half" title="二分音符" type="button">𝅗𝅥 二分</button>
+                                    <button class="palette-btn" data-edit-action="duration" data-edit-value="quarter" title="四分音符" type="button">♩ 四分</button>
+                                    <button class="palette-btn" data-edit-action="duration" data-edit-value="eighth" title="八分音符" type="button">♪ 八分</button>
+                                    <button class="palette-btn" data-edit-action="duration" data-edit-value="16th" title="十六分音符" type="button">𝅘𝅥𝅯 十六</button>
+                                    <button class="palette-btn" data-edit-action="dot-toggle" title="附点（在当前时值上叠加 1.5x）" type="button">附点 ·</button>
+                                </div>
+                            </div>
+                            <div class="palette-group">
+                                <h3 class="palette-title">升降记号</h3>
+                                <div class="palette-row">
+                                    <button class="palette-btn" data-edit-action="accidental" data-edit-value="sharp" title="升号" type="button">♯ 升</button>
+                                    <button class="palette-btn" data-edit-action="accidental" data-edit-value="flat" title="降号" type="button">♭ 降</button>
+                                    <button class="palette-btn" data-edit-action="accidental" data-edit-value="natural" title="还原" type="button">♮ 还原</button>
+                                    <button class="palette-btn" data-edit-action="accidental" data-edit-value="clear" title="清除升降记号" type="button">清除</button>
+                                </div>
+                            </div>
+                            <div class="palette-group">
+                                <h3 class="palette-title">音高微调</h3>
+                                <div class="palette-row">
+                                    <button class="palette-btn" data-edit-action="transpose" data-edit-value="-12" title="降八度" type="button">-8va</button>
+                                    <button class="palette-btn" data-edit-action="transpose" data-edit-value="-1" title="降半音" type="button">-½ 半音</button>
+                                    <button class="palette-btn" data-edit-action="transpose" data-edit-value="1" title="升半音" type="button">+½ 半音</button>
+                                    <button class="palette-btn" data-edit-action="transpose" data-edit-value="12" title="升八度" type="button">+8va</button>
+                                </div>
+                            </div>
+                            <div class="palette-group">
+                                <h3 class="palette-title">删除</h3>
+                                <div class="palette-row">
+                                    <button class="palette-btn danger" data-edit-action="to-rest" title="把选中音符替换为同时值休止符" type="button">→ 休止符</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Guzheng technique palette -->
+                        <div data-palette-for="guzheng" class="palette-section" hidden>
+                            <div class="palette-group">
+                                <h3 class="palette-title">古筝技法（toggle）</h3>
+                                <div class="palette-row">
+                                    <button class="palette-btn" data-edit-action="ornament-toggle" data-edit-value="trill" title="颤音 / 长音保持，谱面用 tr 标记" type="button">tr 颤音</button>
+                                    <button class="palette-btn" data-edit-action="ornament-toggle" data-edit-value="mordent" title="波音" type="button">𝆑 波音</button>
+                                    <button class="palette-btn" data-edit-action="ornament-toggle" data-edit-value="tremolo" title="摇指 / tremolo 三斜线" type="button">⫽ 摇指</button>
+                                    <button class="palette-btn" data-edit-action="glissando-toggle" data-edit-value="glissando" title="滑奏 / 刮奏" type="button">↗ 刮奏</button>
+                                    <button class="palette-btn" data-edit-action="technical-toggle" data-edit-value="harmonic" title="泛音 — 圆圈记号" type="button">○ 泛音</button>
+                                </div>
+                            </div>
+                            <div class="palette-group">
+                                <h3 class="palette-title">辅助修改</h3>
+                                <div class="palette-row">
+                                    <button class="palette-btn" data-edit-action="transpose" data-edit-value="-12" title="降八度" type="button">-8va</button>
+                                    <button class="palette-btn" data-edit-action="transpose" data-edit-value="12" title="升八度" type="button">+8va</button>
+                                    <button class="palette-btn danger" data-edit-action="to-rest" title="替换为休止符" type="button">→ 休止符</button>
+                                </div>
+                            </div>
+                            <p class="helper-text">技法会写入 MusicXML（导出 PDF 时显示），并在简谱数字旁加小角标作为视觉提示。</p>
+                        </div>
+
+                        <!-- Dizi technique palette -->
+                        <div data-palette-for="dizi" class="palette-section" hidden>
+                            <div class="palette-group">
+                                <h3 class="palette-title">笛子技法（toggle）</h3>
+                                <div class="palette-row">
+                                    <button class="palette-btn" data-edit-action="ornament-toggle" data-edit-value="trill" title="颤音" type="button">tr 颤音</button>
+                                    <button class="palette-btn" data-edit-action="ornament-toggle" data-edit-value="mordent" title="波音" type="button">𝆑 波音</button>
+                                    <button class="palette-btn" data-edit-action="articulation-toggle" data-edit-value="staccato" title="打音 — 短促" type="button">. 打音</button>
+                                    <button class="palette-btn" data-edit-action="articulation-toggle" data-edit-value="accent" title="叠音 — 重音" type="button">&gt; 叠音</button>
+                                    <button class="palette-btn" data-edit-action="glissando-toggle" data-edit-value="glissando" title="滑音" type="button">↗ 滑音</button>
+                                </div>
+                            </div>
+                            <div class="palette-group">
+                                <h3 class="palette-title">辅助修改</h3>
+                                <div class="palette-row">
+                                    <button class="palette-btn" data-edit-action="transpose" data-edit-value="-12" title="降八度" type="button">-8va</button>
+                                    <button class="palette-btn" data-edit-action="transpose" data-edit-value="12" title="升八度" type="button">+8va</button>
+                                    <button class="palette-btn danger" data-edit-action="to-rest" title="替换为休止符" type="button">→ 休止符</button>
+                                </div>
+                            </div>
+                            <p class="helper-text">技法会写入 MusicXML（导出时显示），并在简谱数字旁加小角标作为视觉提示。</p>
+                        </div>
+
+                        <!-- Guitar chord palette -->
+                        <div data-palette-for="guitar" class="palette-section" hidden>
+                            <div class="palette-group">
+                                <h3 class="palette-title">和弦根音</h3>
+                                <div class="palette-row chord-root-row" id="chord-root-row">
+                                    <button class="palette-btn chord-root-btn" data-chord-root="C" type="button">C</button>
+                                    <button class="palette-btn chord-root-btn" data-chord-root="D" type="button">D</button>
+                                    <button class="palette-btn chord-root-btn" data-chord-root="E" type="button">E</button>
+                                    <button class="palette-btn chord-root-btn" data-chord-root="F" type="button">F</button>
+                                    <button class="palette-btn chord-root-btn" data-chord-root="G" type="button">G</button>
+                                    <button class="palette-btn chord-root-btn" data-chord-root="A" type="button">A</button>
+                                    <button class="palette-btn chord-root-btn" data-chord-root="B" type="button">B</button>
+                                </div>
+                                <div class="palette-row chord-alter-row" id="chord-alter-row">
+                                    <button class="palette-btn chord-alter-btn" data-chord-alter="-1" type="button">♭</button>
+                                    <button class="palette-btn chord-alter-btn" data-chord-alter="0" type="button">无</button>
+                                    <button class="palette-btn chord-alter-btn" data-chord-alter="1" type="button">♯</button>
+                                </div>
+                            </div>
+                            <div class="palette-group">
+                                <h3 class="palette-title">和弦性质</h3>
+                                <div class="palette-row chord-kind-row" id="chord-kind-row">
+                                    <button class="palette-btn chord-kind-btn" data-chord-kind="major" type="button">大三 (maj)</button>
+                                    <button class="palette-btn chord-kind-btn" data-chord-kind="minor" type="button">小三 (m)</button>
+                                    <button class="palette-btn chord-kind-btn" data-chord-kind="dominant" type="button">属七 (7)</button>
+                                    <button class="palette-btn chord-kind-btn" data-chord-kind="minor-seventh" type="button">小七 (m7)</button>
+                                    <button class="palette-btn chord-kind-btn" data-chord-kind="major-seventh" type="button">大七 (maj7)</button>
+                                    <button class="palette-btn chord-kind-btn" data-chord-kind="suspended-fourth" type="button">挂四 (sus4)</button>
+                                    <button class="palette-btn chord-kind-btn" data-chord-kind="diminished" type="button">减 (dim)</button>
+                                </div>
+                            </div>
+                            <div class="palette-group">
+                                <h3 class="palette-title">应用</h3>
+                                <div class="palette-row">
+                                    <div class="chord-preview" id="chord-preview">将写入：<strong>C</strong></div>
+                                    <button class="palette-btn" data-edit-action="harmony-apply" type="button">在选中位置应用和弦</button>
+                                    <button class="palette-btn danger" data-edit-action="harmony-remove" type="button">移除选中位置的和弦</button>
+                                </div>
+                            </div>
+                            <p class="helper-text">和弦写入选中音符前的 &lt;harmony&gt; 节点。lead-sheet 视图当前由旋律自动派生，所以 chip 上会用紫色徽标显示你的覆盖结果。</p>
+                        </div>
+
+                        <!-- Common: history -->
+                        <div class="palette-group">
+                            <h3 class="palette-title">历史</h3>
+                            <div class="palette-row">
+                                <button class="palette-btn" data-edit-action="undo" title="撤销到上一次快照" type="button">↶ 撤销</button>
+                                <button class="palette-btn" data-edit-action="redo" title="重做" type="button">↷ 重做</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="panel score-panel">
                     <div class="panel-header">
                         <div>
                             <p class="eyebrow">分析结果</p>
-                            <h2>音频分析面板</h2>
+                            <h2 id="analysis-panel-title">钢琴识谱分析</h2>
                         </div>
                     </div>
-                    <div class="analysis-grid">
+                    <p class="helper-text" id="analysis-panel-copy">钢琴模式下会按当前输出模式展示节拍、分轨与和声分析；切到古筝或吉他模式后会替换成各自的调试面板。</p>
+                    <div class="analysis-grid" id="piano-analysis-grid">
                         <div class="analysis-card">
                             <h3>节拍检测</h3>
                             <div class="analysis-output" id="beat-detect-output">
@@ -304,16 +468,25 @@
                             </div>
                         </div>
                         <div class="analysis-card">
+                            <h3>歌词导入</h3>
+                            <div class="analysis-output" id="lyrics-import-output">
+                                <p class="analysis-placeholder">生成带歌词的钢琴谱后，这里会展示歌词来源、对齐方式和告警。</p>
+                            </div>
+                        </div>
+                        <div class="analysis-card">
                             <h3>节奏评分</h3>
                             <div class="analysis-output" id="rhythm-score-output">
                                 <p class="analysis-placeholder">暂时还没有结果。</p>
                             </div>
                         </div>
                     </div>
+                    <div class="guzheng-debug-panel" hidden id="guzheng-debug-panel"></div>
+                    <div class="guitar-debug-panel" hidden id="guitar-debug-panel"></div>
+                    <div class="dizi-debug-panel" hidden id="dizi-debug-panel"></div>
                 </div>
             </section>
 
-            <aside class="panel right-panel">
+            <aside class="panel right-panel" id="export-workbench-panel">
                 <div class="panel-header">
                     <div>
                         <p class="eyebrow">导出工作台</p>
@@ -404,12 +577,45 @@
             </aside>
         </main>
 
+        <div class="score-viewer-overlay" hidden id="score-viewer-overlay">
+            <div class="score-viewer-shell">
+                <header class="score-viewer-topbar">
+                    <div class="score-viewer-heading">
+                        <button class="ghost-button" id="close-score-viewer-btn" type="button">返回编辑器</button>
+                        <div>
+                            <p class="eyebrow">乐谱查看器</p>
+                            <h2 id="score-viewer-score-title">未加载乐谱</h2>
+                            <p class="helper-text" id="score-viewer-score-subtitle">请先在工作台生成乐谱，然后在这里以纸质乐谱风格查看 A4 分页谱面。支持左右滑动翻页，点击音符可以高亮定位当前符号。</p>
+                        </div>
+                    </div>
+                    <div class="score-viewer-toolbar">
+                        <button aria-label="上一页" class="ghost-button" id="score-viewer-page-prev-btn" type="button">‹</button>
+                        <div class="score-page-meta">
+                            <span class="count-pill" id="score-viewer-page-status">第 1 / 1 页</span>
+                            <span class="count-pill" id="score-viewer-page-range">小节 1-1</span>
+                        </div>
+                        <button aria-label="下一页" class="ghost-button" id="score-viewer-page-next-btn" type="button">›</button>
+                    </div>
+                </header>
+
+                <div class="score-viewer-stage" id="score-viewer-stage" tabindex="0">
+                    <div class="score-empty" id="score-viewer-empty">
+                        <h3>暂无乐谱</h3>
+                        <p>请先在工作台生成乐谱，然后再到这里查看纸质乐谱风格的分页谱面。</p>
+                    </div>
+                    <div class="score-canvas score-viewer-canvas" id="score-viewer-canvas"></div>
+                </div>
+            </div>
+        </div>
+
         <footer class="statusbar">
             <span id="app-status">已就绪。先生成乐谱或上传音频，后续的编辑、分析与导出都会围绕当前内容继续进行。</span>
         </footer>
     </div>
 
-    <script src="app_common.js"></script>
-    <script src="transcription.js"></script>
+    <script src="app_common.js?v=20260418-guitar-folk-layout-v3"></script>
+    <script src="vendor/verovio/verovio-toolkit-wasm.js?v=20260418-guitar-folk-layout-v3"></script>
+    <script src="score_viewer_layout.js?v=20260418-guitar-folk-layout-v3"></script>
+    <script src="transcription.js?v=20260427-traditional-edit-shell-v1"></script>
 </body>
 </html>

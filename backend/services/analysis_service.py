@@ -6,24 +6,42 @@ import os
 import tempfile
 from contextlib import contextmanager
 from copy import deepcopy
-from pathlib import Path
+import importlib
+import logging
 from typing import Any, Iterator
 
-import soundfile as sf
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 
 from backend.config.settings import settings
 from backend.core.pitch.pitch_comparison import build_pitch_comparison_payload
 from backend.core.pitch.audio_utils import infer_audio_metadata, estimate_duration_from_bytes
 from backend.core.pitch.pitch_detection import detect_pitch_sequence
+from backend.core.pitch.pitch_sequence_utils import (
+    DEFAULT_HOP_MS,
+    compress_pitch_sequence_to_note_events,
+    expand_note_events_to_pitch_sequence,
+    extract_note_events_from_result,
+    is_note_event_sequence,
+)
 from backend.core.score.sheet_extraction import build_score_from_pitch_sequence
 from backend.utils.audio_logger import record_audio_processing_log
 from backend.utils.data_visualizer import build_pitch_curve
 
 
-USE_DB: bool = False
+logger = logging.getLogger(__name__)
+PITCH_SEQUENCE_FORMAT_NOTE_EVENTS = "note_events"
+# 开启数据库持久化模式
+USE_DB: bool = True
 _session_factory = None
 ANALYSIS_RESULTS: dict[str, dict[str, Any]] = {}
+
+
+def _load_soundfile():
+    try:
+        return importlib.import_module("soundfile")
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("环境缺少 soundfile，无法读取节奏评分所需的音频文件。") from exc
 
 
 def set_db_session_factory(factory) -> None:
@@ -50,6 +68,26 @@ def clear_analysis_results() -> None:
     ANALYSIS_RESULTS.clear()
 
 
+def _store_analysis_result_in_memory(payload: dict[str, Any]) -> None:
+    ANALYSIS_RESULTS[payload["analysis_id"]] = deepcopy(payload)
+
+
+def _get_cached_pitch_sequence(
+    analysis_id: str,
+    *,
+    is_reference: bool | None = None,
+) -> list[dict[str, Any]] | None:
+    stored = ANALYSIS_RESULTS.get(analysis_id)
+    if stored is None:
+        return None
+    sequence = list(stored.get("pitch_sequence") or [])
+    if is_reference is None:
+        return deepcopy(sequence)
+    if bool(stored.get("is_reference")) == is_reference:
+        return deepcopy(sequence)
+    return None
+
+
 def _json_ready(value: Any) -> Any:
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
@@ -69,6 +107,182 @@ def _json_ready(value: Any) -> Any:
     return str(value)
 
 
+def _pitch_meta_from_params(
+    params: dict[str, Any] | None,
+    *,
+    sample_rate: int | None,
+    original_point_count: int,
+    is_reference: bool,
+) -> dict[str, Any]:
+    pitch_params = params or {}
+    return {
+        "frame_ms": int(pitch_params.get("frame_ms") or 20),
+        "hop_ms": int(pitch_params.get("hop_ms") or DEFAULT_HOP_MS),
+        "algorithm": str(pitch_params.get("algorithm") or "yin"),
+        "sample_rate": sample_rate,
+        "original_point_count": int(original_point_count),
+        "is_reference": bool(is_reference),
+    }
+
+
+def _merge_result_payload(
+    *,
+    existing_result: dict[str, Any] | None,
+    result_data: dict[str, Any] | None,
+    pitch_sequence: list[dict[str, Any]] | None,
+    params: dict[str, Any] | None,
+    sample_rate: int | None,
+    is_reference: bool,
+) -> dict[str, Any]:
+    merged: dict[str, Any] = _json_ready(deepcopy(existing_result or {}))
+    merged.update(_json_ready(deepcopy(result_data or {})))
+
+    if pitch_sequence is None:
+        return merged
+
+    if is_note_event_sequence(pitch_sequence):
+        note_events = _json_ready(deepcopy(pitch_sequence))
+        original_point_count = len(pitch_sequence)
+    else:
+        note_events = compress_pitch_sequence_to_note_events(
+            _json_ready(deepcopy(pitch_sequence)),
+            hop_ms=int((params or {}).get("hop_ms") or DEFAULT_HOP_MS),
+        )
+        original_point_count = len(pitch_sequence)
+
+    merged.update(
+        {
+            "pitch_sequence_format": PITCH_SEQUENCE_FORMAT_NOTE_EVENTS,
+            "pitch_sequence": note_events,
+            "pitch_meta": _json_ready(
+                _pitch_meta_from_params(
+                    params,
+                    sample_rate=sample_rate,
+                    original_point_count=original_point_count,
+                    is_reference=is_reference,
+                )
+            ),
+        }
+    )
+    return merged
+
+
+def _serialize_pitch_sequence_rows(rows: list[Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "time": float(row.time),
+            "frequency": float(row.frequency) if row.frequency is not None else None,
+            "note": row.note,
+            "confidence": float(row.confidence) if row.confidence is not None else None,
+            "cents_offset": float(row.cents_offset) if row.cents_offset is not None else None,
+        }
+        for row in rows
+    ]
+
+
+def _replace_pitch_sequence_rows(
+    session: Any,
+    *,
+    analysis_id: str,
+    pitch_sequence: list[dict[str, Any]],
+    is_reference: bool,
+) -> None:
+    from backend.db.models import PitchSequence
+
+    session.query(PitchSequence).filter_by(analysis_id=analysis_id, is_reference=is_reference).delete()
+    for item in pitch_sequence:
+        session.add(
+            PitchSequence(
+                analysis_id=analysis_id,
+                time=float(item.get("time", 0.0)),
+                frequency=float(item["frequency"]) if item.get("frequency") is not None else None,
+                note=item.get("note"),
+                confidence=float(item["confidence"]) if item.get("confidence") is not None else None,
+                cents_offset=float(item["cents_offset"]) if item.get("cents_offset") is not None else None,
+                is_reference=is_reference,
+            )
+        )
+
+
+def _load_note_events_from_analysis(
+    session: Any,
+    *,
+    analysis_id: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    from backend.db.models import AudioAnalysis
+
+    analysis = session.execute(
+        select(AudioAnalysis).where(AudioAnalysis.analysis_id == analysis_id)
+    ).scalar_one_or_none()
+    if analysis is None:
+        return [], {}
+    return extract_note_events_from_result(analysis.result)
+
+
+def _build_analysis_payload(
+    *,
+    analysis_id: str,
+    file_name: str | None = None,
+    file_url: str | None = None,
+    sample_rate: int | None = None,
+    duration: float | None = None,
+    bpm: int | None = None,
+    status: int = 1,
+    params: dict[str, Any] | None = None,
+    result_data: dict[str, Any] | None = None,
+    pitch_sequence: list[dict[str, Any]] | None = None,
+    user_id: int | None = None,
+    is_reference: bool = False,
+) -> dict[str, Any]:
+    return {
+        "analysis_id": analysis_id,
+        "file_name": file_name,
+        "file_url": file_url,
+        "sample_rate": sample_rate,
+        "duration": duration,
+        "bpm": bpm,
+        "status": status,
+        "params": _json_ready(deepcopy(params or {})),
+        "result_data": _json_ready(deepcopy(result_data or {})),
+        "pitch_sequence": _json_ready(deepcopy(pitch_sequence or [])),
+        "user_id": user_id,
+        "is_reference": is_reference,
+    }
+
+
+def cache_analysis_result(
+    *,
+    analysis_id: str,
+    file_name: str | None = None,
+    file_url: str | None = None,
+    sample_rate: int | None = None,
+    duration: float | None = None,
+    bpm: int | None = None,
+    status: int = 1,
+    params: dict[str, Any] | None = None,
+    result_data: dict[str, Any] | None = None,
+    pitch_sequence: list[dict[str, Any]] | None = None,
+    user_id: int | None = None,
+    is_reference: bool = False,
+) -> None:
+    _store_analysis_result_in_memory(
+        _build_analysis_payload(
+            analysis_id=analysis_id,
+            file_name=file_name,
+            file_url=file_url,
+            sample_rate=sample_rate,
+            duration=duration,
+            bpm=bpm,
+            status=status,
+            params=params,
+            result_data=result_data,
+            pitch_sequence=pitch_sequence,
+            user_id=user_id,
+            is_reference=is_reference,
+        )
+    )
+
+
 def save_analysis_result(
     *,
     analysis_id: str,
@@ -84,103 +298,199 @@ def save_analysis_result(
     user_id: int | None = None,
     is_reference: bool = False,
 ) -> None:
-    payload = {
-        "analysis_id": analysis_id,
-        "file_name": file_name,
-        "file_url": file_url,
-        "sample_rate": sample_rate,
-        "duration": duration,
-        "bpm": bpm,
-        "status": status,
-        "params": _json_ready(deepcopy(params or {})),
-        "result_data": _json_ready(deepcopy(result_data or {})),
-        "pitch_sequence": _json_ready(deepcopy(pitch_sequence or [])),
-        "user_id": user_id,
-        "is_reference": is_reference,
-    }
+    payload = _build_analysis_payload(
+        analysis_id=analysis_id,
+        file_name=file_name,
+        file_url=file_url,
+        sample_rate=sample_rate,
+        duration=duration,
+        bpm=bpm,
+        status=status,
+        params=params,
+        result_data=result_data,
+        pitch_sequence=pitch_sequence,
+        user_id=user_id,
+        is_reference=is_reference,
+    )
+    _store_analysis_result_in_memory(payload)
     if not USE_DB:
-        ANALYSIS_RESULTS[analysis_id] = payload
         return
 
-    from backend.db.models import AudioAnalysis, PitchSequence
+    from backend.db.models import AudioAnalysis
 
-    with _session_scope() as session:
-        analysis = session.execute(select(AudioAnalysis).where(AudioAnalysis.analysis_id == analysis_id)).scalar_one_or_none()
-        if analysis is None:
-            analysis = AudioAnalysis(
-                user_id=user_id,
-                analysis_id=analysis_id,
-                file_name=file_name,
-                file_url=file_url,
+    try:
+        with _session_scope() as session:
+            analysis = session.execute(
+                select(AudioAnalysis).where(AudioAnalysis.analysis_id == analysis_id)
+            ).scalar_one_or_none()
+            persisted_result = _merge_result_payload(
+                existing_result=analysis.result if analysis is not None else None,
+                result_data=result_data,
+                pitch_sequence=payload["pitch_sequence"] if pitch_sequence is not None else None,
+                params=params,
                 sample_rate=sample_rate,
-                duration=duration,
-                bpm=bpm,
-                status=status,
-                params=_json_ready(deepcopy(params or {})),
-                result=_json_ready(deepcopy(result_data or {})),
+                is_reference=is_reference,
             )
-            session.add(analysis)
-            session.flush()
-        else:
-            analysis.user_id = user_id if user_id is not None else analysis.user_id
-            analysis.file_name = file_name or analysis.file_name
-            analysis.file_url = file_url or analysis.file_url
-            analysis.sample_rate = sample_rate if sample_rate is not None else analysis.sample_rate
-            analysis.duration = duration if duration is not None else analysis.duration
-            analysis.bpm = bpm if bpm is not None else analysis.bpm
-            analysis.status = status
-            analysis.params = _json_ready(deepcopy(params or analysis.params or {}))
-            analysis.result = _json_ready(deepcopy(result_data or analysis.result or {}))
-            session.add(analysis)
-            session.flush()
-
-        if pitch_sequence is not None:
-            session.query(PitchSequence).filter_by(analysis_id=analysis_id, is_reference=is_reference).delete()
-            for item in payload["pitch_sequence"]:
-                session.add(
-                    PitchSequence(
-                        analysis_id=analysis_id,
-                        time=float(item.get("time", 0.0)),
-                        frequency=float(item["frequency"]) if item.get("frequency") is not None else None,
-                        note=item.get("note"),
-                        confidence=float(item["confidence"]) if item.get("confidence") is not None else None,
-                        cents_offset=float(item["cents_offset"]) if item.get("cents_offset") is not None else None,
-                        is_reference=is_reference,
-                    )
+            if analysis is None:
+                analysis = AudioAnalysis(
+                    user_id=user_id,
+                    analysis_id=analysis_id,
+                    file_name=file_name,
+                    file_url=file_url,
+                    sample_rate=sample_rate,
+                    duration=duration,
+                    bpm=bpm,
+                    status=status,
+                    params=_json_ready(deepcopy(params or {})),
+                    result=persisted_result,
                 )
+                session.add(analysis)
+                session.flush()
+            else:
+                analysis.user_id = user_id if user_id is not None else analysis.user_id
+                analysis.file_name = file_name or analysis.file_name
+                analysis.file_url = file_url or analysis.file_url
+                analysis.sample_rate = sample_rate if sample_rate is not None else analysis.sample_rate
+                analysis.duration = duration if duration is not None else analysis.duration
+                analysis.bpm = bpm if bpm is not None else analysis.bpm
+                analysis.status = status
+                analysis.params = _json_ready(deepcopy(params or analysis.params or {}))
+                analysis.result = persisted_result
+                session.add(analysis)
+                session.flush()
+    except SQLAlchemyError as exc:
+        logger.warning(
+            "Failed to persist analysis result %s to DB; using in-memory fallback instead: %s",
+            analysis_id,
+            exc,
+        )
+        _store_analysis_result_in_memory(payload)
 
 
-def get_saved_pitch_sequence(analysis_id: str, *, is_reference: bool | None = None) -> list[dict[str, Any]] | None:
+def save_pitch_sequence_cache(
+    analysis_id: str,
+    pitch_sequence: list[dict[str, Any]],
+    *,
+    is_reference: bool = False,
+) -> None:
+    if not USE_DB or not pitch_sequence:
+        return
+    try:
+        with _session_scope() as session:
+            _replace_pitch_sequence_rows(
+                session,
+                analysis_id=analysis_id,
+                pitch_sequence=pitch_sequence,
+                is_reference=is_reference,
+            )
+    except SQLAlchemyError as exc:
+        logger.warning("Failed to persist pitch_sequence cache for %s: %s", analysis_id, exc)
+
+
+def get_analysis_result(analysis_id: str) -> dict[str, Any] | None:
+    stored = ANALYSIS_RESULTS.get(analysis_id)
+    if stored is not None:
+        return {
+            "analysis_id": analysis_id,
+            "file_name": stored.get("file_name"),
+            "file_url": stored.get("file_url"),
+            "sample_rate": stored.get("sample_rate"),
+            "duration": stored.get("duration"),
+            "bpm": stored.get("bpm"),
+            "status": int(stored.get("status", 0) or 0),
+            "params": _json_ready(deepcopy(stored.get("params") or {})),
+            "result_data": _json_ready(deepcopy(stored.get("result_data") or {})),
+            "pitch_sequence": _json_ready(deepcopy(stored.get("pitch_sequence") or [])),
+            "user_id": stored.get("user_id"),
+        }
+
     if not USE_DB:
-        stored = ANALYSIS_RESULTS.get(analysis_id)
-        if stored is None:
-            return None
-        sequence = list(stored.get("pitch_sequence") or [])
-        if is_reference is None:
-            return deepcopy(sequence)
-        if bool(stored.get("is_reference")) == is_reference:
-            return deepcopy(sequence)
+        return None
+
+    from backend.db.models import AudioAnalysis
+
+    try:
+        with _session_scope() as session:
+            analysis = session.execute(
+                select(AudioAnalysis).where(AudioAnalysis.analysis_id == analysis_id)
+            ).scalar_one_or_none()
+            if analysis is None:
+                return None
+            return {
+                "analysis_id": analysis.analysis_id,
+                "file_name": analysis.file_name,
+                "file_url": analysis.file_url,
+                "sample_rate": analysis.sample_rate,
+                "duration": analysis.duration,
+                "bpm": analysis.bpm,
+                "status": int(analysis.status or 0),
+                "params": _json_ready(deepcopy(analysis.params or {})),
+                "result_data": _json_ready(deepcopy(analysis.result or {})),
+                "pitch_sequence": [],
+                "user_id": analysis.user_id,
+            }
+    except SQLAlchemyError as exc:
+        logger.warning(
+            "Failed to load analysis result %s from DB; using in-memory fallback if available: %s",
+            analysis_id,
+            exc,
+        )
+        return None
+
+
+def get_saved_pitch_sequence(
+    analysis_id: str,
+    *,
+    is_reference: bool | None = None,
+    populate_cache: bool = False,
+) -> list[dict[str, Any]] | None:
+    cached_sequence = _get_cached_pitch_sequence(analysis_id, is_reference=is_reference)
+    if cached_sequence:
+        if populate_cache and USE_DB:
+            save_pitch_sequence_cache(
+                analysis_id,
+                cached_sequence,
+                is_reference=bool(is_reference),
+            )
+        return cached_sequence
+    if not USE_DB:
         return None
 
     from backend.db.models import PitchSequence
 
-    with _session_scope() as session:
-        statement = select(PitchSequence).where(PitchSequence.analysis_id == analysis_id).order_by(PitchSequence.time.asc())
-        if is_reference is not None:
-            statement = statement.where(PitchSequence.is_reference == is_reference)
-        rows = list(session.execute(statement).scalars())
-        if not rows:
-            return None
-        return [
-            {
-                "time": float(row.time),
-                "frequency": float(row.frequency) if row.frequency is not None else None,
-                "note": row.note,
-                "confidence": float(row.confidence) if row.confidence is not None else None,
-                "cents_offset": float(row.cents_offset) if row.cents_offset is not None else None,
-            }
-            for row in rows
-        ]
+    try:
+        with _session_scope() as session:
+            statement = select(PitchSequence).where(PitchSequence.analysis_id == analysis_id).order_by(PitchSequence.time.asc())
+            if is_reference is not None:
+                statement = statement.where(PitchSequence.is_reference == is_reference)
+            rows = list(session.execute(statement).scalars())
+            if rows:
+                return _serialize_pitch_sequence_rows(rows)
+
+            note_events, pitch_meta = _load_note_events_from_analysis(session, analysis_id=analysis_id)
+            if not note_events:
+                return None
+    except SQLAlchemyError as exc:
+        logger.warning(
+            "Failed to load pitch sequence %s from DB; using in-memory fallback if available: %s",
+            analysis_id,
+            exc,
+        )
+        return _get_cached_pitch_sequence(analysis_id, is_reference=is_reference)
+
+    expanded_sequence = expand_note_events_to_pitch_sequence(
+        note_events,
+        hop_ms=int((pitch_meta or {}).get("hop_ms") or DEFAULT_HOP_MS),
+    )
+    if is_reference is not None and bool((pitch_meta or {}).get("is_reference", False)) != is_reference:
+        return None
+    if populate_cache and expanded_sequence:
+        save_pitch_sequence_cache(
+            analysis_id,
+            expanded_sequence,
+            is_reference=bool((pitch_meta or {}).get("is_reference", False)),
+        )
+    return expanded_sequence or None
 
 
 def analyze_audio(file_name: str, audio_bytes: bytes, sample_rate: int | None = None) -> dict[str, Any]:
@@ -196,7 +506,7 @@ def analyze_audio(file_name: str, audio_bytes: bytes, sample_rate: int | None = 
         audio_bytes=audio_bytes,
     )
     beat_result = detect_beats(file_name, audio_bytes=audio_bytes)
-    score = build_score_from_pitch_sequence(pitch_sequence)
+    score = build_score_from_pitch_sequence(pitch_sequence, auto_detect_key=True, arrangement_mode="piano_solo")
     pitch_curve = build_pitch_curve(pitch_sequence, pitch_sequence)
     log_entry = record_audio_processing_log(
         file_name=file_name,
@@ -502,11 +812,11 @@ def process_rhythm_scoring_sync(
     from backend.core.rhythm.rhythm_analysis import AdvancedRhythmAnalyzer
 
     rhythm_analyzer = AdvancedRhythmAnalyzer(threshold_ms=threshold_ms)
-    normalized_scoring_model = _normalize_scoring_model(scoring_model)
+    soundfile = _load_soundfile()
 
     try:
-        user_audio, user_sr = sf.read(user_audio_path, dtype="float32")
-        ref_audio, ref_sr = sf.read(ref_audio_path, dtype="float32")
+        user_audio, user_sr = soundfile.read(user_audio_path, dtype="float32")
+        ref_audio, ref_sr = soundfile.read(ref_audio_path, dtype="float32")
     except FileNotFoundError as exc:
         raise FileNotFoundError(f"Audio file not found: {exc.filename}") from exc
     except Exception as exc:

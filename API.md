@@ -188,20 +188,20 @@ Authorization: Bearer <token>
 
 ---
 
-## 3. B ??????????
+## 3. B 模块：乐谱生成、编辑与导出
 
-### 3.1 ???????
+### 3.1 从音高序列生成乐谱
 
-**????**??????????????? `project + sheet` ????????????
+**接口用途**：根据音高时间序列生成单声部 canonical MusicXML 乐谱，同时创建 `project + sheet` 等持久化数据。
 
 * `POST /api/v1/score/from-pitch-sequence`
 
-#### ????
+#### 请求参数
 
 ```json
 {
   "user_id": 1,
-  "title": "??????",
+  "title": "自动扒谱结果",
   "analysis_id": "an_202604110001",
   "tempo": 120,
   "time_signature": "4/4",
@@ -216,7 +216,7 @@ Authorization: Bearer <token>
 }
 ```
 
-#### ????
+#### 响应示例
 
 ```json
 {
@@ -225,78 +225,112 @@ Authorization: Bearer <token>
   "data": {
     "project_id": 12,
     "score_id": "score_1001",
-    "title": "??????",
+    "title": "自动扒谱结果",
     "tempo": 120,
     "time_signature": "4/4",
     "key_signature": "C",
     "version": 1,
-    "measures": [
-      {
-        "measure_no": 1,
-        "notes": [
-          {
-            "pitch": "A4",
-            "duration": "quarter",
-            "start_beat": 1
-          }
-        ]
-      }
-    ]
+    "musicxml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<score-partwise version=\"4.0\">...</score-partwise>",
+    "summary": {
+      "measure_count": 1,
+      "page_hint": 1
+    }
   }
 }
 ```
 
 ---
 
-### 3.2 ??????
+### 3.2 乐谱查询、整谱更新与版本控制
 
-**????**????????????????? / ???
+**接口用途**：查询既有乐谱，或用一整份 MusicXML 替换当前乐谱，并支持按整份 MusicXML 快照执行撤销 / 重做。
 
+* `GET /api/v1/scores/{score_id}`
 * `PATCH /api/v1/scores/{score_id}`
 * `POST /api/v1/scores/{score_id}/undo`
 * `POST /api/v1/scores/{score_id}/redo`
 
-#### ??????
+> 破坏性变更：旧的 `operations[]`、`add_note` / `delete_note` / `update_note` / `update_tempo` / `update_key_signature` / `update_time_signature` 协议已移除。当前仅接受整份 `musicxml` 文本。
+
+#### `GET` 响应示例
 
 ```json
 {
-  "operations": [
-    {
-      "type": "add_note",
-      "measure_no": 1,
-      "beat": 2,
-      "note": {
-        "pitch": "E4",
-        "duration": "eighth"
-      }
-    },
-    {
-      "type": "update_time_signature",
-      "value": "3/4"
+  "code": 0,
+  "message": "success",
+  "data": {
+    "project_id": 12,
+    "score_id": "score_1001",
+    "title": "自动扒谱结果",
+    "tempo": 120,
+    "time_signature": "4/4",
+    "key_signature": "C",
+    "version": 1,
+    "musicxml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<score-partwise version=\"4.0\">...</score-partwise>",
+    "summary": {
+      "measure_count": 1,
+      "page_hint": 1
     }
-  ]
+  }
 }
 ```
 
----
-
-### 3.3 ??????
-
-**????**??? `MIDI / PNG / PDF` ???????? `export_record` ???
-
-* `POST /api/v1/scores/{score_id}/export`
-
-#### ????
+#### `PATCH` 请求示例
 
 ```json
 {
-  "format": "pdf",
+  "musicxml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<score-partwise version=\"4.0\">...</score-partwise>"
+}
+```
+
+#### `PATCH` 响应示例
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "project_id": 12,
+    "score_id": "score_1001",
+    "title": "自动扒谱结果",
+    "tempo": 72,
+    "time_signature": "4/4",
+    "key_signature": "C",
+    "version": 2,
+    "musicxml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<score-partwise version=\"4.0\">...</score-partwise>",
+    "summary": {
+      "measure_count": 1,
+      "page_hint": 1
+    }
+  }
+}
+```
+
+#### 说明
+
+* 服务端会先校验 XML 和 MusicXML 合法性；非法内容返回 `400`。
+* `undo/redo` 的粒度是整份 MusicXML 快照，而不是单音符 patch。
+* `PATCH` 成功后会生成新的 canonical score 响应，并推进 `version`。
+
+---
+
+### 3.3 乐谱导出
+
+**接口用途**：基于 canonical MusicXML，通过 Verovio 导出 `MIDI / PNG / PDF / SVG` 文件，并创建 `export_record` 记录。
+
+* `POST /api/v1/scores/{score_id}/export`
+
+#### 请求参数
+
+```json
+{
+  "format": "svg",
   "page_size": "A4",
   "with_annotations": true
 }
 ```
 
-#### ????
+#### 响应示例
 
 ```json
 {
@@ -306,21 +340,22 @@ Authorization: Bearer <token>
     "project_id": 12,
     "export_record_id": 8,
     "score_id": "score_1001",
-    "format": "pdf",
-    "file_name": "score_1001_export_8.pdf",
-    "download_url": "/storage/exports/score_1001_export_8.pdf",
+    "format": "svg",
+    "file_name": "score_1001_export_8.svg",
+    "download_url": "/storage/exports/score_1001_export_8.svg",
     "detail_url": "/api/v1/scores/score_1001/exports/8",
     "preview_url": "/api/v1/scores/score_1001/exports/8/preview",
     "download_api_url": "/api/v1/scores/score_1001/exports/8/download",
     "regenerate_url": "/api/v1/scores/score_1001/exports/8/regenerate",
     "delete_url": "/api/v1/scores/score_1001/exports/8",
-    "content_type": "application/pdf",
+    "content_type": "image/svg+xml",
     "exists": true,
-    "size_bytes": 40960,
+    "size_bytes": 16384,
     "manifest": {
-      "kind": "pdf",
+      "kind": "svg",
       "page_size": "A4",
-      "with_annotations": true
+      "with_annotations": true,
+      "page_count": 1
     }
   }
 }
@@ -328,14 +363,14 @@ Authorization: Bearer <token>
 
 ---
 
-### 3.4 ?????????
+### 3.4 导出记录列表与详情
 
-**????**??????????????????????????
+**接口用途**：查询指定乐谱的全部导出记录，或某一条导出详情。
 
 * `GET /api/v1/scores/{score_id}/exports`
 * `GET /api/v1/scores/{score_id}/exports/{export_record_id}`
 
-#### ??????
+#### 响应示例
 
 ```json
 {
@@ -366,28 +401,28 @@ Authorization: Bearer <token>
 
 ---
 
-### 3.5 ?????????
+### 3.5 导出文件下载与预览
 
-**????**????????????
+**接口用途**：下载导出文件，或在线预览可渲染内容。
 
 * `GET /api/v1/scores/{score_id}/exports/{export_record_id}/download`
 * `GET /api/v1/scores/{score_id}/exports/{export_record_id}/preview`
 
-#### ??
+#### 说明
 
-* `download`??????????`Content-Disposition: attachment`
-* `preview`?? `pdf/png/jpg/webp/gif/text` ????????????????
+* `download` 接口返回附件下载响应，包含 `Content-Disposition: attachment`
+* `preview` 对 `pdf/png/svg/jpg/webp/gif/text` 等可预览类型返回内联展示内容
 
 ---
 
-### 3.6 ???????????
+### 3.6 重新生成与删除导出记录
 
-**????**????? `export_record` ???????????????????
+**接口用途**：基于已有 `export_record` 重新生成导出文件，或删除导出记录及其物理文件。
 
 * `POST /api/v1/scores/{score_id}/exports/{export_record_id}/regenerate`
 * `DELETE /api/v1/scores/{score_id}/exports/{export_record_id}`
 
-#### ????????
+#### 重新生成请求示例
 
 ```json
 {
@@ -396,7 +431,7 @@ Authorization: Bearer <token>
 }
 ```
 
-#### ????????
+#### 重新生成响应示例
 
 ```json
 {
@@ -418,7 +453,7 @@ Authorization: Bearer <token>
 }
 ```
 
-#### ??????
+#### 删除响应示例
 
 ```json
 {
@@ -978,15 +1013,15 @@ Authorization: Bearer <token>
 
 ---
 
-## 8. ??????
+## 8. 接口汇总
 
-| ?? | ?? |
+| 模块 | 接口 |
 | --- | --- |
-| A ???? | `/pitch/detect`?`/ws/realtime-pitch`?`/pitch/compare` |
-| B ????? | `/score/from-pitch-sequence`?`/scores/{id}`?`/scores/{id}/undo`?`/scores/{id}/redo`?`/scores/{id}/export`?`/scores/{id}/exports`?`/scores/{id}/exports/{export_record_id}`?`/scores/{id}/exports/{export_record_id}/preview`?`/scores/{id}/exports/{export_record_id}/download`?`/scores/{id}/exports/{export_record_id}/regenerate`?`DELETE /scores/{id}/exports/{export_record_id}` |
-| C ????? | `/rhythm/beat-detect`?`/audio/separate-tracks`?`/rhythm/score`?`/community/scores` |
-| D ????? | `/logs/audio`?`/charts/pitch-curve`?`/generation/chords`?`/generation/variation-suggestions` |
-| E ????? | `/auth/register`?`/auth/login`?`/users/me`?`/users/me/history`?`/reports/export` |
+| A 音高识别与对比 | `/pitch/detect`、`/ws/realtime-pitch`、`/pitch/compare` |
+| B 乐谱生成、编辑与导出 | `/score/from-pitch-sequence`、`/scores/{id}`、`/scores/{id}/undo`、`/scores/{id}/redo`、`/scores/{id}/export`、`/scores/{id}/exports`、`/scores/{id}/exports/{export_record_id}`、`/scores/{id}/exports/{export_record_id}/preview`、`/scores/{id}/exports/{export_record_id}/download`、`/scores/{id}/exports/{export_record_id}/regenerate`、`DELETE /scores/{id}/exports/{export_record_id}` |
+| C 节奏、多轨与社区 | `/rhythm/beat-detect`、`/audio/separate-tracks`、`/rhythm/score`、`/community/scores` |
+| D 日志、可视化与 AI 增强 | `/logs/audio`、`/charts/pitch-curve`、`/generation/chords`、`/generation/variation-suggestions` |
+| E 用户与数据管理 | `/auth/register`、`/auth/login`、`/users/me`、`/users/me/history`、`/reports/export` |
 
 ---
 
@@ -998,6 +1033,6 @@ Authorization: Bearer <token>
 4. 如果后续需要，我可以继续把这份文档整理成 OpenAPI 3.0 / Swagger 版本。
 
 
-## 10. ??????
+## 10. 后续说明
 
-?????????????????????????????? `frontend/export_panel_integration.md`?
+如果后续需要继续补充前端导出面板的联调说明，可以进一步参考 `frontend/export_panel_integration.md`。

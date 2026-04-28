@@ -1,0 +1,7 @@
+models:
+  - name: htdemucs
+    sources:
+      - vocals
+      - drums
+      - bass
+      - other

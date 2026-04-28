@@ -1,24 +1,43 @@
 # SeeMusic 数据库说明
 
-> 说明：本文档以当前 ORM 模型 [`backend/db/models.py`](SeeMusic/backend/db/models.py) 和增量迁移脚本 [`seemusic_db_migration_20260415.sql`](SeeMusic/seemusic_db_migration_20260415.sql) 为准。项目启动时会读取根目录 `.env`，通过 `SSH_*` + `MYSQL_*` 连接远程 MySQL；`DB_*` 保留为运行时兼容/回退配置。
+> 说明：本文档以当前 ORM 模型 [`backend/db/models.py`](/home/xianz/SeeMusic/backend/db/models.py)、清库脚本 [`scripts/clear_current_mysql_data.py`](/home/xianz/SeeMusic/scripts/clear_current_mysql_data.py)、一次性迁移脚本 [`scripts/migrate_sheet_musicxml.py`](/home/xianz/SeeMusic/scripts/migrate_sheet_musicxml.py) 和参考音频批量上传脚本 [`scripts/upload_reference_audio.py`](/home/xianz/SeeMusic/scripts/upload_reference_audio.py) 为准。项目启动时会读取根目录 `.env`，通过 `SSH_*` + `MYSQL_*` 连接远程 MySQL；`DB_*` 保留为运行时兼容/回退配置；`REFERENCE_AUDIO_REMOTE_DIR` 用于把本地 `Music/` 目录中的参考音频批量上传到远程服务器。
 
 ## 变更概览
 
 - `report`：补充 `report_id`、`analysis_id`、`metadata`，并允许旧数据的 `project_id` 为空。
 - `community_post`：补充社区业务字段与互动计数，允许旧数据的 `user_id` / `sheet_id` 为空。
-- `audio_analysis`：补充 `result` JSON 字段，并允许旧数据的 `user_id` 为空。
+- `audio_analysis`：补充 `result` JSON 字段，并允许旧数据的 `user_id` 为空；当前音高主存储改为 `note events`。
+- `sheet`：乐谱真源切换为 `MusicXML`，新增 `musicxml` 文本列；`note_data` 降级为派生元数据快照，不再承载可编辑谱面。
 - `community_comment`：新增，保存社区评论。
 - `community_like`：新增，保存社区点赞记录。
 - `community_favorite`：新增，保存社区收藏记录。
+- `pitch_sequence`：从默认主存储降级为按需生成的逐点缓存表。
+- `reference_track`：新增，保存参考歌曲的业务标识、展示信息和远程音频文件路径。
 
 ## 通用约定
 
 - MySQL 下主键使用 `BIGINT` 自增；SQLite 下会自动兼容为 `INTEGER`。
 - `create_time` / `update_time` 统一由数据库时间戳自动维护。
 - JSON 字段包括 `note_data`、`error_points`、`tags`、`params`、`result`、`metadata`。
+- `sheet.musicxml` 是乐谱唯一真源；`sheet.note_data` 只保存从 MusicXML 派生出的摘要快照，例如 `score_id/title/tempo/time_signature/key_signature/version/summary/canonical_format`。
 - 布尔字段 `is_public`、`is_reference` 在 MySQL 中按 `TINYINT(1)` 存储。
 - `project.analysis_id` 是业务关联字段，不是数据库外键；`pitch_sequence.analysis_id` 外键指向 `audio_analysis.analysis_id`。
 - ORM 中 `report.metadata` 和 `user_history.metadata` 分别映射为 `metadata_`，用于避开 SQLAlchemy 的保留属性名。
+- 参考音频统一存到服务端 `storage/reference_audio/`，数据库中保存的路径格式为 `/storage/reference_audio/<原文件名>`。
+- 一次性全清当前 `.env` 指向 MySQL 应用数据时，可使用 [`scripts/clear_current_mysql_data.py`](/home/xianz/SeeMusic/scripts/clear_current_mysql_data.py)；该脚本只 `TRUNCATE` 应用表，不改表结构。
+
+## MusicXML 迁移与运维
+
+- [`scripts/clear_current_mysql_data.py`](/home/xianz/SeeMusic/scripts/clear_current_mysql_data.py)：清空当前 `.env` 指向的 MySQL 应用数据表，保留表结构、索引和约束。
+- [`scripts/migrate_sheet_musicxml.py`](/home/xianz/SeeMusic/scripts/migrate_sheet_musicxml.py)：一次性为 `sheet` 补齐 `musicxml` 列，并把历史 `note_data.measures[]` JSON 乐谱转换为 canonical MusicXML；转换后会同步回填 `note_data` 摘要、`bpm`、`key_sign`、`time_sign`。
+- 如果数据库已经先执行过全清，该迁移脚本仍然有意义，因为它会确保 `sheet.musicxml` 列存在，即使没有旧数据需要逐行转换。
+- [`scripts/upload_reference_audio.py`](/home/xianz/SeeMusic/scripts/upload_reference_audio.py)：扫描项目根目录 `Music/`，按文件名解析歌手/歌名，通过 `scp` 上传到远程 `REFERENCE_AUDIO_REMOTE_DIR`，并把 `/storage/reference_audio/<原文件名>` upsert 到 `reference_track`。
+- 参考音频文件名当前支持以下解析顺序：
+  - `四位数编号.歌手-歌名`
+  - `四位数编号-歌手-歌名`
+  - `歌手-歌名`
+  - `四位数编号.歌名.歌手`
+  - `歌名`：此时 `artist_name` 默认写为 `未知歌手`
 
 ## 1. user（用户表）
 
@@ -53,14 +72,15 @@
 
 ## 3. sheet（乐谱数据表）
 
-作用：存储扒谱生成的五线谱结构、音符和基础谱面参数。
+作用：存储 canonical MusicXML 乐谱文本，以及供列表/检索使用的派生谱面元数据。
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | id | BIGINT PK | 乐谱主键，自增。 |
 | project_id | BIGINT FK | 关联 `project.id`，非空，带索引。 |
 | score_id | VARCHAR(64) | 乐谱唯一标识，唯一，可空。 |
-| note_data | JSON | 音符与五线谱结构 JSON，非空。 |
+| note_data | JSON | MusicXML 派生的元数据快照，非空。当前用于保存 `score_id/title/tempo/time_signature/key_signature/version/summary/canonical_format`。 |
+| musicxml | LONGTEXT/TEXT | 乐谱真源 MusicXML 文本。迁移前历史行可为空；迁移完成后的新写入应始终有值。 |
 | bpm | INT | 曲速，默认 `120`。 |
 | key_sign | VARCHAR(10) | 调号，默认 `C`。 |
 | time_sign | VARCHAR(10) | 拍号，默认 `4/4`。 |
@@ -74,7 +94,7 @@
 | --- | --- | --- |
 | id | BIGINT PK | 导出记录主键，自增。 |
 | project_id | BIGINT FK | 关联 `project.id`，非空，带索引。 |
-| format | VARCHAR(32) | 导出格式，例如 `pdf` / `png` / `midi`。 |
+| format | VARCHAR(32) | 导出格式，例如 `pdf` / `png` / `midi` / `svg`。 |
 | file_url | VARCHAR(500) | 导出文件路径，可空。 |
 | create_time | DATETIME | 导出操作时间，自动生成。 |
 | update_time | DATETIME | 导出记录最后更新时间，自动更新。 |
@@ -118,6 +138,8 @@
 | price | FLOAT | 价格，默认 `0`。 |
 | cover_url | VARCHAR(500) | 封面图地址，可空。 |
 | source_file_name | VARCHAR(255) | 原始文件名，可空。 |
+| file_content_base64 | LONGTEXT | PDF 等文件内容的 Base64 编码，可空。 |
+| file_content_type | VARCHAR(64) | 文件 MIME 类型，默认 `application/pdf`。 |
 | tags | JSON | 标签数组，默认空列表。 |
 | is_public | BOOLEAN | 是否公开，默认 `true`。 |
 | like_count | INT | 点赞数，默认 `0`。 |
@@ -182,13 +204,13 @@
 | bpm | INT | 检测到的节拍速度，可空。 |
 | status | INT | 任务状态，`0=处理中` / `1=成功` / `2=失败`。 |
 | params | JSON | 分析参数 JSON，默认空对象。 |
-| result | JSON | 分析结果 JSON，默认空对象。 |
+| result | JSON | 分析结果 JSON，默认空对象。音高场景下主存 `{ pitch_sequence_format: "note_events", pitch_sequence: [...], pitch_meta: {...} }`。 |
 | create_time | DATETIME | 创建时间，自动生成。 |
 | update_time | DATETIME | 更新时间，自动更新。 |
 
-## 11. pitch_sequence（音高序列表）
+## 11. pitch_sequence（音高序列缓存表）
 
-作用：存储音高时间点、频率、音符信息，用于对比和图表渲染。
+作用：按需缓存逐点音高时间序列，用于对比和图表渲染；默认持久化不再写入该表。
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
@@ -202,8 +224,30 @@
 | is_reference | BOOLEAN | 是否为参考音轨，默认 `false`。 |
 
 > 该表只保存序列采样点，不包含 `create_time` / `update_time`。
+> 当前默认链路会先把逐帧音高压缩为音符事件，落到 `audio_analysis.result` 中；只有 `/pitch/compare`、`/charts/pitch-curve` 等确实需要逐点曲线时，才会把展开后的点写入本表作为缓存。
+> 建议索引：`ix_pitch_sequence_analysis_id_is_reference (analysis_id, is_reference)`，用于加速按需缓存写入与音高曲线读取。
 
-## 12. user_history（用户历史记录表）
+## 12. reference_track（参考歌曲表）
+
+作用：保存唱歌评估使用的参考歌曲信息，以及远程服务器上的参考音频路径。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | BIGINT PK | 参考歌曲主键，自增。 |
+| ref_id | VARCHAR(64) | 参考歌曲业务 ID，唯一，非空。 |
+| song_name | VARCHAR(255) | 歌曲名，非空。 |
+| artist_name | VARCHAR(255) | 歌手名，非空；无法从文件名解析时默认 `未知歌手`。 |
+| audio_url | VARCHAR(500) | 参考音频在服务端 `storage` 下的访问路径，非空，例如 `/storage/reference_audio/0449.Tank-三国恋.wav`。 |
+| is_active | BOOLEAN | 是否启用，默认 `true`。 |
+| create_time | DATETIME | 记录创建时间，自动生成。 |
+| update_time | DATETIME | 记录更新时间，自动更新。 |
+
+> 业务唯一约束：
+> `ref_id` 唯一。
+> `(song_name, artist_name)` 唯一，用于避免同歌手同歌曲重复写入。
+> `/api/v1/analyze/rhythm` 会优先按 `ref_id` 查本表，再把 `audio_url` 映射回服务端本地文件路径；只有未命中时才回退到旧的 `assets/references/{ref_id}.wav`。
+
+## 13. user_history（用户历史记录表）
 
 作用：记录用户的音频、乐谱和分析操作历史。
 
@@ -217,7 +261,7 @@
 | metadata | JSON | 附加信息 JSON，默认空对象。 |
 | create_time | DATETIME | 记录生成时间，自动生成。 |
 
-## 13. user_token（用户令牌表）
+## 14. user_token（用户令牌表）
 
 作用：保存登录令牌与过期时间，用于会话鉴权与登出失效。
 
@@ -228,5 +272,3 @@
 | token | VARCHAR(128) | 登录令牌，唯一，非空，带索引。 |
 | expired_time | DATETIME | 令牌过期时间，非空。 |
 | created_at | DATETIME | 令牌创建时间，自动生成。 |
-
-

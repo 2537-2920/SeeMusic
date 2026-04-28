@@ -6,7 +6,7 @@ import os
 from contextlib import contextmanager
 from typing import Iterator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -30,6 +30,14 @@ def _engine_options(database_url: str) -> dict[str, object]:
     options: dict[str, object] = {"pool_pre_ping": True}
     if database_url.startswith("sqlite"):
         options["connect_args"] = {"check_same_thread": False}
+    elif database_url.startswith("mysql"):
+        options["pool_recycle"] = 300
+        options["pool_timeout"] = 10
+        options["connect_args"] = {
+            "connect_timeout": 5,
+            "read_timeout": 15,
+            "write_timeout": 15,
+        }
     return options
 
 
@@ -71,7 +79,51 @@ def init_database() -> None:
     # Import all ORM models before creating tables so Base.metadata is complete.
     from backend.db import models as _models  # noqa: F401
 
-    Base.metadata.create_all(bind=get_engine())
+    engine = get_engine()
+    Base.metadata.create_all(bind=engine)
+    _ensure_community_post_columns(engine)
+
+
+def _ensure_community_post_columns(engine: Engine) -> None:
+    inspector = inspect(engine)
+    try:
+        columns = {column["name"] for column in inspector.get_columns("community_post")}
+    except Exception:
+        return
+
+    statements: list[str] = []
+    dialect = engine.dialect.name
+    
+    # 你的新增：封面字段
+    if "cover_image" not in columns:
+        if dialect == "sqlite":
+            statements.append("ALTER TABLE community_post ADD COLUMN cover_image BLOB")
+        else:
+            statements.append("ALTER TABLE community_post ADD COLUMN cover_image LONGBLOB NULL")
+    if "cover_content_type" not in columns:
+        if dialect == "sqlite":
+            statements.append("ALTER TABLE community_post ADD COLUMN cover_content_type VARCHAR(64)")
+        else:
+            statements.append("ALTER TABLE community_post ADD COLUMN cover_content_type VARCHAR(64) NULL")
+            
+    # 服务器新增：乐谱内容字段
+    if "file_content_base64" not in columns:
+        if dialect == "sqlite":
+            statements.append("ALTER TABLE community_post ADD COLUMN file_content_base64 TEXT")
+        else:
+            statements.append("ALTER TABLE community_post ADD COLUMN file_content_base64 LONGTEXT NULL")
+    if "file_content_type" not in columns:
+        if dialect == "sqlite":
+            statements.append("ALTER TABLE community_post ADD COLUMN file_content_type VARCHAR(64) DEFAULT 'application/pdf'")
+        else:
+            statements.append("ALTER TABLE community_post ADD COLUMN file_content_type VARCHAR(64) NOT NULL DEFAULT 'application/pdf'")
+
+    if not statements:
+        return
+
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
 
 
 def reset_database_state() -> None:

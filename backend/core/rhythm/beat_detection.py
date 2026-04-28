@@ -1,10 +1,16 @@
 import io
 
+from backend.numba_compat import ensure_numba_cache_dir
+
+ensure_numba_cache_dir()
+
 import librosa
 import numpy as np
 import soundfile as sf
 from scipy import signal
 from typing import Tuple, List, Dict, Optional, Union, Any
+
+from backend.core.pitch.audio_utils import load_audio_waveform
 
 class AdvancedBeatDetector:
     """Stable beat detection for complex audio and multiple tempo styles.
@@ -267,18 +273,12 @@ class AdvancedBeatDetector:
             Mono audio waveform at target sample rate.
         """
         if audio_bytes is not None:
-            # Write bytes to temporary file for audio loading
-            import tempfile
-            from pathlib import Path
-            
-            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
-                temp_path = f.name
-                f.write(audio_bytes)
-            
-            try:
-                y, sr = librosa.load(temp_path, sr=None, mono=True)
-            finally:
-                Path(temp_path).unlink(missing_ok=True)
+            y, sr = load_audio_waveform(
+                audio_bytes,
+                file_name=audio_path,
+                sample_rate=None,
+                mono=True,
+            )
         else:
             y, sr = librosa.load(audio_path, sr=None, mono=True)
 
@@ -325,11 +325,8 @@ class AdvancedBeatDetector:
         # Evaluate each candidate
         for candidate in bpm_candidates:
             try:
-                tempo, beat_frames = librosa.beat.beat_track(
-                    onset_envelope=onset_env,
-                    sr=self.sr,
-                    start_bpm=candidate,
-                    tightness=tightness,
+                tempo, beat_frames = self._track_beats_for_candidate(
+                    onset_env, candidate, tightness=tightness
                 )
             except Exception:
                 continue
@@ -360,11 +357,8 @@ class AdvancedBeatDetector:
         # Fallback: if no candidate succeeded, use first BPM candidate
         if best_score < 0 and bpm_candidates:
             try:
-                tempo, beat_frames = librosa.beat.beat_track(
-                    onset_envelope=onset_env,
-                    sr=self.sr,
-                    start_bpm=bpm_candidates[0],
-                    tightness=tightness,
+                tempo, beat_frames = self._track_beats_for_candidate(
+                    onset_env, bpm_candidates[0], tightness=tightness
                 )
                 beat_times = librosa.frames_to_time(beat_frames, sr=self.sr)
                 strengths = self._compute_beat_strengths(onset_env, beat_frames)
@@ -375,6 +369,60 @@ class AdvancedBeatDetector:
                 pass
 
         return best_tempo, best_frames, best_bpm, best_quality
+
+    def _track_beats_for_candidate(
+        self,
+        onset_env: np.ndarray,
+        candidate_bpm: float,
+        tightness: float = 100.0,
+    ) -> Tuple[float, np.ndarray]:
+        """Track beats for one BPM hypothesis without relying on librosa.beat."""
+        if len(onset_env) == 0:
+            return 0.0, np.array([], dtype=int)
+
+        candidate_bpm = float(candidate_bpm) if candidate_bpm else 0.0
+        if candidate_bpm <= 0:
+            candidate_bpm = 120.0
+
+        interval_frames = max(
+            int(round((60.0 / candidate_bpm) * self.sr / self.hop_length)),
+            1,
+        )
+        min_distance = max(int(interval_frames * 0.6), 1)
+        tolerance_ratio = max(0.1, 0.4 - min(max(tightness, 40.0), 160.0) / 160.0 * 0.25)
+        tolerance = max(int(interval_frames * tolerance_ratio), 1)
+        prominence = max(float(np.std(onset_env)) * 0.3, 0.01)
+
+        peak_frames, _ = signal.find_peaks(
+            onset_env,
+            distance=min_distance,
+            prominence=prominence,
+        )
+
+        if len(peak_frames) >= 2:
+            selected = [int(peak_frames[0])]
+            for frame in peak_frames[1:]:
+                expected = selected[-1] + interval_frames
+                if frame - selected[-1] < max(min_distance // 2, 1):
+                    continue
+                if abs(frame - expected) <= tolerance or frame - selected[-1] >= min_distance:
+                    selected.append(int(frame))
+            beat_frames = np.asarray(selected, dtype=int)
+        else:
+            beat_frames = np.array([], dtype=int)
+
+        if len(beat_frames) < 2:
+            beat_frames = np.arange(0, len(onset_env), interval_frames, dtype=int)
+
+        if len(beat_frames) >= 2:
+            median_interval = max(float(np.median(np.diff(beat_frames))), 1.0)
+            tempo = 60.0 * self.sr / (median_interval * self.hop_length)
+        elif len(beat_frames) == 1:
+            tempo = candidate_bpm
+        else:
+            tempo = 0.0
+
+        return float(tempo), beat_frames
 
     def _compute_beat_strengths(
         self, onset_env: np.ndarray, beat_frames: np.ndarray
@@ -504,6 +552,24 @@ def detect_beats(
     tempo, beat_times, info = detector.get_beats(
         y, auto_bpm=True, n_candidates=6, bpm_hint=bpm_hint, sensitivity=sensitivity
     )
+    if not beat_times and len(y) > 0:
+        fallback_bpm = float(bpm_hint or info.get("primary_bpm") or 120.0)
+        fallback_bpm = fallback_bpm if fallback_bpm > 0 else 120.0
+        interval = 60.0 / fallback_bpm
+        duration = len(y) / detector.sr
+        beat_times = np.arange(0.0, max(duration, interval), interval, dtype=float).tolist()
+        info["primary_bpm"] = fallback_bpm
+        info["bpm_candidates"] = info.get("bpm_candidates") or [fallback_bpm]
+        info["beat_strengths"] = [0.0 for _ in beat_times]
+        info["num_beats"] = len(beat_times)
+        info["beat_quality"] = {
+            "confidence": 0.0,
+            "regularity": 0.0,
+            "strength": 0.0,
+            "mean_interval_ms": float(interval * 1000.0),
+        }
+        tempo = fallback_bpm
+
     result = {
         'beat_times': beat_times,
         'bpm': float(tempo),

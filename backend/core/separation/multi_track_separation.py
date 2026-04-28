@@ -93,7 +93,12 @@ class AudioSeparator:
                 sample_rate=sr,
                 mono=False,
             )
-            return np.asarray(y, dtype=np.float32), loaded_sr
+            return np.nan_to_num(
+                np.asarray(y, dtype=np.float32),
+                nan=0.0,
+                posinf=0.0,
+                neginf=0.0,
+            ), loaded_sr
         except Exception as e:
             logger.error(f"Failed to load audio: {e}")
             raise
@@ -270,7 +275,7 @@ class AudioSeparator:
             enhanced = (1.0 - VOCAL_CENTER_BLEND) * enhanced + VOCAL_CENTER_BLEND * centered_candidate
 
         enhanced = self._match_rms(enhanced, reference_mono)
-        return np.asarray(enhanced, dtype=np.float32)
+        return self._normalize_audio(enhanced)
 
     def _vocal_enhancement_metadata(self, original_mix: np.ndarray) -> dict[str, object]:
         channel_first = self._channel_first(original_mix)
@@ -284,7 +289,12 @@ class AudioSeparator:
 
     def _normalize_audio(self, audio_data: np.ndarray, peak: float = 0.95) -> np.ndarray:
         """Normalize audio peak before writing to avoid clipping."""
-        normalized = np.asarray(audio_data, dtype=np.float32)
+        normalized = np.nan_to_num(
+            np.asarray(audio_data, dtype=np.float32),
+            nan=0.0,
+            posinf=0.0,
+            neginf=0.0,
+        )
         if normalized.size == 0:
             return normalized
 

@@ -82,6 +82,7 @@ def init_database() -> None:
     engine = get_engine()
     Base.metadata.create_all(bind=engine)
     _ensure_community_post_columns(engine)
+    _ensure_community_interaction_columns(engine)
 
 
 def _ensure_community_post_columns(engine: Engine) -> None:
@@ -117,6 +118,51 @@ def _ensure_community_post_columns(engine: Engine) -> None:
             statements.append("ALTER TABLE community_post ADD COLUMN file_content_type VARCHAR(64) DEFAULT 'application/pdf'")
         else:
             statements.append("ALTER TABLE community_post ADD COLUMN file_content_type VARCHAR(64) NOT NULL DEFAULT 'application/pdf'")
+
+    if not statements:
+        return
+
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+
+
+def _ensure_community_interaction_columns(engine: Engine) -> None:
+    inspector = inspect(engine)
+    dialect = engine.dialect.name
+
+    def table_columns(table_name: str) -> set[str] | None:
+        try:
+            return {column["name"] for column in inspector.get_columns(table_name)}
+        except Exception:
+            return None
+
+    statements: list[str] = []
+    post_columns = table_columns("community_post")
+    if post_columns is not None:
+        if "like_count" not in post_columns:
+            statements.append("ALTER TABLE community_post ADD COLUMN like_count INTEGER NOT NULL DEFAULT 0")
+        if "favorite_count" not in post_columns:
+            statements.append("ALTER TABLE community_post ADD COLUMN favorite_count INTEGER NOT NULL DEFAULT 0")
+        if "download_count" not in post_columns:
+            statements.append("ALTER TABLE community_post ADD COLUMN download_count INTEGER NOT NULL DEFAULT 0")
+        if "view_count" not in post_columns:
+            statements.append("ALTER TABLE community_post ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0")
+
+    for table_name in ("community_like", "community_favorite"):
+        columns = table_columns(table_name)
+        if columns is None:
+            continue
+        if "actor_key" not in columns:
+            statements.append(f"ALTER TABLE {table_name} ADD COLUMN actor_key VARCHAR(128) NOT NULL DEFAULT 'guest'")
+        if "user_id" not in columns:
+            user_id_type = "BIGINT" if dialect != "sqlite" else "INTEGER"
+            statements.append(f"ALTER TABLE {table_name} ADD COLUMN user_id {user_id_type} NULL")
+        if "create_time" not in columns:
+            if dialect == "sqlite":
+                statements.append(f"ALTER TABLE {table_name} ADD COLUMN create_time DATETIME NULL")
+            else:
+                statements.append(f"ALTER TABLE {table_name} ADD COLUMN create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP")
 
     if not statements:
         return

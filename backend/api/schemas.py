@@ -201,7 +201,7 @@ class LoginRequest(BaseModel):
 
 
 class HistoryCreateRequest(BaseModel):
-    type: Literal["audio", "score", "report"]
+    type: Literal["audio", "score", "report", "transcription", "evaluation", "community"]
     resource_id: str
     title: str
     metadata: Dict[str, Any] = Field(default_factory=dict)

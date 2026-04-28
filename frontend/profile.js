@@ -77,7 +77,7 @@ function renderStats(items) {
     ).length;
     const evaluationCount = items.filter(i => {
         const t = (i.history_type || i.type || "");
-        return t === "audio" || t === "report";
+        return t === "audio" || t === "report" || t === "evaluation";
     }).length;
     const communityCount = items.filter(i => {
         const t = (i.history_type || i.type || "");
@@ -104,7 +104,7 @@ function renderHistory(items, filter = "all") {
             typeMatch = (type === "transcription");
         } else if (filter === "evaluation") {
             // audio = 唱歌测评操作，report = 导出的测评报告
-            typeMatch = (type === "audio" || type === "report");
+            typeMatch = (type === "audio" || type === "report" || type === "evaluation");
         } else if (filter === "community") {
             typeMatch = (type === "community") ||
                         (type === "score" && metaSource.includes("community"));
@@ -168,10 +168,12 @@ function renderHistory(items, filter = "all") {
             const downloads = item.info?.downloads || item.info?.download_count || "";
             const likes = item.info?.likes || item.info?.like_count || "";
             metaInfo = downloads ? `下载 ${downloads}` : (likes ? `点赞 ${likes}` : "公开分享");
-        } else if (type === "audio" || type === "report") {
+        } else if (type === "audio" || type === "report" || type === "evaluation") {
             // 唱歌测评
             icon = "solar:microphone-large-bold-duotone";
-            moduleName = type === "report" ? "测评报告" : "唱歌测评";
+            moduleName = type === "report"
+                ? "测评报告"
+                : (metaSource === "rhythm_score" || metaSource === "beat_detect" ? "节奏分析" : "唱歌测评");
             typeClass = "type-evaluation";
             metaInfo = `评分: ${item.info?.score || item.info?.overall_score || "进行中"}`;
         } else if (type === "transcription") {
@@ -298,20 +300,6 @@ async function loadProfile() {
             const right = new Date(b.created_at || 0).getTime();
             return right - left;
         });
-
-        // ================= Mock 数据强制注入 (展示用) =================
-        items.push(
-            { history_id: "mock_1", history_type: "audio", created_at: "2026-04-17T12:00:00Z", info: { filename: "Chopin_Nocturne_Op9_No2.mp3" } },
-            { history_id: "mock_2", history_type: "transcription", created_at: "2026-04-16T15:30:00Z", info: { filename: "昨日青空_声乐练习.wav", grade: "A", score: 92 } },
-            { history_id: "mock_3", history_type: "community", created_at: "2026-04-15T10:20:00Z", info: { title: "Golden Hour - 钢琴独奏谱", download_count: 128 } },
-            { history_id: "mock_4", history_type: "audio", created_at: "2026-04-14T09:15:00Z", info: { filename: "天空之城_主题曲.flac" } },
-            { history_id: "mock_5", history_type: "transcription", created_at: "2026-04-13T20:45:00Z", info: { filename: "我的歌声里_翻唱评估.mp3", grade: "S", score: 98 } },
-            { history_id: "mock_6", history_type: "community", created_at: "2026-04-12T14:10:00Z", info: { title: "SeeMusic 自制练习曲 No.1", like_count: 45 } },
-            { history_id: "mock_7", history_type: "audio", created_at: "2026-04-11T11:00:00Z", info: { filename: "大鱼_海棠_伴奏提取.wav" } },
-            { history_id: "mock_8", history_type: "transcription", created_at: "2026-04-10T18:22:00Z", info: { filename: "告白气球_音准测试.m4a", grade: "B+", score: 85 } },
-            { history_id: "mock_9", history_type: "community", created_at: "2026-04-09T16:50:00Z", info: { title: "小星星变奏曲 - 爵士改编", version: "v1.2" } }
-        );
-        // ========================================================
 
         profileState.historyItems = items;
 

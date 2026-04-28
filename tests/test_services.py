@@ -7,10 +7,11 @@ import pytest
 import soundfile as sf
 from sqlalchemy.exc import SQLAlchemyError
 
+import backend.services.analysis_service as analysis_service
 import backend.services.score_service as score_service
 from backend.db.models import AudioAnalysis, PitchSequence, Report
 from backend.db.session import session_scope
-from backend.services.analysis_service import analyze_audio, get_saved_pitch_sequence
+from backend.services.analysis_service import analyze_audio, evaluate_singing, get_saved_pitch_sequence
 from backend.services.report_service import export_report
 from backend.services.score_service import (
     ExportRecordNotFoundError,

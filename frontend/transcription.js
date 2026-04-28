@@ -1235,6 +1235,42 @@ async function requestJson(path, options = {}) {
     return payload;
 }
 
+async function saveUserHistory(payload) {
+    const appCommon = window.SeeMusicApp;
+    if (!appCommon || typeof appCommon.getAuthToken !== "function" || !appCommon.getAuthToken()) {
+        return;
+    }
+    const source = String(payload.metadata?.source || "");
+    if (payload.type === "transcription" && source !== "pitch_detect") {
+        return;
+    }
+    const body = {
+        ...payload,
+        resource_id: String(payload.resource_id || `history_${Date.now()}`).slice(0, 64),
+    };
+    try {
+        await requestJson("/users/me/history", {
+            method: "POST",
+            body,
+        });
+    } catch (error) {
+        console.warn("[SeeMusic] save history failed:", error);
+    }
+}
+
+function activeHistoryTitle(fallback) {
+    return (els.projectTitleInput?.value || "").trim() || state.currentScore?.title || fallback;
+}
+
+function activeHistoryResourceId(fallback) {
+    return (
+        state.currentScore?.score_id ||
+        (els.analysisIdInput?.value || "").trim() ||
+        fallback ||
+        `history_${Date.now()}`
+    );
+}
+
 async function checkBackendConnection() {
     if (isBusy("ping")) {
         return;
@@ -1676,6 +1712,20 @@ async function requestPianoScoreFromAudio(file) {
     applyScoreResult(result);
     await loadAudioLogs();
     queueExportRefresh();
+    await saveUserHistory({
+        type: "transcription",
+        resource_id: result.score_id || result.analysis_id || activeHistoryResourceId("piano_score"),
+        title: `生成钢琴谱：${activeHistoryTitle(file.name)}`,
+        metadata: {
+            source: "score_from_audio",
+            filename: file.name,
+            analysis_id: result.analysis_id || "",
+            score_id: result.score_id || "",
+            instrument: "piano",
+            tempo: result.tempo || "",
+            key_signature: result.key_signature || result.detected_key_signature || "",
+        },
+    });
     return result;
 }
 
@@ -1709,6 +1759,18 @@ async function requestGuzhengScore({ pitchSequence = null, analysisId = null, sc
     setTraditionalEngravedPreview("guzheng", null);
     applyDetectedKeySignature(result.key);
     await requestTraditionalEngravedPreview("guzheng", { force: true, silent: true });
+    await saveUserHistory({
+        type: "transcription",
+        resource_id: result.score_id || activeHistoryResourceId("guzheng_score"),
+        title: `生成古筝谱：${payload.title}`,
+        metadata: {
+            source: "guzheng_score",
+            instrument: "guzheng",
+            score_id: result.score_id || scoreId || "",
+            analysis_id: analysisId || "",
+            measure_count: result.measures?.length || 0,
+        },
+    });
     return result;
 }
 
@@ -1767,6 +1829,18 @@ async function requestTraditionalExport(instrumentType, format) {
                     ? "SVG 页面"
                     : "PDF";
         setAppStatus(`${targetName}${formatLabel}已导出：${result.file_name}`);
+        await saveUserHistory({
+            type: "transcription",
+            resource_id: result.export_id || result.file_name || activeHistoryResourceId(`${normalizedInstrument}_export`),
+            title: `导出${targetName}谱：${result.file_name || payload.title}`,
+            metadata: {
+                source: `${normalizedInstrument}_score_export`,
+                instrument: normalizedInstrument,
+                format,
+                file_name: result.file_name || "",
+                download_url: result.download_url || "",
+            },
+        });
         return result;
     } catch (error) {
         setAppStatus(`导出失败：${error.message}`, true);
@@ -1882,6 +1956,18 @@ async function requestGuitarLeadSheetExport(format) {
         });
         triggerFileDownload(buildServerUrl(result.download_url || ""), result.file_name || "");
         setAppStatus(`吉他弹唱谱 PDF 已导出：${result.file_name}`);
+        await saveUserHistory({
+            type: "transcription",
+            resource_id: result.export_id || result.file_name || activeHistoryResourceId("guitar_export"),
+            title: `导出吉他弹唱谱：${result.file_name || payload.title}`,
+            metadata: {
+                source: "guitar_lead_sheet_export",
+                instrument: "guitar",
+                format,
+                file_name: result.file_name || "",
+                download_url: result.download_url || "",
+            },
+        });
         return result;
     } catch (error) {
         setAppStatus(`吉他弹唱谱导出失败：${error.message}`, true);
@@ -1924,6 +2010,19 @@ async function requestDiziScore({ pitchSequence = null, analysisId = null, score
     setDiziFluteType(result.flute_type || payload.flute_type, { persist: true, announce: false });
     applyDetectedKeySignature(result.key);
     await requestTraditionalEngravedPreview("dizi", { force: true, silent: true });
+    await saveUserHistory({
+        type: "transcription",
+        resource_id: result.score_id || activeHistoryResourceId("dizi_score"),
+        title: `生成笛子谱：${payload.title}`,
+        metadata: {
+            source: "dizi_score",
+            instrument: "dizi",
+            score_id: result.score_id || scoreId || "",
+            analysis_id: analysisId || "",
+            flute_type: result.flute_type || payload.flute_type || "",
+            measure_count: result.measures?.length || 0,
+        },
+    });
     return result;
 }
 
@@ -1957,6 +2056,18 @@ async function requestGuitarLeadSheet({ pitchSequence = null, analysisId = null,
     state.chordGenerationResult = result;
     applyDetectedKeySignature(result.key);
     renderAll();
+    await saveUserHistory({
+        type: "transcription",
+        resource_id: result.score_id || activeHistoryResourceId("guitar_lead_sheet"),
+        title: `生成吉他弹唱谱：${payload.title}`,
+        metadata: {
+            source: "guitar_lead_sheet",
+            instrument: "guitar",
+            score_id: result.score_id || scoreId || "",
+            analysis_id: analysisId || "",
+            measure_count: result.measures?.length || 0,
+        },
+    });
     return result;
 }
 
@@ -1997,6 +2108,18 @@ async function requestGuzhengScoreFromAudio(file) {
     applyDetectedTempo(result.tempo_detection?.resolved_tempo || result.tempo);
     applyDetectedKeySignature(result.key || result.detected_key_signature);
     await requestTraditionalEngravedPreview("guzheng", { force: true, silent: true });
+    await saveUserHistory({
+        type: "transcription",
+        resource_id: result.analysis_id || activeHistoryResourceId("guzheng_audio"),
+        title: `生成古筝谱：${file.name}`,
+        metadata: {
+            source: "guzheng_score_from_audio",
+            filename: file.name,
+            analysis_id: result.analysis_id || "",
+            instrument: "guzheng",
+            measure_count: result.measures?.length || 0,
+        },
+    });
     return result;
 }
 
@@ -2040,6 +2163,19 @@ async function requestDiziScoreFromAudio(file) {
     applyDetectedTempo(result.tempo_detection?.resolved_tempo || result.tempo);
     applyDetectedKeySignature(result.key || result.detected_key_signature);
     await requestTraditionalEngravedPreview("dizi", { force: true, silent: true });
+    await saveUserHistory({
+        type: "transcription",
+        resource_id: result.analysis_id || activeHistoryResourceId("dizi_audio"),
+        title: `生成笛子谱：${file.name}`,
+        metadata: {
+            source: "dizi_score_from_audio",
+            filename: file.name,
+            analysis_id: result.analysis_id || "",
+            instrument: "dizi",
+            flute_type: result.flute_type || fluteType || "",
+            measure_count: result.measures?.length || 0,
+        },
+    });
     return result;
 }
 
@@ -2081,6 +2217,18 @@ async function requestGuitarLeadSheetFromAudio(file) {
     setLocalStorageSafely(STORAGE_KEYS.analysisId, els.analysisIdInput.value, { silent: true });
     applyDetectedKeySignature(result.detected_key_signature || result.key);
     renderAll();
+    await saveUserHistory({
+        type: "transcription",
+        resource_id: result.analysis_id || activeHistoryResourceId("guitar_audio"),
+        title: `生成吉他弹唱谱：${file.name}`,
+        metadata: {
+            source: "guitar_lead_sheet_from_audio",
+            filename: file.name,
+            analysis_id: result.analysis_id || "",
+            instrument: "guitar",
+            measure_count: result.measures?.length || 0,
+        },
+    });
     return result;
 }
 
@@ -2105,6 +2253,17 @@ async function handlePitchDetect() {
             ? `音高识别完成：识别到 ${sequence.length} 个音高点，建议调号 ${detectedKeySignature}`
             : `音高识别完成：识别到 ${sequence.length} 个音高点`;
         setPitchDetectStatus(msg);
+        await saveUserHistory({
+            type: "transcription",
+            resource_id: result.analysis_id || activeHistoryResourceId("pitch_detect"),
+            title: `音高识别：${file.name}`,
+            metadata: {
+                source: "pitch_detect",
+                filename: file.name,
+                pitch_count: sequence.length,
+                key_signature: detectedKeySignature || "",
+            },
+        });
         setAppStatus(
             detectedKeySignature
                 ? `音高识别已完成，系统建议调号 ${detectedKeySignature}，可以继续生成${activeResultLabel()}。`
@@ -2296,6 +2455,19 @@ async function handleCreateScore() {
         applyScoreResult(created);
         setAppStatus(`${created.piano_arrangement ? "双手钢琴谱" : "钢琴谱"}已生成并关联：${created.score_id}`);
         queueExportRefresh();
+        await saveUserHistory({
+            type: "transcription",
+            resource_id: created.score_id || payload.analysis_id || activeHistoryResourceId("score_from_pitch"),
+            title: `生成钢琴谱：${created.title || payload.title || "未命名乐谱"}`,
+            metadata: {
+                source: "score_from_pitch_sequence",
+                score_id: created.score_id || "",
+                analysis_id: payload.analysis_id || "",
+                instrument: "piano",
+                tempo: created.tempo || payload.tempo,
+                key_signature: created.key_signature || payload.key_signature || "",
+            },
+        });
     } catch (error) {
         setAppStatus(`生成乐谱失败：${error.message}`, true);
     } finally {
@@ -2313,6 +2485,18 @@ async function handleBeatDetect() {
         const file = ensureAnalysisFile();
         const result = await requestBeatDetect(file, { syncAnalysisId: true, refreshAudioLogs: true });
         const detectedTempo = resolveReliableBeatTempo(result);
+        await saveUserHistory({
+            type: "audio",
+            resource_id: result.analysis_id || activeHistoryResourceId("beat_detect"),
+            title: `节拍检测：${file.name}`,
+            metadata: {
+                source: "beat_detect",
+                filename: file.name,
+                analysis_id: result.analysis_id || "",
+                bpm: result.bpm || result.primary_bpm || detectedTempo || "",
+                beat_count: result.num_beats || result.beat_times?.length || 0,
+            },
+        });
         if (detectedTempo) {
             applyDetectedTempo(detectedTempo);
             setAppStatus(`节拍检测完成，已自动回填速度 ${detectedTempo} BPM。`);
@@ -2345,6 +2529,17 @@ async function handleSeparateTracks() {
         renderAll();
         await loadAudioLogs();
         setAppStatus("音轨分离完成。");
+        await saveUserHistory({
+            type: "audio",
+            resource_id: result.analysis_id || activeHistoryResourceId("separate_tracks"),
+            title: `音轨分离：${file.name}`,
+            metadata: {
+                source: "audio_separate_tracks",
+                filename: file.name,
+                analysis_id: result.analysis_id || "",
+                track_count: result.tracks?.length || 0,
+            },
+        });
     } catch (error) {
         setAppStatus(`音轨分离失败：${error.message}`, true);
     } finally {
@@ -2413,6 +2608,17 @@ async function handleGenerateChords() {
         state.chordGenerationResult = result;
         renderAll();
         setAppStatus(`和弦生成完成，共返回 ${result.chords?.length || 0} 个和弦。`);
+        await saveUserHistory({
+            type: "transcription",
+            resource_id: activeHistoryResourceId("chord_generation"),
+            title: `生成和弦：${activeHistoryTitle("未命名乐谱")}`,
+            metadata: {
+                source: "chord_generation",
+                score_id: state.currentScore?.score_id || "",
+                chord_count: result.chords?.length || 0,
+                key_signature: key,
+            },
+        });
     } catch (error) {
         setAppStatus(`和弦生成失败：${error.message}`, true);
     } finally {
@@ -2440,6 +2646,16 @@ async function handleRhythmScore() {
         state.rhythmScoreResult = result;
         renderAll();
         setAppStatus(`节奏评分完成：${Math.round(Number(result.score || 0))}/100`);
+        await saveUserHistory({
+            type: "evaluation",
+            resource_id: activeHistoryResourceId("rhythm_score"),
+            title: `节奏评分：${activeHistoryTitle("节奏练习")}`,
+            metadata: {
+                source: "rhythm_score",
+                score: Math.round(Number(result.score || 0)),
+                timing_accuracy: result.timing_accuracy || "",
+            },
+        });
     } catch (error) {
         setAppStatus(`节奏评分失败：${error.message}`, true);
     } finally {
@@ -2577,6 +2793,19 @@ async function handleExportScorePdf() {
         queueExportRefresh(created.export_record_id || null);
         triggerFileDownload(buildServerUrl(created.download_api_url || created.download_url || ""), created.file_name || "");
         setAppStatus(`钢琴乐谱 PDF 已导出：${created.file_name}`);
+        await saveUserHistory({
+            type: "transcription",
+            resource_id: String(created.export_record_id || state.currentScore.score_id || activeHistoryResourceId("piano_export")),
+            title: `导出钢琴谱：${created.file_name || state.currentScore.title || state.currentScore.score_id}`,
+            metadata: {
+                source: "piano_score_export",
+                score_id: state.currentScore.score_id,
+                export_record_id: created.export_record_id || "",
+                format: created.format || "pdf",
+                file_name: created.file_name || "",
+                download_url: created.download_api_url || created.download_url || "",
+            },
+        });
     } catch (error) {
         setAppStatus(`钢琴乐谱导出失败：${error.message}`, true);
     } finally {
@@ -7435,6 +7664,19 @@ async function handleCreateExport() {
         state.selectedExportDetail = created;
         await loadExportList(created.export_record_id);
         setAppStatus(`导出已创建：${created.file_name}`);
+        await saveUserHistory({
+            type: "transcription",
+            resource_id: String(created.export_record_id || state.currentScore.score_id || activeHistoryResourceId("score_export")),
+            title: `导出乐谱：${created.file_name || state.currentScore.title || state.currentScore.score_id}`,
+            metadata: {
+                source: "score_export",
+                score_id: state.currentScore.score_id,
+                export_record_id: created.export_record_id || "",
+                format: created.format || els.exportFormatSelect.value,
+                file_name: created.file_name || "",
+                download_url: created.download_api_url || created.download_url || "",
+            },
+        });
     } catch (error) {
         setAppStatus(`导出失败：${error.message}`, true);
     } finally {

@@ -925,7 +925,7 @@ def set_score_like(score_id: str, liked: bool, current_user: dict[str, Any] | No
                     CommunityLike.post_id == post.id,
                     CommunityLike.actor_key == actor_key,
                 )
-            ).scalar_one_or_none()
+            ).scalars().first()
             if liked and existing is None:
                 session.add(
                     CommunityLike(
@@ -965,7 +965,7 @@ def set_score_favorite(score_id: str, favorited: bool, current_user: dict[str, A
                     CommunityFavorite.post_id == post.id,
                     CommunityFavorite.actor_key == actor_key,
                 )
-            ).scalar_one_or_none()
+            ).scalars().first()
             if favorited and existing is None:
                 session.add(
                     CommunityFavorite(

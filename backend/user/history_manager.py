@@ -101,22 +101,9 @@ def _list_history_db(user_id: str) -> dict:
         db_user_id = _parse_db_user_id(user_id)
         all_items = []
         
-        # 1. 聚合 Project 表 (归类为“识谱/转谱”)
-        projects = session.query(Project).filter_by(user_id=db_user_id).all()
-        for p in projects:
-            all_items.append({
-                "history_id": str(p.id),
-                "type": "transcription",
-                "resource_id": p.analysis_id,
-                "info": {
-                    "title": p.title or "音频转谱项目",
-                    "duration": f"{p.duration:.1f}s" if p.duration else "未知",
-                    "label": "音轨识谱"
-                },
-                "created_at": p.create_time.isoformat() if p.create_time else None
-            })
-
-        # 2. 聚合 AudioAnalysis 表 (区分识谱和唱歌测评)
+        # 1. 聚合 AudioAnalysis 表 (区分识谱和唱歌测评)
+        # 识谱转谱历史只保留“识谱分析”这一类最终记录；Project 表中的
+        # 乐谱项目会造成“音轨识谱”等中间操作重复展示，因此不再聚合。
         analyses = session.query(AudioAnalysis).filter_by(user_id=db_user_id).all()
         for a in analyses:
             params = a.params or {}
@@ -157,7 +144,7 @@ def _list_history_db(user_id: str) -> dict:
                 "created_at": a.create_time.isoformat() if a.create_time else None
             })
 
-        # 3. 聚合 CommunityPost 表 (社区贡献)
+        # 2. 聚合 CommunityPost 表 (社区贡献)
         posts = session.query(CommunityPost).filter_by(user_id=db_user_id).all()
         for s in posts:
             all_items.append({
@@ -172,17 +159,20 @@ def _list_history_db(user_id: str) -> dict:
                 "created_at": s.create_time.isoformat() if s.create_time else None
             })
 
-        # 4. 聚合 UserHistory 表 (其他操作)
+        # 3. 聚合 UserHistory 表 (其他操作)
         rows = session.query(UserHistory).filter_by(user_id=db_user_id).all()
         for r in rows:
+            metadata = r.metadata_ or {}
+            if r.type == "transcription" and metadata.get("source") != "pitch_detect":
+                continue
             all_items.append({
                 "history_id": str(r.id),
                 "type": r.type,
                 "resource_id": r.resource_id,
-                "metadata": r.metadata_ or {},
+                "metadata": metadata,
                 "info": {
                     "title": r.title,
-                    **(r.metadata_ or {})
+                    **metadata
                 },
                 "created_at": r.create_time.isoformat() if r.create_time else None
             })

@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 import importlib
 import logging
+from pathlib import Path
 from typing import Any, Iterator
 
 from sqlalchemy import select
@@ -811,6 +812,7 @@ def process_rhythm_scoring_sync(
     from backend.core.rhythm.i18n import FeedbackFormatter
     from backend.core.rhythm.rhythm_analysis import AdvancedRhythmAnalyzer
 
+    normalized_scoring_model = _normalize_scoring_model(scoring_model)
     rhythm_analyzer = AdvancedRhythmAnalyzer(threshold_ms=threshold_ms)
     soundfile = _load_soundfile()
 

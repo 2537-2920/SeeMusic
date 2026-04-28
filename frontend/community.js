@@ -690,7 +690,7 @@ async function handleDownload() {
         renderDetail();
         setStatus(`已记录下载：${scoreData.source_file_name || score.title}。当前下载 ${scoreData.downloads} 次。`);
         await saveHistory({
-            type: "score",
+            type: "community",
             resource_id: score.score_id,
             title: `下载乐谱：${score.title}`,
             metadata: {
@@ -789,7 +789,7 @@ async function handleUploadSubmit() {
         });
         setUploadStatus("作品已发布，社区列表已刷新。");
         await saveHistory({
-            type: "score",
+            type: "community",
             resource_id: payload.score_id,
             title: `发布乐谱：${title}`,
             metadata: {

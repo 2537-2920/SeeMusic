@@ -9,9 +9,6 @@ import uuid
 import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
-from fastapi import Response
-from urllib.parse import quote
-
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi import Response
@@ -131,6 +128,7 @@ from backend.utils.audio_logger import record_audio_log, record_audio_processing
 # 引入节奏处理服务与项目配置项
 from backend.services.analysis_service import (
     cache_analysis_result,
+    evaluate_singing,
     get_analysis_result,
     get_saved_pitch_sequence,
     process_rhythm_scoring,
@@ -2634,21 +2632,6 @@ def update_me(payload: UserUpdatePayload, current_user: Dict[str, Any] = Depends
 #         raise HTTPException(status_code=404, detail="图片不存在")
 #     return FileResponse(path)
 
-
-@router.post("/users/avatar")
-async def update_avatar(
-    file: UploadFile = File(...),
-    authorization: str = Header(...)
-):
-    print("====================================")
-    print("我进到了 update_avatar 接口里！！！")
-    print(f"收到的文件名是: {file.filename}")
-    print("====================================")
-    token = authorization.removeprefix("Bearer ").strip()
-    user_info = get_user_by_token(token)
-    content = await file.read()
-    avatar_url = save_user_avatar(user_info["user_id"], content, file.filename)
-    return {"code": 0, "message": "success", "data": {"avatar_url": avatar_url}}
 
 @router.get("/users/me/history")
 def get_history(current_user: Dict[str, Any] = Depends(get_current_user)):

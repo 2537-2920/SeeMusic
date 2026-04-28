@@ -122,23 +122,23 @@ def _list_history_db(user_id: str) -> dict:
             params = a.params or {}
             source = params.get("source", "")
             
-            # 判断逻辑：如果有节奏报告或是专门的测评上传，归类为测评；否则归类为识谱
+            # 判断逻辑：如果有节奏报告或是专门的测评上传，归类为测评
             is_evaluation = (
                 source == "analyze_rhythm_upload" or 
                 "rhythm_report" in (a.result or {}) or
                 "ref_id" in params
             )
             
-            h_type = "evaluation" if is_evaluation else "transcription"
+            # 三分法：测评用 audio，识谱用 transcription，与 UserHistory 的 schema 保持一致
+            h_type = "audio" if is_evaluation else "transcription"
             h_label = "唱歌测评" if is_evaluation else "识谱分析"
             
             # 提取详细信息
             info_data = {
                 "title": a.file_name or h_label,
-                "label": h_label
+                "label": h_label,
             }
             if a.result:
-                # 如果是唱歌测评，把报告里的关键指标拉平
                 if "rhythm_report" in a.result:
                     report = a.result["rhythm_report"]
                     info_data.update({

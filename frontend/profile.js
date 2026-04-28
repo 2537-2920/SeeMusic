@@ -71,31 +71,43 @@ function renderUser(user) {
 }
 
 function renderStats(items) {
-    const counts = items.reduce((summary, item) => {
-        const key = item.history_type || "unknown";
-        summary[key] = (summary[key] || 0) + 1;
-        return summary;
-    }, {});
-    document.getElementById("stat-audio").textContent = String(counts.audio || 0);
-    document.getElementById("stat-report").textContent = String(counts.transcription || 0);
-    document.getElementById("stat-score").textContent = String(counts.community || 0);
+    // 三分法：直接用 type 区分三个功能
+    const transcriptionCount = items.filter(i =>
+        (i.history_type || i.type || "") === "transcription"
+    ).length;
+    const evaluationCount = items.filter(i => {
+        const t = (i.history_type || i.type || "");
+        return t === "audio" || t === "report";
+    }).length;
+    const communityCount = items.filter(i => {
+        const t = (i.history_type || i.type || "");
+        const src = (i.info?.source || i.metadata?.source || "").toLowerCase();
+        return t === "community" || (t === "score" && src.includes("community"));
+    }).length;
+
+    document.getElementById("stat-audio").textContent = String(evaluationCount);
+    document.getElementById("stat-report").textContent = String(transcriptionCount);
+    document.getElementById("stat-score").textContent = String(communityCount);
 }
 
 function renderHistory(items, filter = "all") {
     const list = document.getElementById("history-list");
     profileState.currentFilter = filter;
     const filtered = items.filter(i => {
-        const type = (i.history_type || "").toLowerCase();
+        // 兼容后端返回 type 或 history_type 两种字段名
+        const type = (i.history_type || i.type || "").toLowerCase();
+        const metaSource = (i.info?.source || i.metadata?.source || "").toLowerCase();
         
-        // 1. 类型过滤 (更宽松的匹配)
+        // 三分法：直接用 type 区分
         let typeMatch = true;
         if (filter === "transcription") {
-            // 兼容多种可能出现的识谱类型名称
-            typeMatch = (type === "transcription" || type === "audio" || type === "report");
+            typeMatch = (type === "transcription");
         } else if (filter === "evaluation") {
-            typeMatch = (type === "evaluation" || type === "score");
+            // audio = 唱歌测评操作，report = 导出的测评报告
+            typeMatch = (type === "audio" || type === "report");
         } else if (filter === "community") {
-            typeMatch = (type === "community");
+            typeMatch = (type === "community") ||
+                        (type === "score" && metaSource.includes("community"));
         }
         
         if (!typeMatch) return false;
@@ -144,23 +156,30 @@ function renderHistory(items, filter = "all") {
         let typeClass = "type-audio";
         let metaInfo = item.info?.duration || "AI 识别结果";
 
-        const type = (item.history_type || "").toLowerCase();
+        // 三分法：直接用 type 区分展示
+        const type = (item.history_type || item.type || "").toLowerCase();
+        const metaSource = (item.info?.source || item.metadata?.source || "").toLowerCase();
+        const isCommunity = (type === "community") || (type === "score" && metaSource.includes("community"));
 
-        if (type === "transcription" || type === "audio") {
+        if (isCommunity) {
+            icon = "solar:globus-bold-duotone";
+            moduleName = "社区贡献";
+            typeClass = "type-community";
+            const downloads = item.info?.downloads || item.info?.download_count || "";
+            const likes = item.info?.likes || item.info?.like_count || "";
+            metaInfo = downloads ? `下载 ${downloads}` : (likes ? `点赞 ${likes}` : "公开分享");
+        } else if (type === "audio" || type === "report") {
+            // 唱歌测评
+            icon = "solar:microphone-large-bold-duotone";
+            moduleName = type === "report" ? "测评报告" : "唱歌测评";
+            typeClass = "type-evaluation";
+            metaInfo = `评分: ${item.info?.score || item.info?.overall_score || "进行中"}`;
+        } else if (type === "transcription") {
+            // 识谱转谱
             icon = "solar:notes-bold-duotone";
             moduleName = "识谱分析";
             typeClass = "type-transcription";
             metaInfo = item.info?.label || "乐谱提取";
-        } else if (type === "evaluation") {
-            icon = "solar:microphone-large-bold-duotone";
-            moduleName = "唱歌测评";
-            typeClass = "type-evaluation"; 
-            metaInfo = `评分: ${item.info?.score || item.info?.overall_score || "进行中"}`;
-        } else if (type === "community") {
-            icon = "solar:globus-bold-duotone";
-            moduleName = "社区贡献";
-            typeClass = "type-community";
-            metaInfo = "公开分享";
         }
 
         return `
@@ -489,16 +508,21 @@ function setupEditProfileModal() {
                 body: payload
             });
             
-            // 更新成功后，同步本地登录态缓存（使用公共定义的键名）
+            // 更新成功后，将服务器返回的最新数据与本地缓存合并，确保 birthday 等字段持久化
             const currentUser = getCurrentUser();
             if (currentUser) {
+                // 合并：本地已有字段 + 服务器返回字段（服务器优先）
                 const newUserData = { ...currentUser, ...updatedUser };
+                // 确保 birthday 字段明确写入（即使服务器返回为空也尊重前端表单输入）
+                if (payload.birthday !== undefined) {
+                    newUserData.birthday = payload.birthday;
+                }
                 localStorage.setItem(STORAGE_KEYS.currentUser, JSON.stringify(newUserData));
+                // 同时更新备用 key（兼容旧版代码）
+                localStorage.setItem("seeMusic_currentUser", JSON.stringify(newUserData));
             }
 
             renderUser(updatedUser);
-            const localStoreKey = "seeMusic_currentUser"; 
-            localStorage.setItem(localStoreKey, JSON.stringify(updatedUser));
             setStatus("个人资料已成功持久化至数据库。");
             modal.classList.remove("active");
         } catch (error) {

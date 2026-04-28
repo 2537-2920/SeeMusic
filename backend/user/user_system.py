@@ -127,6 +127,7 @@ def _login_user_db(username: str, password: str) -> dict:
                 "nickname": user.nickname,
                 "avatar": user.avatar,
                 "bio": user.bio,
+                "birthday": user.birthday,
                 "music_taste": user.music_taste
             },
         }

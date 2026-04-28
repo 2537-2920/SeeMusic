@@ -422,7 +422,7 @@ function renderGrid() {
         return `
             <article class="text-left bg-white rounded-[28px] border p-5 shadow-sm hover:shadow-lg transition-all cursor-pointer ${isSelected ? "border-[#457b9d] ring-2 ring-[#a8dadc]/60" : "border-gray-100"}" data-score-id="${escapeHtml(item.score_id)}" tabindex="0">
                 <div class="aspect-[4/3] rounded-2xl overflow-hidden bg-gray-50 mb-4 relative">
-                    <img alt="${escapeHtml(item.title)}" class="w-full h-full object-cover" src="${escapeHtml(item.cover_url || avatarUrl(item.title || item.score_id))}"/>
+                    <img alt="${escapeHtml(item.title)}" class="w-full h-full object-cover" src="${escapeHtml(item.cover_url || avatarUrl(item.title || item.score_id))}" onerror="this.onerror=null; this.src='https://api.dicebear.com/7.x/initials/svg?seed=' + encodeURIComponent(this.alt)"/>
                     <button
                         class="absolute top-3 right-3 w-10 h-10 rounded-full backdrop-blur bg-white/85 border border-white/70 flex items-center justify-center transition-all ${item.favorited ? "text-[#1d3557]" : "text-gray-400 hover:text-[#1d3557]"}"
                         data-favorite-score-id="${escapeHtml(item.score_id)}"
@@ -467,10 +467,8 @@ function renderDetail() {
 
     document.getElementById("d-title").textContent = score.title || "未命名乐谱";
     document.getElementById("d-author").textContent = score.subtitle || score.author || "社区用户";
-    document.getElementById("d-cover").src = avatarUrl({ 
-    avatar: score.cover_url, 
-    username: score.author || score.title 
-});
+    document.getElementById("d-cover").src = score.cover_url || avatarUrl(score.title || score.score_id);
+    document.getElementById("d-cover").alt = score.title || "preview";
     document.getElementById("d-price").textContent = score.price_label || "免费";
     document.getElementById("d-downloads").textContent = String(score.downloads || 0);
     document.getElementById("d-likes").textContent = String(score.likes || 0);
@@ -497,7 +495,8 @@ if (!state.selectedComments.length) {
                 <!-- 头像部分：使用我们之前优化过的对象传参 -->
                 <img alt="${escapeHtml(displayName)}" 
                      class="w-9 h-9 rounded-full bg-gray-100" 
-                     src="${escapeHtml(avatarUrl({ avatar: comment.avatar_url, username: displayName }))}"/>
+                     src="${escapeHtml(avatarUrl({ avatar: comment.avatar_url, username: displayName }))}" 
+                     onerror="this.onerror=null; this.src='https://api.dicebear.com/7.x/avataaars/svg?seed=' + encodeURIComponent(this.alt)"/>
                 
                 <div class="min-w-0 flex-1">
                     <div class="flex items-center justify-between gap-3">
@@ -756,7 +755,7 @@ async function handleUploadSubmit() {
         return;
     }
     if (!instrument) {
-        setUploadStatus("请填写乐器或版本信息。", true);
+        setUploadStatus("请选择乐器类型。", true);
         return;
     }
     const base64File = await new Promise((resolve) => {

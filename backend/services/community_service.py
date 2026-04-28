@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 
 COMMUNITY_TZ = timezone(timedelta(hours=8))
 DEFAULT_AUTHOR = "社区用户"
-COMMUNITY_TAGS = ["精选", "流行", "古典", "爵士", "ACG", "指弹吉他"]
+COMMUNITY_TAGS = ["钢琴", "古筝", "吉他", "笛子"]
+COMMUNITY_TAGS_OTHER = "其他"  # 「其他」过滤项的标志
 
 USE_DB: bool = True
 _session_factory = None
@@ -523,13 +524,24 @@ def list_community_scores(
                 ).lower()
             ]
         if normalized_tag:
-            serialized = [
-                entry
-                for entry in serialized
-                if normalized_tag == entry.get("style")
-                or normalized_tag == entry.get("instrument")
-                or normalized_tag in entry.get("tags", [])
-            ]
+            if normalized_tag == COMMUNITY_TAGS_OTHER:
+                # 「其他」：选出 style、instrument、tags 均不属于已定义主标签的曲谱
+                known_tags = set(COMMUNITY_TAGS)
+                serialized = [
+                    entry
+                    for entry in serialized
+                    if entry.get("style") not in known_tags
+                    and entry.get("instrument") not in known_tags
+                    and not any(t in known_tags for t in entry.get("tags", []))
+                ]
+            else:
+                serialized = [
+                    entry
+                    for entry in serialized
+                    if normalized_tag == entry.get("style")
+                    or normalized_tag == entry.get("instrument")
+                    or normalized_tag in entry.get("tags", [])
+                ]
         serialized.sort(
             key=lambda entry: (
                 "精选" in entry.get("tags", []),
@@ -574,13 +586,24 @@ def list_community_scores(
             ).lower()
         ]
     if normalized_tag:
-        items = [
-            entry
-            for entry in items
-            if normalized_tag == entry.get("style")
-            or normalized_tag == entry.get("instrument")
-            or normalized_tag in entry.get("tags", [])
-        ]
+        if normalized_tag == COMMUNITY_TAGS_OTHER:
+            # 「其他」：选出 style、instrument、tags 均不属于已定义主标签的曲谱
+            known_tags = set(COMMUNITY_TAGS)
+            items = [
+                entry
+                for entry in items
+                if entry.get("style") not in known_tags
+                and entry.get("instrument") not in known_tags
+                and not any(t in known_tags for t in entry.get("tags", []))
+            ]
+        else:
+            items = [
+                entry
+                for entry in items
+                if normalized_tag == entry.get("style")
+                or normalized_tag == entry.get("instrument")
+                or normalized_tag in entry.get("tags", [])
+            ]
 
     items.sort(
         key=lambda entry: (
@@ -636,6 +659,7 @@ def get_community_score_detail(score_id: str, current_user: dict[str, Any] | Non
 
 def list_community_tags() -> dict[str, Any]:
     _ensure_seeded()
+    known_tags = set(COMMUNITY_TAGS)
     if USE_DB:
         items = []
         listing = list_community_scores(page=1, page_size=1000)["items"]
@@ -648,6 +672,15 @@ def list_community_tags() -> dict[str, Any]:
                 ]
             )
             items.append({"name": tag, "count": count})
+        # 计算「其他」的数量
+        other_count = len([
+            entry for entry in listing
+            if entry.get("style") not in known_tags
+            and entry.get("instrument") not in known_tags
+            and not any(t in known_tags for t in entry.get("tags", []))
+        ])
+        if other_count > 0:
+            items.append({"name": COMMUNITY_TAGS_OTHER, "count": other_count})
         return {"items": items}
 
     items = []
@@ -660,6 +693,15 @@ def list_community_tags() -> dict[str, Any]:
             ]
         )
         items.append({"name": tag, "count": count})
+    # 内存模式下计算「其他」
+    other_count = len([
+        entry for entry in COMMUNITY_SCORES.values()
+        if entry.get("style") not in known_tags
+        and entry.get("instrument") not in known_tags
+        and not any(t in known_tags for t in entry.get("tags", []))
+    ])
+    if other_count > 0:
+        items.append({"name": COMMUNITY_TAGS_OTHER, "count": other_count})
     return {"items": items}
 
 

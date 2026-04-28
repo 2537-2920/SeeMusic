@@ -58,9 +58,10 @@ def test_community_tags_endpoint_returns_frontend_tabs():
     result = list_community_tags()
     names = [item["name"] for item in result["data"]["items"]]
 
-    assert "精选" in names
-    assert "流行" in names
-    assert "古典" in names
+    assert "钢琴" in names
+    assert "古筝" in names
+    assert "吉他" in names
+    assert "笛子" in names
 
 
 def test_community_upload_persists_cover_url_to_item():

@@ -2,6 +2,7 @@
     requestJson,
     getCurrentUser,
     getAuthToken,
+    buildServerUrl,
     avatarUrl,
 } = window.SeeMusicApp;
 
@@ -490,6 +491,21 @@ function audioFileNameFromUrl(audioUrl) {
     }
 }
 
+function triggerFileDownload(url, fileName = "") {
+    if (!url) {
+        return;
+    }
+    const link = document.createElement("a");
+    link.href = buildServerUrl(url);
+    if (fileName) {
+        link.download = fileName;
+    }
+    link.rel = "noopener";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+}
+
 function renderReferenceSearchResults(items, message = "") {
     const container = document.getElementById("reference-search-results");
     if (!container) {
@@ -732,7 +748,11 @@ async function exportReport() {
             body: exportBody,
         });
         evaluationState.report = payload;
-        setBanner("report-export-status", `报告已生成并持久化，report_id=${payload.report_id}`);
+        const pdfFile = (payload.files || []).find((file) => file.format === "pdf") || (payload.files || [])[0];
+        if (pdfFile) {
+            triggerFileDownload(pdfFile.download_api_url || pdfFile.download_url, pdfFile.file_name || "");
+        }
+        setBanner("report-export-status", `报告已生成，report_id=${payload.report_id}，浏览器已开始下载。`);
         await saveHistory({
             type: "report",
             resource_id: payload.report_id,
@@ -741,6 +761,7 @@ async function exportReport() {
                 analysis_id: analysis.analysis_id,
                 formats: "pdf",
                 include_charts: true,
+                download_url: pdfFile ? (pdfFile.download_api_url || pdfFile.download_url || "") : "",
             },
         });
     } catch (error) {

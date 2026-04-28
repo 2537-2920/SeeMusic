@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 import io
+import mimetypes
 import struct
 from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
+from urllib.parse import quote
 from uuid import uuid4
 
 from PIL import Image, ImageDraw, ImageFont
 from sqlalchemy import select
 
+from backend.config.settings import settings
 from backend.export.export_utils import build_export_files
 from backend.services import analysis_service
 
@@ -29,6 +32,19 @@ USE_DB: bool = False
 _session_factory = None
 REPORT_EXPORTS: dict[str, dict[str, Any]] = {}
 SUPPORTED_FORMATS = {"pdf", "png", "midi"}
+STORAGE_PREFIX = "/storage/"
+
+
+class ReportExportError(Exception):
+    """Base class for report export lookup errors."""
+
+
+class ReportExportNotFoundError(ReportExportError):
+    """Raised when the requested report export does not exist."""
+
+
+class ReportExportFileNotFoundError(ReportExportError):
+    """Raised when report export metadata exists but the file is unavailable."""
 
 
 def set_db_session_factory(factory) -> None:
@@ -53,6 +69,98 @@ def _session_scope() -> Iterator[Any]:
 
 def clear_report_exports() -> None:
     REPORT_EXPORTS.clear()
+
+
+def _report_download_api_url(report_id: str, file_name: str) -> str:
+    return f"/api/v1/reports/{quote(report_id, safe='')}/files/{quote(file_name, safe='')}/download"
+
+
+def _attach_report_download_urls(report_id: str, files: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    enriched: list[dict[str, Any]] = []
+    for file_record in files:
+        file_name = str(file_record.get("file_name") or Path(str(file_record.get("file_path") or "")).name)
+        enriched.append(
+            {
+                **file_record,
+                "download_api_url": _report_download_api_url(report_id, file_name),
+            }
+        )
+    return enriched
+
+
+def _resolve_report_file_path(file_record: dict[str, Any]) -> Path:
+    file_path = file_record.get("file_path")
+    if file_path:
+        resolved = Path(str(file_path)).resolve()
+    else:
+        download_url = str(file_record.get("download_url") or "")
+        if download_url.startswith(STORAGE_PREFIX):
+            relative_path = download_url[len(STORAGE_PREFIX) :]
+        else:
+            relative_path = download_url
+        resolved = (settings.storage_dir / relative_path.lstrip("/\\")).resolve()
+
+    storage_root = settings.storage_dir.resolve()
+    if resolved != storage_root and storage_root not in resolved.parents:
+        raise ReportExportFileNotFoundError("report export file path is outside the storage directory")
+    return resolved
+
+
+def _report_file_payload(report_id: str, file_record: dict[str, Any]) -> dict[str, Any]:
+    resolved = _resolve_report_file_path(file_record)
+    if not resolved.exists() or not resolved.is_file():
+        raise ReportExportFileNotFoundError(f"report export file is missing: {resolved.name}")
+
+    file_name = str(file_record.get("file_name") or resolved.name)
+    content_type = mimetypes.guess_type(file_name)[0] or "application/octet-stream"
+    return {
+        **file_record,
+        "report_id": report_id,
+        "file_name": file_name,
+        "file_path": str(resolved),
+        "content_type": content_type,
+        "download_api_url": str(file_record.get("download_api_url") or _report_download_api_url(report_id, file_name)),
+        "exists": True,
+        "size_bytes": resolved.stat().st_size,
+    }
+
+
+def _load_report_export(report_id: str) -> dict[str, Any] | None:
+    cached = REPORT_EXPORTS.get(report_id)
+    if cached is not None:
+        return deepcopy(cached)
+
+    if not USE_DB:
+        return None
+
+    from backend.db.models import Report
+
+    with _session_scope() as session:
+        row = session.execute(select(Report).where(Report.report_id == report_id)).scalar_one_or_none()
+        if row is None:
+            return None
+        metadata = row.metadata_ if isinstance(row.metadata_, dict) else {}
+        return {
+            "report_id": row.report_id,
+            "analysis_id": row.analysis_id,
+            "files": deepcopy(metadata.get("files") or []),
+            "include_charts": bool(metadata.get("include_charts", True)),
+            "generated_at": metadata.get("generated_at"),
+        }
+
+
+def get_report_export_file(report_id: str, file_name: str) -> dict[str, Any]:
+    report = _load_report_export(report_id)
+    if report is None:
+        raise ReportExportNotFoundError(f"report {report_id} not found")
+
+    requested_name = Path(str(file_name or "")).name
+    for file_record in report.get("files") or []:
+        current_name = str(file_record.get("file_name") or Path(str(file_record.get("file_path") or "")).name)
+        if current_name == requested_name:
+            return _report_file_payload(report_id, file_record)
+
+    raise ReportExportFileNotFoundError(f"file {requested_name} not found for report {report_id}")
 
 
 def _normalize_formats(formats: list[str] | None) -> list[str]:
@@ -565,7 +673,7 @@ def _write_report_file(file_record: dict[str, Any], context: dict[str, Any]) -> 
 def export_report(payload: dict) -> dict:
     report_id = f"r_{uuid4().hex[:8]}"
     formats = _normalize_formats(payload.get("formats"))
-    files = build_export_files(report_id, formats)
+    files = _attach_report_download_urls(report_id, build_export_files(report_id, formats))
     result_data = _load_analysis_result_data(payload.get("analysis_id"))
     context = _build_report_context(report_id, payload, result_data)
     for file_record in files:

@@ -26,6 +26,26 @@ def _replace_tempo(musicxml: str, tempo: int) -> str:
     return ET.tostring(root, encoding="unicode", xml_declaration=True)
 
 
+def test_report_export_download_route_returns_attachment():
+    with TestClient(app) as client:
+        export_response = client.post(
+            "/api/v1/reports/export",
+            json={"analysis_id": "an_report_route", "formats": ["pdf"], "include_charts": False},
+        )
+        assert export_response.status_code == 200
+        report_data = export_response.json()["data"]
+        pdf_file = report_data["files"][0]
+
+        assert pdf_file["download_api_url"].endswith("/download")
+
+        download_response = client.get(pdf_file["download_api_url"])
+
+    assert download_response.status_code == 200
+    assert download_response.headers["content-type"].startswith("application/pdf")
+    assert "attachment" in download_response.headers["content-disposition"]
+    assert download_response.content.startswith(b"%PDF")
+
+
 
 def test_score_creation_route_persists_project_and_sheet(score_database: dict[str, int | str]) -> None:
     payload = {

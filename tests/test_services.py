@@ -12,7 +12,7 @@ import backend.services.score_service as score_service
 from backend.db.models import AudioAnalysis, PitchSequence, Report
 from backend.db.session import session_scope
 from backend.services.analysis_service import analyze_audio, evaluate_singing, get_saved_pitch_sequence
-from backend.services.report_service import export_report
+from backend.services.report_service import export_report, get_report_export_file
 from backend.services.score_service import (
     ExportRecordNotFoundError,
     ScoreNotFoundError,
@@ -338,6 +338,11 @@ def test_report_service_returns_requested_files():
     assert result["analysis_id"] == "an_001"
     assert len(result["files"]) == 2
     assert result["include_charts"] is False
+    assert result["files"][0]["download_api_url"].endswith("/download")
+    pdf_file = next(item for item in result["files"] if item["format"] == "pdf")
+    download = get_report_export_file(result["report_id"], pdf_file["file_name"])
+    assert download["content_type"] == "application/pdf"
+    assert download["exists"] is True
 
 
 def test_analysis_service_persists_audio_analysis_when_db_enabled(user_database, temp_audio_bytes):

@@ -89,7 +89,12 @@ from backend.services.reference_track_service import (
     resolve_storage_url_path,
     search_reference_tracks as search_reference_tracks_data,
 )
-from backend.services.report_service import export_report
+from backend.services.report_service import (
+    ReportExportFileNotFoundError,
+    ReportExportNotFoundError,
+    export_report,
+    get_report_export_file,
+)
 from backend.services.community_service import (
     save_user_avatar,
     get_score_pdf_content,
@@ -2686,6 +2691,23 @@ def update_user_preferences(payload: PreferencesUpdateRequest, current_user: Dic
 @router.post("/reports/export")
 def reports_export(payload: ReportExportRequest):
     return ok(export_report(payload.model_dump()))
+
+
+@router.get("/reports/{report_id}/files/{file_name}/download")
+def report_file_download(report_id: str, file_name: str):
+    try:
+        export_data = get_report_export_file(report_id, file_name)
+    except ReportExportNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ReportExportFileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return FileResponse(
+        path=export_data["file_path"],
+        filename=export_data["file_name"],
+        media_type=export_data["content_type"],
+        content_disposition_type="attachment",
+    )
 
 @router.post("/users/avatar")
 async def update_avatar(

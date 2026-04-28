@@ -45,14 +45,46 @@
                 <span class="text-xs text-gray-400">后端接口：`/api/v1/singing/evaluate`</span>
             </div>
 
-            <input accept=".wav,audio/wav,audio/x-wav" hidden id="reference-file-input" type="file"/>
-            <input accept=".wav,audio/wav,audio/x-wav" hidden id="user-file-input" type="file"/>
+            <input accept=".wav,.mp3,.m4a,.ogg,.flac,audio/*" hidden id="reference-file-input" type="file"/>
+            <input accept=".wav,.mp3,.m4a,.ogg,.flac,audio/*" hidden id="user-file-input" type="file"/>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                <div class="border-2 border-dashed border-gray-200 rounded-2xl h-48 flex flex-col items-center justify-center bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer group" id="reference-dropzone">
+                <div class="border border-gray-100 rounded-2xl min-h-48 bg-gray-50 p-4" id="reference-search-panel">
+                    <div class="flex items-center gap-2 mb-3">
+                        <iconify-icon class="text-2xl text-blue-400" icon="solar:magnifer-bold"></iconify-icon>
+                        <div>
+                            <p class="text-sm font-bold text-gray-600">搜索标准歌曲</p>
+                            <p class="text-xs text-gray-400">输入歌曲名、歌手或关键词，从后台曲库选择一首</p>
+                        </div>
+                    </div>
+                    <div class="flex gap-2">
+                        <input class="flex-1 bg-white border border-gray-200 rounded-xl py-3 px-4 text-sm outline-none focus:border-blue-300" id="reference-search-input" placeholder="例如：稻香 / 周杰伦 / keyword" type="search"/>
+                        <button class="secondary-btn rounded-xl px-4 text-sm font-bold" id="reference-search-btn" type="button">搜索</button>
+                    </div>
+                    <div class="mt-3 space-y-2 max-h-44 overflow-y-auto" id="reference-search-results">
+                        <div class="text-xs text-gray-400 p-3 border border-dashed border-gray-200 rounded-xl bg-white">
+                            搜索后在这里选择标准歌曲。也可以使用下方手动上传。
+                        </div>
+                    </div>
+                    <div class="mt-3 rounded-xl border border-blue-100 bg-blue-50 p-3 hidden" id="selected-reference-card">
+                        <div class="flex items-start justify-between gap-3">
+                            <div>
+                                <p class="text-xs text-blue-500 font-bold">已选择标准歌曲</p>
+                                <p class="text-sm text-blue-800 font-bold" id="selected-reference-title">--</p>
+                                <p class="text-xs text-blue-600 mt-1" id="selected-reference-meta">--</p>
+                            </div>
+                            <button class="text-xs text-blue-600 font-bold" id="reference-clear-btn" type="button">更换</button>
+                        </div>
+                    </div>
+                    <button class="w-full mt-3 py-2 rounded-xl bg-white border border-gray-200 text-xs font-bold text-gray-500 hover:text-blue-600 hover:border-blue-200" id="reference-upload-btn" type="button">
+                        手动上传标准音频备用
+                    </button>
+                    <p class="text-xs text-[#457b9d] mt-2" id="reference-file-name">尚未选择标准歌曲或上传音频</p>
+                </div>
+                <div class="hidden border-2 border-dashed border-gray-200 rounded-2xl h-48 flex-col items-center justify-center bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer group" id="reference-dropzone">
                     <iconify-icon class="text-4xl text-gray-300 group-hover:text-blue-400 transition-colors" icon="solar:music-library-2-bold"></iconify-icon>
                     <p class="mt-2 text-sm text-gray-500">上传标准 WAV 音频</p>
                     <p class="text-xs text-gray-400 mt-1">允许带伴奏，后端会先分离人声</p>
-                    <p class="text-xs text-[#457b9d] mt-3" id="reference-file-name">尚未选择标准音频</p>
+                    <p class="text-xs text-[#457b9d] mt-3" id="reference-file-name-legacy">尚未选择标准音频</p>
                 </div>
                 <div class="border-2 border-dashed border-gray-200 rounded-2xl h-48 flex flex-col items-center justify-center bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer group" id="user-dropzone">
                     <iconify-icon class="text-4xl text-gray-300 group-hover:text-blue-400 transition-colors" icon="solar:microphone-3-bold"></iconify-icon>

@@ -7,10 +7,12 @@
 
 const evaluationState = {
     referenceFile: null,
+    selectedReferenceTrack: null,
     userFile: null,
     analysis: null,
     pitchComparison: null,
     report: null,
+    referenceSearchTimer: null,
 };
 
 function setBanner(id, message, isError = false) {
@@ -79,6 +81,13 @@ function renderHeader() {
     document.getElementById("current-user-avatar").src = avatarUrl(currentUser && currentUser.username ? currentUser.username : "SeeMusic");
 }
 
+function referenceDisplayName(track = evaluationState.selectedReferenceTrack, fallbackFile = evaluationState.referenceFile) {
+    if (track) {
+        return `${track.song_name || "未知歌曲"}${track.artist_name ? ` - ${track.artist_name}` : ""}`;
+    }
+    return fallbackFile ? fallbackFile.name : "--";
+}
+
 function renderAnalysis() {
     const analysis = evaluationState.analysis;
     if (!analysis) {
@@ -124,7 +133,7 @@ function renderAnalysis() {
     const displayLabel = scoreLabel(displayScore);
 
     document.getElementById("analysis-id-display").textContent = analysis.analysis_id || "--";
-    document.getElementById("analysis-ref-display").textContent = evaluationState.referenceFile?.name || "--";
+    document.getElementById("analysis-ref-display").textContent = referenceDisplayName();
     document.getElementById("analysis-user-bpm").textContent = analysis.user_bpm ? String(Math.round(Number(analysis.user_bpm))) : "--";
     document.getElementById("analysis-reference-bpm").textContent = analysis.reference_bpm ? String(Math.round(Number(analysis.reference_bpm))) : "--";
     document.getElementById("analysis-beat-summary").textContent = errorSummary;
@@ -471,6 +480,99 @@ function escapeHtml(value) {
         .replaceAll("'", "&#39;");
 }
 
+function audioFileNameFromUrl(audioUrl) {
+    const raw = String(audioUrl || "").split("?")[0].split("#")[0];
+    const name = raw.split("/").filter(Boolean).pop() || "";
+    try {
+        return decodeURIComponent(name);
+    } catch {
+        return name;
+    }
+}
+
+function renderReferenceSearchResults(items, message = "") {
+    const container = document.getElementById("reference-search-results");
+    if (!container) {
+        return;
+    }
+    if (message) {
+        container.innerHTML = `
+            <div class="text-xs text-gray-400 p-3 border border-dashed border-gray-200 rounded-xl bg-white">
+                ${escapeHtml(message)}
+            </div>
+        `;
+        return;
+    }
+    if (!items || !items.length) {
+        container.innerHTML = `
+            <div class="text-xs text-gray-400 p-3 border border-dashed border-gray-200 rounded-xl bg-white">
+                未找到参考歌曲，可换关键词或手动上传标准音频。
+            </div>
+        `;
+        return;
+    }
+    container.innerHTML = items.map((track) => `
+        <button class="w-full text-left p-3 rounded-xl border border-gray-100 bg-white hover:border-blue-200 hover:bg-blue-50 transition-colors reference-result-btn" type="button" data-ref-id="${escapeHtml(track.ref_id)}">
+            <div class="flex items-start justify-between gap-3">
+                <div>
+                    <div class="text-sm font-bold text-gray-700">${escapeHtml(track.song_name || "未知歌曲")}</div>
+                    <div class="text-xs text-gray-500 mt-1">${escapeHtml(track.artist_name || "未知歌手")}</div>
+                </div>
+                <div class="text-[10px] text-gray-400 max-w-[160px] truncate">${escapeHtml(audioFileNameFromUrl(track.audio_url))}</div>
+            </div>
+        </button>
+    `).join("");
+    container.querySelectorAll(".reference-result-btn").forEach((button) => {
+        button.addEventListener("click", () => {
+            const refId = button.getAttribute("data-ref-id");
+            const selected = items.find((track) => track.ref_id === refId);
+            if (selected) {
+                selectReferenceTrack(selected);
+            }
+        });
+    });
+}
+
+function selectReferenceTrack(track) {
+    evaluationState.selectedReferenceTrack = track || null;
+    evaluationState.referenceFile = null;
+    const input = document.getElementById("reference-file-input");
+    if (input) {
+        input.value = "";
+    }
+    const card = document.getElementById("selected-reference-card");
+    const title = document.getElementById("selected-reference-title");
+    const meta = document.getElementById("selected-reference-meta");
+    if (track) {
+        card.classList.remove("hidden");
+        title.textContent = referenceDisplayName(track, null);
+        meta.textContent = `${track.ref_id} · ${audioFileNameFromUrl(track.audio_url)}`;
+        document.getElementById("reference-file-name").textContent = referenceDisplayName(track, null);
+        setBanner("evaluation-status", "");
+    } else {
+        card.classList.add("hidden");
+        title.textContent = "--";
+        meta.textContent = "--";
+        document.getElementById("reference-file-name").textContent = "尚未选择标准歌曲或上传音频";
+    }
+}
+
+async function searchReferenceTracks() {
+    const input = document.getElementById("reference-search-input");
+    const keyword = (input && input.value ? input.value : "").trim();
+    if (!keyword) {
+        renderReferenceSearchResults([], "请输入歌曲名、歌手或关键词。");
+        return;
+    }
+    renderReferenceSearchResults([], "正在搜索参考曲库...");
+    try {
+        const payload = await requestJson(`/reference-tracks/search?keyword=${encodeURIComponent(keyword)}&limit=10`);
+        renderReferenceSearchResults(payload.items || []);
+    } catch (error) {
+        renderReferenceSearchResults([], error.message || "参考歌曲搜索失败。");
+    }
+}
+
 async function saveHistory(payload) {
     if (!getAuthToken()) {
         return;
@@ -489,13 +591,22 @@ function setSelectedFile(kind, file) {
     const stateKey = kind === "reference" ? "referenceFile" : "userFile";
     const labelId = kind === "reference" ? "reference-file-name" : "user-file-name";
     evaluationState[stateKey] = file || null;
+    if (kind === "reference" && file) {
+        selectReferenceTrack(null);
+        evaluationState.referenceFile = file;
+    }
     document.getElementById(labelId).textContent = file
         ? `${file.name} (${Math.round(file.size / 1024)} KB)`
-        : (kind === "reference" ? "尚未选择标准音频" : "尚未选择用户音频");
+        : (kind === "reference" ? "尚未选择标准歌曲或上传音频" : "尚未选择用户音频");
+}
+
+function isSupportedAudioFile(fileName) {
+    return /\.(wav|mp3|m4a|ogg|flac|aac|opus|webm)$/i.test(fileName || "");
 }
 
 async function runEvaluation() {
     const referenceFile = evaluationState.referenceFile;
+    const selectedReferenceTrack = evaluationState.selectedReferenceTrack;
     const userFile = evaluationState.userFile;
     const userAudioMode = document.getElementById("user-audio-mode").value;
     const language = document.getElementById("evaluation-language").value;
@@ -503,21 +614,29 @@ async function runEvaluation() {
     const threshold = document.getElementById("evaluation-threshold").value;
     const submitBtn = document.getElementById("evaluation-submit-btn");
 
-    if (!referenceFile) {
-        setBanner("evaluation-status", "请先选择标准 WAV 音频。", true);
+    if (!selectedReferenceTrack && !referenceFile) {
+        setBanner("evaluation-status", "请先搜索并选择标准歌曲，或手动上传标准音频。", true);
         return;
     }
     if (!userFile) {
         setBanner("evaluation-status", "请先选择用户 WAV 音频。", true);
         return;
     }
-    if (!referenceFile.name.toLowerCase().endsWith(".wav") || !userFile.name.toLowerCase().endsWith(".wav")) {
-        setBanner("evaluation-status", "当前歌唱评估流程只接受 WAV 文件。", true);
+    if (referenceFile && !isSupportedAudioFile(referenceFile.name)) {
+        setBanner("evaluation-status", "标准音频格式需为 WAV、MP3、M4A、OGG 或 FLAC。", true);
+        return;
+    }
+    if (!isSupportedAudioFile(userFile.name)) {
+        setBanner("evaluation-status", "用户音频格式需为 WAV、MP3、M4A、OGG 或 FLAC。", true);
         return;
     }
 
     const formData = new FormData();
-    formData.append("reference_audio", referenceFile);
+    if (selectedReferenceTrack) {
+        formData.append("reference_ref_id", selectedReferenceTrack.ref_id);
+    } else {
+        formData.append("reference_audio", referenceFile);
+    }
     formData.append("user_audio", userFile);
     formData.append("user_audio_mode", userAudioMode);
     formData.append("language", language);
@@ -527,7 +646,7 @@ async function runEvaluation() {
 
     submitBtn.disabled = true;
     submitBtn.style.opacity = "0.7";
-    setBanner("evaluation-status", "正在分离标准音频人声并准备歌唱评估，请稍候...");
+    setBanner("evaluation-status", "正在准备标准歌曲人声并进行歌唱评估，请稍候...");
 
     try {
         const payload = await requestJson("/singing/evaluate", {
@@ -540,22 +659,34 @@ async function runEvaluation() {
             overall_score: payload.overall_score,
             score: payload.score,
             user_audio_mode: payload.user_audio_mode,
+            reference_track: payload.reference_track || selectedReferenceTrack || null,
+            resolved_ref_id: payload.resolved_ref_id || selectedReferenceTrack?.ref_id || null,
             reference_separation: payload.reference_separation,
             user_separation: payload.user_separation,
         };
+        if (payload.reference_track) {
+            evaluationState.selectedReferenceTrack = payload.reference_track;
+        }
         evaluationState.pitchComparison = payload.pitch_comparison || null;
         evaluationState.report = null;
 
         renderAnalysis();
         const analysisId = payload.analysis_id;
         const userModeText = userAudioMode === "with_accompaniment" ? "用户音频已分离人声" : "用户清唱直接评估";
-        setBanner("evaluation-status", `分析完成，analysis_id=${analysisId}。标准音频已分离人声，${userModeText}，音高与节奏评估已完成。`);
+        setBanner("evaluation-status", `分析完成，analysis_id=${analysisId}。标准歌曲已准备人声，${userModeText}，音高与节奏评估已完成。`);
+        const referenceTrackForHistory = payload.reference_track || selectedReferenceTrack || null;
         await saveHistory({
             type: "audio",
             resource_id: payload.analysis_id,
             title: `歌唱评估：${userFile.name}`,
             metadata: {
-                reference_file: referenceFile.name,
+                reference_file: referenceFile ? referenceFile.name : null,
+                reference_ref_id: payload.resolved_ref_id || referenceTrackForHistory?.ref_id || null,
+                reference_track: referenceTrackForHistory ? {
+                    song_name: referenceTrackForHistory.song_name,
+                    artist_name: referenceTrackForHistory.artist_name,
+                    audio_url: referenceTrackForHistory.audio_url,
+                } : null,
                 user_audio_mode: userAudioMode,
                 score: Math.round(Number(payload.overall_score || payload.score || 0)),
                 language,
@@ -563,7 +694,7 @@ async function runEvaluation() {
             },
         });
     } catch (error) {
-        setBanner("evaluation-status", error.message || "歌唱评估失败，请检查 WAV 文件或后端分离配置。", true);
+        setBanner("evaluation-status", error.message || "歌唱评估失败，请检查音频文件或后端分离配置。", true);
     } finally {
         submitBtn.disabled = false;
         submitBtn.style.opacity = "1";
@@ -690,6 +821,11 @@ function renderVariations(items) {
 function bindFileUpload() {
     bindSingleFileUpload("reference", "reference-file-input", "reference-dropzone");
     bindSingleFileUpload("user", "user-file-input", "user-dropzone");
+    const referenceUploadBtn = document.getElementById("reference-upload-btn");
+    const referenceInput = document.getElementById("reference-file-input");
+    if (referenceUploadBtn && referenceInput) {
+        referenceUploadBtn.addEventListener("click", () => referenceInput.click());
+    }
 }
 
 function bindSingleFileUpload(kind, inputId, dropzoneId) {
@@ -724,6 +860,28 @@ function bindSingleFileUpload(kind, inputId, dropzoneId) {
 
 function bindEvents() {
     bindFileUpload();
+    const searchInput = document.getElementById("reference-search-input");
+    const searchBtn = document.getElementById("reference-search-btn");
+    const clearBtn = document.getElementById("reference-clear-btn");
+    if (searchBtn) {
+        searchBtn.addEventListener("click", searchReferenceTracks);
+    }
+    if (searchInput) {
+        searchInput.addEventListener("input", () => {
+            window.clearTimeout(evaluationState.referenceSearchTimer);
+            evaluationState.referenceSearchTimer = window.setTimeout(searchReferenceTracks, 350);
+        });
+        searchInput.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                window.clearTimeout(evaluationState.referenceSearchTimer);
+                searchReferenceTracks();
+            }
+        });
+    }
+    if (clearBtn) {
+        clearBtn.addEventListener("click", () => selectReferenceTrack(null));
+    }
     document.getElementById("evaluation-submit-btn").addEventListener("click", runEvaluation);
     document.getElementById("report-export-btn").addEventListener("click", exportReport);
     document.getElementById("variation-submit-btn").addEventListener("click", loadVariations);

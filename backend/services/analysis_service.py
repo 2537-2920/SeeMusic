@@ -16,7 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from backend.config.settings import settings
 from backend.core.pitch.pitch_comparison import build_pitch_comparison_payload
-from backend.core.pitch.audio_utils import infer_audio_metadata, estimate_duration_from_bytes
+from backend.core.pitch.audio_utils import infer_audio_metadata, estimate_duration_from_bytes, load_audio_waveform
 from backend.core.pitch.pitch_detection import detect_pitch_sequence
 from backend.core.pitch.pitch_sequence_utils import (
     DEFAULT_HOP_MS,
@@ -540,22 +540,40 @@ def analyze_audio(file_name: str, audio_bytes: bytes, sample_rate: int | None = 
     }
 
 
-def _ensure_wav_upload(file_name: str, audio_bytes: bytes, label: str) -> None:
+SUPPORTED_SINGING_AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".ogg", ".flac", ".aac", ".opus", ".webm"}
+
+
+def _ensure_supported_audio_upload(file_name: str, audio_bytes: bytes, label: str) -> None:
     if not audio_bytes:
         raise ValueError(f"{label} audio is empty")
-    if not file_name.lower().endswith(".wav"):
-        raise ValueError(f"{label} audio must be a WAV file")
-    if not (audio_bytes[:4] == b"RIFF" and audio_bytes[8:12] == b"WAVE"):
+    suffix = Path(file_name or "").suffix.lower()
+    if suffix not in SUPPORTED_SINGING_AUDIO_EXTENSIONS:
+        allowed = ", ".join(sorted(SUPPORTED_SINGING_AUDIO_EXTENSIONS))
+        raise ValueError(f"{label} audio must use one of these formats: {allowed}")
+    if suffix == ".wav" and not (audio_bytes[:4] == b"RIFF" and audio_bytes[8:12] == b"WAVE"):
         raise ValueError(f"{label} audio is not a valid WAV file")
 
 
-def _write_uploaded_wav(file_name: str, audio_bytes: bytes, prefix: str) -> str:
+def _write_uploaded_wav(file_name: str, audio_bytes: bytes, prefix: str, sample_rate: int = 44100) -> str:
     storage_dir = Path(getattr(settings, "storage_dir", "temp")) / "singing_evaluation"
     storage_dir.mkdir(parents=True, exist_ok=True)
-    suffix = Path(file_name or "audio.wav").suffix or ".wav"
+    original_suffix = Path(file_name or "audio.wav").suffix.lower()
+    suffix = ".wav" if original_suffix != ".wav" else original_suffix
     with tempfile.NamedTemporaryFile(prefix=prefix, suffix=suffix, dir=storage_dir, delete=False) as handle:
-        handle.write(audio_bytes)
-        return handle.name
+        temp_path = handle.name
+        if original_suffix == ".wav":
+            handle.write(audio_bytes)
+            return temp_path
+
+    samples, decoded_rate = load_audio_waveform(
+        audio_bytes,
+        file_name=file_name,
+        sample_rate=sample_rate,
+        mono=True,
+    )
+    soundfile = _load_soundfile()
+    soundfile.write(temp_path, samples, decoded_rate or sample_rate)
+    return temp_path
 
 
 def _public_track_metadata(separation: dict[str, Any], vocal_track: dict[str, Any]) -> dict[str, Any]:
@@ -641,13 +659,16 @@ def evaluate_singing(
     separation_model: str = "demucs",
     sample_rate: int = 44100,
     pitch_sample_rate: int = 16000,
+    reference_ref_id: str | None = None,
+    reference_track: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Evaluate singing using separated reference vocals and optional user vocal separation."""
 
     normalized_mode = _normalize_user_audio_mode(user_audio_mode)
     normalized_scoring_model = _normalize_scoring_model(scoring_model)
-    _ensure_wav_upload(reference_file_name, reference_audio_bytes, "reference")
-    _ensure_wav_upload(user_file_name, user_audio_bytes, "user")
+    normalized_reference_ref_id = str(reference_ref_id or "").strip() or None
+    _ensure_supported_audio_upload(reference_file_name, reference_audio_bytes, "reference")
+    _ensure_supported_audio_upload(user_file_name, user_audio_bytes, "user")
 
     metadata = infer_audio_metadata(user_file_name, sample_rate=pitch_sample_rate)
     reference_log = record_audio_processing_log(
@@ -700,7 +721,7 @@ def evaluate_singing(
             sample_rate=sample_rate,
         )
     else:
-        user_vocal_path = _write_uploaded_wav(user_file_name, user_audio_bytes, "user_a_cappella_")
+        user_vocal_path = _write_uploaded_wav(user_file_name, user_audio_bytes, "user_a_cappella_", sample_rate=sample_rate)
         cleanup_paths.append(user_vocal_path)
         user_vocal_bytes = user_audio_bytes
 
@@ -745,6 +766,8 @@ def evaluate_singing(
             "pitch_comparison": pitch_comparison,
             "overall_score": overall_score,
             "user_audio_mode": normalized_mode,
+            "reference_ref_id": normalized_reference_ref_id,
+            "reference_track": reference_track,
             "reference_separation": reference_separation,
             "user_separation": user_separation,
             "same_audio_inputs": same_audio_inputs,
@@ -769,6 +792,8 @@ def evaluate_singing(
                 "scoring_model": normalized_scoring_model,
                 "threshold_ms": threshold_ms,
                 "separation_model": separation_model,
+                "reference_ref_id": normalized_reference_ref_id,
+                "reference_track": reference_track,
             },
             result_data=result_data,
             pitch_sequence=user_pitch_sequence,
@@ -780,6 +805,8 @@ def evaluate_singing(
             "score": rhythm_report.get("score", 0.0),
             "scoring_model": normalized_scoring_model,
             "user_audio_mode": normalized_mode,
+            "resolved_ref_id": normalized_reference_ref_id,
+            "reference_track": reference_track,
             "rhythm": rhythm_report,
             "pitch_comparison": pitch_comparison,
             "reference_pitch_sequence": reference_pitch_sequence,

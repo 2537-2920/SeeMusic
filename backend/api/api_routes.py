@@ -1576,19 +1576,41 @@ async def audio_separate_tracks(
 
 @router.post("/singing/evaluate")
 async def singing_evaluate(
-    reference_audio: UploadFile = File(...),
     user_audio: UploadFile = File(...),
+    reference_audio: UploadFile | None = File(None),
+    reference_ref_id: str | None = Form(None),
     user_audio_mode: str = Form("with_accompaniment"),
     language: str = Form("zh"),
     scoring_model: str = Form("balanced"),
     threshold_ms: float = Form(50.0),
     separation_model: str = Form("demucs"),
 ):
-    reference_content = await reference_audio.read()
+    normalized_ref_id = str(reference_ref_id or "").strip()
+    has_reference_upload = reference_audio is not None
+    has_reference_ref_id = bool(normalized_ref_id)
+    if has_reference_upload == has_reference_ref_id:
+        raise HTTPException(status_code=400, detail="reference_audio and reference_ref_id must be provided exactly one at a time")
+
+    reference_track: dict[str, Any] | None = None
+    resolved_ref_id: str | None = None
+    if has_reference_ref_id:
+        reference_path, reference_track = _resolve_reference_audio_source(normalized_ref_id)
+        resolved_ref_id = reference_track["ref_id"] if reference_track else normalized_ref_id
+        reference_file_name = os.path.basename(reference_path)
+        try:
+            with open(reference_path, "rb") as handle:
+                reference_content = handle.read()
+        except OSError as exc:
+            raise HTTPException(status_code=404, detail=f"参考音频文件无法读取：{reference_path}") from exc
+    else:
+        assert reference_audio is not None
+        reference_file_name = reference_audio.filename or "reference.wav"
+        reference_content = await reference_audio.read()
+
     user_content = await user_audio.read()
     try:
         result = evaluate_singing(
-            reference_file_name=reference_audio.filename or "reference.wav",
+            reference_file_name=reference_file_name,
             reference_audio_bytes=reference_content,
             user_file_name=user_audio.filename or "user.wav",
             user_audio_bytes=user_content,
@@ -1597,6 +1619,8 @@ async def singing_evaluate(
             scoring_model=scoring_model,
             threshold_ms=threshold_ms,
             separation_model=separation_model,
+            reference_ref_id=resolved_ref_id,
+            reference_track=reference_track,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import base64
 import json
 import os
 import uuid
@@ -1358,6 +1359,16 @@ def list_community_tags():
     return ok(list_community_tags_data())
 
 
+@router.get("/community/scores/{score_id}/cover")
+def get_community_score_cover_api(score_id: str):
+    from backend.services.community_service import get_community_score_cover
+    try:
+        image_bytes, content_type = get_community_score_cover(score_id)
+        return Response(content=image_bytes, media_type=content_type)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/community/scores/{score_id}")
 def get_community_score_detail(score_id: str, authorization: str = Header(default="")):
     current_user = optional_user_from_authorization(authorization)
@@ -1376,7 +1387,7 @@ def publish_community_score(payload: CommunityScorePublishRequest, authorization
 @router.post("/community/scores/upload")
 async def upload_community_score(
     file: UploadFile = File(...),
-    file_content_base64: str = Form(...), 
+    # file_content_base64: str = Form(...), 
     cover_file: UploadFile | None = File(default=None),
     title: str = Form(...),
     style: str = Form("精选"),
@@ -1386,24 +1397,39 @@ async def upload_community_score(
     tags: str = Form(""),
     authorization: str = Header(default=""),
 ):
-    content = await file.read()
+    import asyncio
+    import functools
+    # Concurrently read file + cover, then encode in thread pool
+    reads = [file.read()]
+    if cover_file is not None:
+        reads.append(cover_file.read())
+    read_results = await asyncio.gather(*reads)
+    content = read_results[0]
+    cover_content = read_results[1] if cover_file is not None else None
+
     if not content:
         raise HTTPException(status_code=400, detail="empty upload file")
     if len(content) > COMMUNITY_SCORE_MAX_BYTES:
         raise HTTPException(status_code=400, detail="file exceeds 20MB limit")
-
-    cover_url = None
-    if cover_file is not None:
-        cover_content = await cover_file.read()
+    if cover_content is not None:
         if not cover_content:
             raise HTTPException(status_code=400, detail="empty cover file")
         if len(cover_content) > COMMUNITY_COVER_MAX_BYTES:
             raise HTTPException(status_code=400, detail="cover image exceeds 5MB limit")
         _resolve_cover_suffix(cover_file)
+
+    # Offload CPU-heavy base64 encode to thread pool to avoid blocking event loop
+    loop = asyncio.get_event_loop()
+    base64_string = await loop.run_in_executor(
+        None, functools.partial(base64.b64encode, content)
+    )
+    base64_string = base64_string.decode('utf-8')
+
+    cover_url = None
     current_user = optional_user_from_authorization(authorization)
     payload = {
         "title": title,
-        "file_content_base64": file_content_base64,
+        "file_content_base64":base64_string,
         "description": description,
         "style": style,
         "instrument": instrument,

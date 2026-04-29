@@ -53,6 +53,13 @@
         <p class="text-sm text-gray-400 mb-6" id="community-status">正在加载社区乐谱...</p>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-8" id="score-grid"></div>
+        
+        <!-- 分页控件 -->
+        <div class="flex justify-center items-center gap-4 mt-10" id="pagination-controls">
+            <button class="px-6 py-2 rounded-full bg-white text-gray-600 border border-gray-200 text-sm font-medium shadow-sm disabled:opacity-50 disabled:cursor-not-allowed hover:border-[#a8dadc] transition-all" id="prev-page-btn" type="button">上一页</button>
+            <span class="text-sm text-gray-600 font-medium" id="page-info">第 1 页</span>
+            <button class="px-6 py-2 rounded-full bg-white text-gray-600 border border-gray-200 text-sm font-medium shadow-sm disabled:opacity-50 disabled:cursor-not-allowed hover:border-[#a8dadc] transition-all" id="next-page-btn" type="button">下一页</button>
+        </div>
     </div>
 
     <div class="w-[380px] hidden xl:block" id="detail-panel">

@@ -14,6 +14,8 @@ const state = {
     activeTag: "",
     keyword: "",
     tags: [],
+    page: 1,
+    totalPages: 1,
 };
 
 const searchInput = document.getElementById("search-input");
@@ -482,15 +484,15 @@ function renderDetail() {
     detailFavoriteBtn.innerHTML = `<iconify-icon class="text-xl" icon="${score.favorited ? "solar:bookmark-bold" : "solar:bookmark-outline"}"></iconify-icon>`;
 
     const commentsList = document.getElementById("detail-comments-list");
-if (!state.selectedComments.length) {
-    commentsList.innerHTML = '<p class="text-xs text-gray-400">还没有评论，来成为第一个留言的人。</p>';
-} else {
-    commentsList.innerHTML = state.selectedComments.map((comment) => {
-        // 1. 先计算出应该显示的名字（优先昵称，其次用户名，最后保底）
-        const displayName = comment.nickname || comment.username || "社区用户";
-        
-        // 2. 构造 HTML
-        return `
+    if (!state.selectedComments.length) {
+        commentsList.innerHTML = '<p class="text-xs text-gray-400">还没有评论，来成为第一个留言的人。</p>';
+    } else {
+        commentsList.innerHTML = state.selectedComments.map((comment) => {
+            // 1. 先计算出应该显示的名字（优先昵称，其次用户名，最后保底）
+            const displayName = comment.nickname || comment.username || "社区用户";
+
+            // 2. 构造 HTML
+            return `
             <div class="flex gap-3">
                 <!-- 头像部分：使用我们之前优化过的对象传参 -->
                 <img alt="${escapeHtml(displayName)}" 
@@ -509,8 +511,8 @@ if (!state.selectedComments.length) {
                 </div>
             </div>
         `;
-    }).join("");
-}
+        }).join("");
+    }
 }
 
 function syncItem(scoreId, patch) {
@@ -526,9 +528,19 @@ async function loadTags() {
     renderTags();
 }
 
+function updatePaginationUI() {
+    const prevBtn = document.getElementById("prev-page-btn");
+    const nextBtn = document.getElementById("next-page-btn");
+    const pageInfo = document.getElementById("page-info");
+
+    if (prevBtn) prevBtn.disabled = state.page <= 1;
+    if (nextBtn) nextBtn.disabled = state.page >= state.totalPages;
+    if (pageInfo) pageInfo.textContent = `第 ${state.page} 页 / 共 ${state.totalPages} 页`;
+}
+
 async function loadScores(preferredScoreId = "") {
     const query = new URLSearchParams();
-    query.set("page", "1");
+    query.set("page", String(state.page || 1));
     query.set("page_size", "20");
     if (state.keyword) {
         query.set("keyword", state.keyword);
@@ -540,7 +552,9 @@ async function loadScores(preferredScoreId = "") {
     setStatus("正在同步社区乐谱...");
     const data = await requestJson(`/community/scores?${query.toString()}`);
     state.items = data.items || [];
+    state.totalPages = Math.ceil((data.total || 0) / 20) || 1;
     renderGrid();
+    updatePaginationUI();
     setStatus(`已连接后端，当前共 ${data.total || 0} 份社区乐谱。`);
 
     const targetScoreId = preferredScoreId
@@ -663,7 +677,7 @@ async function handleDownload() {
     try {
         const myBlob = await requestJson(`/community/scores/${encodeURIComponent(score.score_id)}/download`, {
             method: "POST",
-            responseType: 'blob' 
+            responseType: 'blob'
         });
         const url = window.URL.createObjectURL(myBlob);
         const a = document.createElement('a');
@@ -675,14 +689,14 @@ async function handleDownload() {
         window.URL.revokeObjectURL(url);
 
         setStatus("下载成功！");
-        
-         const updatedInfo = await requestJson(`/community/scores/${encodeURIComponent(score.score_id)}`, {
-            method: "GET" 
+
+        const updatedInfo = await requestJson(`/community/scores/${encodeURIComponent(score.score_id)}`, {
+            method: "GET"
         });
-        const scoreData = updatedInfo.score; 
+        const scoreData = updatedInfo.score;
 
         syncItem(score.score_id, {
-             downloads: scoreData.downloads,
+            downloads: scoreData.downloads,
             download_count_display: scoreData.download_count_display
         });
 
@@ -758,22 +772,17 @@ async function handleUploadSubmit() {
         setUploadStatus("请选择乐器类型。", true);
         return;
     }
-    const base64File = await new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result.split(',')[1]); 
-        reader.readAsDataURL(file);
-    });
 
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("file_content_base64", base64File); 
+    // formData.append("file_content_base64", base64File); 
     formData.append("title", title);
     formData.append("style", style);
     formData.append("instrument", instrument);
     formData.append("price", String(Number.isFinite(price) ? price : 0));
     formData.append("description", description);
     formData.append("tags", tags);
-    formData.append("file_content_base64", base64File); 
+    // formData.append("file_content_base64", base64File); 
     if (coverFile) {
         formData.append("cover_file", coverFile);
     }
@@ -801,8 +810,7 @@ async function handleUploadSubmit() {
         });
         resetUploadForm();
         toggleModal("upload-modal", false);
-        await loadTags();
-        await loadScores(payload.score_id);
+        await Promise.all([loadTags(), loadScores(payload.score_id)]);
     } catch (error) {
         setUploadStatus(error.message || "上传失败，请稍后重试。", true);
     } finally {
@@ -887,12 +895,14 @@ function bindEvents() {
             return;
         }
         state.activeTag = button.dataset.tag || "";
+        state.page = 1;
         loadScores().catch((error) => setStatus(error.message || "加载乐谱失败。", true));
         renderTags();
     });
 
     searchInput.addEventListener("input", (event) => {
         state.keyword = event.target.value.trim();
+        state.page = 1;
         window.clearTimeout(searchTimer);
         searchTimer = window.setTimeout(() => {
             loadScores().catch((error) => setStatus(error.message || "搜索失败。", true));
@@ -902,6 +912,27 @@ function bindEvents() {
     detailLikeBtn.addEventListener("click", handleLikeToggle);
     detailDownloadBtn.addEventListener("click", handleDownload);
     detailFavoriteBtn.addEventListener("click", handleFavoriteToggle);
+
+    const prevBtn = document.getElementById("prev-page-btn");
+    const nextBtn = document.getElementById("next-page-btn");
+
+    if (prevBtn) {
+        prevBtn.addEventListener("click", () => {
+            if (state.page > 1) {
+                state.page--;
+                loadScores().catch((error) => setStatus(error.message || "加载上一页失败。", true));
+            }
+        });
+    }
+
+    if (nextBtn) {
+        nextBtn.addEventListener("click", () => {
+            if (state.page < state.totalPages) {
+                state.page++;
+                loadScores().catch((error) => setStatus(error.message || "加载下一页失败。", true));
+            }
+        });
+    }
     detailShareBtn.addEventListener("click", async () => {
         const score = state.selectedDetail && state.selectedDetail.score;
         if (!score) {

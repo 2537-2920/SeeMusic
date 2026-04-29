@@ -107,27 +107,6 @@ def _first_child_text(parent: ET.Element | None, child_name: str) -> str:
     return str(child.text or "").strip() if child is not None else ""
 
 
-def _is_punctuation(char: str) -> bool:
-    return bool(char) and unicodedata.category(char).startswith("P")
-
-
-def _guess_lyric_joiner(tokens: list[str]) -> str:
-    meaningful = [token for token in tokens if token]
-    if not meaningful:
-        return ""
-    if all(len(token) == 1 and (_CJK_RE.search(token) or _is_punctuation(token)) for token in meaningful):
-        return ""
-    return " "
-
-
-def _join_lyric_tokens(tokens: list[str]) -> str:
-    meaningful = [str(token or "").strip() for token in tokens if str(token or "").strip()]
-    if not meaningful:
-        return ""
-    joiner = _guess_lyric_joiner(meaningful)
-    return joiner.join(meaningful) if joiner else "".join(meaningful)
-
-
 def _note_pitch_class(note: str | None) -> int | None:
     if not note:
         return None
@@ -724,7 +703,7 @@ def _target_measures_per_line(time_signature: str, total_measures: int) -> int:
     return 4
 
 
-def _build_lyric_lines(measures: list[dict[str, Any]], *, time_signature: str) -> list[dict[str, Any]]:
+def _build_display_lines(measures: list[dict[str, Any]], *, time_signature: str) -> list[dict[str, Any]]:
     if not measures:
         return []
 
@@ -747,12 +726,11 @@ def _build_lyric_lines(measures: list[dict[str, Any]], *, time_signature: str) -
         lines.append(
             {
                 "line_no": line_no,
-                "line_label": f"歌词行 {line_no}",
+                "line_label": f"第 {line_no} 行",
                 "measure_start": int(line_measures[0]["measure_no"]),
                 "measure_end": int(line_measures[-1]["measure_no"]),
                 "measure_count": len(line_measures),
                 "cadence": _measure_cadence_type(line_measures[-1]),
-                "lyric_placeholder": f"歌词待补 / Line {line_no}",
                 "measures": line_measures,
             }
         )
@@ -762,44 +740,12 @@ def _build_lyric_lines(measures: list[dict[str, Any]], *, time_signature: str) -
     return lines
 
 
-def _apply_lyric_events_to_lines(
-    lyric_lines: list[dict[str, Any]],
-    lyric_events: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    if not lyric_lines or not lyric_events:
-        return lyric_lines
-
-    updated_lines: list[dict[str, Any]] = []
-    sorted_events = sorted(
-        [dict(event) for event in lyric_events if str(event.get("text") or "").strip()],
-        key=lambda item: (
-            int(item.get("measure_no") or 1),
-            float(item.get("start_beat") or 1.0),
-            int(item.get("event_index") or 0),
-        ),
-    )
-    for line in lyric_lines:
-        measure_start = int(line.get("measure_start") or 1)
-        measure_end = int(line.get("measure_end") or measure_start)
-        line_tokens = [
-            str(event.get("text") or "").strip()
-            for event in sorted_events
-            if measure_start <= int(event.get("measure_no") or 0) <= measure_end
-        ]
-        line_text = _join_lyric_tokens(line_tokens)
-        updated_line = dict(line)
-        if line_text:
-            updated_line["lyric_text"] = line_text
-        updated_lines.append(updated_line)
-    return updated_lines
-
-
 def _build_sections(
-    lyric_lines: list[dict[str, Any]],
+    lines: list[dict[str, Any]],
     *,
     time_signature: str,
 ) -> list[dict[str, Any]]:
-    if not lyric_lines:
+    if not lines:
         return []
 
     target_section_measures = 8 if _target_measures_per_line(time_signature, 8) >= 4 else 4
@@ -807,10 +753,10 @@ def _build_sections(
     current_lines: list[dict[str, Any]] = []
     section_no = 1
 
-    for index, line in enumerate(lyric_lines):
+    for index, line in enumerate(lines):
         current_lines.append(line)
         measure_count = sum(int(item.get("measure_count") or 0) for item in current_lines)
-        at_last_line = index == len(lyric_lines) - 1
+        at_last_line = index == len(lines) - 1
         cadence = str(line.get("cadence") or "open")
         cadence_break = len(current_lines) >= 2 and cadence in {"resolved", "half"}
         reached_target = measure_count >= target_section_measures
@@ -832,8 +778,7 @@ def _build_sections(
                 "line_start": int(current_lines[0]["line_no"]),
                 "line_end": int(current_lines[-1]["line_no"]),
                 "cadence": cadence,
-                "lyric_placeholder": f"段落 {section_label} / 待填歌词",
-                "lyric_lines": current_lines,
+                "lines": current_lines,
             }
         )
         current_lines = []
@@ -842,7 +787,7 @@ def _build_sections(
     return sections
 
 
-def _build_display_line_tokens(measures: list[dict[str, Any]], lyric_text: str) -> list[dict[str, Any]]:
+def _build_display_line_tokens(measures: list[dict[str, Any]]) -> list[dict[str, Any]]:
     tokens: list[dict[str, Any]] = []
     for measure_index, measure in enumerate(measures):
         measure_no = int(measure.get("measure_no") or (measure_index + 1))
@@ -863,30 +808,26 @@ def _build_display_line_tokens(measures: list[dict[str, Any]], lyric_text: str) 
                 )
                 if chord_index < len(chords) - 1:
                     tokens.append({"type": "spacer", "measure_no": measure_no, "width": "beat"})
-        if measure_index == 0:
-            tokens.append({"type": "lyric", "measure_no": measure_no, "text": lyric_text})
     return tokens
 
 
-def _build_display_lines(lyric_lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    lines: list[dict[str, Any]] = []
-    for line in lyric_lines:
+def _normalize_display_lines(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized_lines: list[dict[str, Any]] = []
+    for line in lines:
         measures = list(line.get("measures") or [])
-        lyric_text = str(line.get("lyric_text") or line.get("lyric_placeholder") or "歌词待补").strip() or "歌词待补"
-        lines.append(
+        normalized_lines.append(
             {
-                "line_no": int(line.get("line_no") or (len(lines) + 1)),
-                "line_label": line.get("line_label") or f"歌词行 {len(lines) + 1}",
+                "line_no": int(line.get("line_no") or (len(normalized_lines) + 1)),
+                "line_label": line.get("line_label") or f"第 {len(normalized_lines) + 1} 行",
                 "measure_start": int(line.get("measure_start") or (measures[0]["measure_no"] if measures else 1)),
                 "measure_end": int(line.get("measure_end") or (measures[-1]["measure_no"] if measures else 1)),
                 "measure_count": int(line.get("measure_count") or len(measures)),
                 "cadence": line.get("cadence") or "open",
-                "lyric_text": lyric_text,
                 "measures": measures,
-                "tokens": _build_display_line_tokens(measures, lyric_text),
+                "tokens": _build_display_line_tokens(measures),
             }
         )
-    return lines
+    return normalized_lines
 
 
 def _parse_chord_symbol(symbol: str) -> tuple[str, str]:
@@ -1105,7 +1046,7 @@ def _base_strumming_patterns(style: str, time_signature: str, tempo: int) -> dic
         role_label="主歌",
         pattern="D DU UDU",
         slots=["D", None, "D", "U", None, "U", "D", "U"],
-        description="主歌保留呼吸感，适合把旋律和歌词托住。",
+        description="主歌保留呼吸感，适合把旋律线条托住。",
         difficulty="easy",
         feel="verse_pop",
         time_signature=time_signature,
@@ -1209,7 +1150,7 @@ def _build_display_sections(
     )
     for index, section in enumerate(sections):
         pattern = section_patterns[index] if index < len(section_patterns) else None
-        display_lines = _build_display_lines(list(section.get("lyric_lines") or []))
+        display_lines = _normalize_display_lines(list(section.get("lines") or []))
         display_sections.append(
             {
                 "section_no": int(section.get("section_no") or (index + 1)),
@@ -1265,11 +1206,54 @@ def _build_chord_diagrams(
     return diagrams
 
 
+def _extract_user_techniques(note_el: "ET.Element") -> list[str]:
+    """Read user-set MusicXML <notations> on a <note> element and return a
+    canonical list of technique tags. These tags are honored by the
+    guzheng/dizi pipelines (see ``_technique_tags`` in each notation module)
+    so that manual edits made in the frontend round-trip into the final
+    LilyPond/PDF export.
+
+    Tags use the same vocabulary as the heuristic "*候选" tags so the export
+    label-mapping table stays uniform; "user_*" prefix marks them as
+    user-asserted (not heuristic) and lets the merge step give them priority.
+    """
+    notations = next((item for item in note_el if _local_name(item.tag) == "notations"), None)
+    if notations is None:
+        return []
+    tags: list[str] = []
+    for child in notations:
+        local = _local_name(child.tag)
+        if local == "ornaments":
+            for orn in child:
+                orn_local = _local_name(orn.tag)
+                if orn_local == "trill-mark":
+                    tags.append("user_trill")
+                elif orn_local in {"mordent", "inverted-mordent"}:
+                    tags.append("user_mordent")
+                elif orn_local == "tremolo":
+                    tags.append("user_tremolo")
+        elif local == "technical":
+            for tech in child:
+                tech_local = _local_name(tech.tag)
+                if tech_local == "harmonic":
+                    tags.append("user_harmonic")
+        elif local == "articulations":
+            for art in child:
+                art_local = _local_name(art.tag)
+                if art_local == "staccato":
+                    tags.append("user_staccato")
+                elif art_local == "accent":
+                    tags.append("user_accent")
+        elif local in {"glissando", "slide"}:
+            tags.append("user_glissando")
+    return tags
+
+
 def extract_lead_sheet_source_from_musicxml(musicxml: str) -> dict[str, Any]:
     root = ET.fromstring(musicxml.encode("utf-8"))
     part = next((child for child in root if _local_name(child.tag) == "part"), None)
     if part is None:
-        return {"melody": [], "lyric_events": []}
+        return {"melody": []}
 
     melody: list[dict[str, Any]] = []
     lyric_events: list[dict[str, Any]] = []
@@ -1313,28 +1297,17 @@ def extract_lead_sheet_source_from_musicxml(musicxml: str) -> dict[str, Any]:
             octave = _first_child_text(pitch_el, "octave") or "4"
             alter = int(float(alter_text or 0))
             accidental = "#" if alter == 1 else "b" if alter == -1 else ""
+            user_techniques = _extract_user_techniques(child)
             melody.append(
                 {
                     "measure_no": measure_no,
                     "start_beat": round(start_divisions / current_divisions + 1.0, 3),
                     "beats": beats,
                     "pitch": f"{step}{accidental}{octave}",
+                    "user_techniques": user_techniques,
                 }
             )
-
-            lyric_el = next((item for item in child if _local_name(item.tag) == "lyric"), None)
-            lyric_text = _first_child_text(lyric_el, "text")
-            if lyric_text:
-                lyric_events.append(
-                    {
-                        "measure_no": measure_no,
-                        "start_beat": round(start_divisions / current_divisions + 1.0, 3),
-                        "text": lyric_text,
-                        "syllabic": _first_child_text(lyric_el, "syllabic") or None,
-                        "event_index": len(lyric_events),
-                    }
-                )
-    return {"melody": melody, "lyric_events": lyric_events}
+    return {"melody": melody}
 
 
 def extract_melody_from_musicxml(musicxml: str) -> list[dict[str, Any]]:
@@ -1387,10 +1360,8 @@ def generate_guitar_lead_sheet(
         for chord in chosen_chords
     }
     measures = _group_slots_into_measures(chosen_chords, time_signature=time_signature)
-    lyric_lines = _build_lyric_lines(measures, time_signature=time_signature)
-    lyric_lines = _apply_lyric_events_to_lines(lyric_lines, list(lyric_events or []))
-    sections = _build_sections(lyric_lines, time_signature=time_signature)
-    display_lines = _build_display_lines(lyric_lines)
+    display_lines = _normalize_display_lines(_build_display_lines(measures, time_signature=time_signature))
+    sections = _build_sections(display_lines, time_signature=time_signature)
     capo_suggestion = _suggest_capo(chosen_chords, key_signature=normalized_key)
     strumming_pattern = _suggest_strumming_pattern(
         style,
@@ -1419,7 +1390,6 @@ def generate_guitar_lead_sheet(
         "melody_size": len(normalized_melody),
         "chords": chosen_chords,
         "measures": measures,
-        "lyric_lines": lyric_lines,
         "display_lines": display_lines,
         "sections": sections,
         "display_sections": display_sections,

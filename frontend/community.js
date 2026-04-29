@@ -3,6 +3,7 @@ const {
     getCurrentUser,
     getAuthToken,
     avatarUrl,
+    syncPageUsers,
 } = window.SeeMusicApp;
 
 const state = {
@@ -19,7 +20,6 @@ const searchInput = document.getElementById("search-input");
 const tagBar = document.getElementById("tag-bar");
 const statusEl = document.getElementById("community-status");
 const scoreGrid = document.getElementById("score-grid");
-const headerAvatar = document.getElementById("header-avatar");
 const uploadFileInput = document.getElementById("upload-file-input");
 const uploadFileName = document.getElementById("upload-file-name");
 const uploadCoverInput = document.getElementById("upload-cover-input");
@@ -839,8 +839,10 @@ function toggleModal(id, show) {
 }
 
 function updateHeader() {
-    const currentUser = getCurrentUser();
-    headerAvatar.src = currentUser ? avatarUrl(currentUser) : avatarUrl("SeeMusic");
+    syncPageUsers({
+        fallbackName: "游客模式",
+        fallbackSeed: "SeeMusic",
+    });
 }
 
 function escapeHtml(value) {

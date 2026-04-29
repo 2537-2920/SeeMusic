@@ -6,7 +6,6 @@ import backend.api.api_routes as api_routes_module
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import SQLAlchemyError
 
-from backend.core.pitch.audio_utils import AudioDependencyError
 from backend.services.analysis_service import save_analysis_result
 import backend.services.score_service as score_service
 from backend.db.models import Project, Sheet
@@ -248,7 +247,7 @@ def test_score_creation_from_audio_route_can_return_precise_piano_melody_mode(
     assert body["score_id"]
 
 
-def test_score_creation_from_audio_route_accepts_mp3_and_optional_lrc(
+def test_score_creation_from_audio_route_accepts_mp3_without_lyrics_fields(
     score_database: dict[str, int | str],
     monkeypatch,
 ) -> None:
@@ -290,13 +289,10 @@ def test_score_creation_from_audio_route_accepts_mp3_and_optional_lrc(
     with TestClient(app) as client:
         response = client.post(
             "/api/v1/score/from-audio",
-            files=[
-                ("file", ("tongnian.mp3", b"demo-audio", "audio/mpeg")),
-                ("lyrics_file", ("tongnian.lrc", "[00:00.00]你好 世界".encode("utf-8"), "text/plain")),
-            ],
+            files={"file": ("tongnian.mp3", b"demo-audio", "audio/mpeg")},
             data={
                 "user_id": str(score_database["user_id"]),
-                "title": "带歌词钢琴谱",
+                "title": "钢琴谱",
                 "tempo": "120",
                 "time_signature": "4/4",
                 "frame_ms": "20",
@@ -309,27 +305,22 @@ def test_score_creation_from_audio_route_accepts_mp3_and_optional_lrc(
 
     assert response.status_code == 200
     body = response.json()["data"]
-    assert body["lyrics_import"]["source"] == "lrc"
-    assert body["lyrics_import"]["alignment_mode"] == "timestamped_lines"
-    assert body["lyrics_import"]["note_count_with_lyrics"] == 2
-    assert body["summary"]["has_lyrics"] is True
-    assert body["summary"]["lyric_note_count"] == 2
-    assert "<lyric>" in body["musicxml"]
+    assert body["summary"]["has_lyrics"] is False
+    assert body["summary"]["lyric_note_count"] == 0
+    assert "lyrics_import" not in body
+    assert "lyrics_mode" not in body
+    assert "<lyric>" not in body["musicxml"]
 
-
-def test_guitar_lead_sheet_from_audio_route_accepts_lrc_lyrics(monkeypatch) -> None:
-    captured: dict[str, object] = {}
-
+def test_guitar_lead_sheet_from_audio_route_ignores_legacy_lyrics_payload(monkeypatch) -> None:
     def fake_guitar_pipeline(**kwargs):
         from backend.core.guitar.lead_sheet import generate_guitar_lead_sheet as build_lead_sheet
 
-        captured["lyrics_payload"] = kwargs.get("lyrics_payload")
         payload = build_lead_sheet(
             key="C",
             tempo=120,
             time_signature="4/4",
             style="folk",
-            title="带歌词吉他谱",
+            title="吉他谱",
             melody=[
                 {"measure_no": 1, "start_beat": 1.0, "beats": 2.0, "pitch": "C4"},
                 {"measure_no": 1, "start_beat": 3.0, "beats": 2.0, "pitch": "D4"},
@@ -349,9 +340,8 @@ def test_guitar_lead_sheet_from_audio_route_accepts_lrc_lyrics(monkeypatch) -> N
                 "melody_track_candidates": [],
                 "separation": {"status": "completed", "tracks": [{"name": "vocal"}]},
                 "warnings": [],
-                "pipeline": {"separation_enabled": True, "beat_detection_enabled": False},
-                "lyrics_import": kwargs.get("lyrics_payload"),
-            }
+                "lyrics_import": {"source": "lrc", "line_count": 1},
+            },
         )
         return payload
 
@@ -365,7 +355,7 @@ def test_guitar_lead_sheet_from_audio_route_accepts_lrc_lyrics(monkeypatch) -> N
                 ("lyrics_file", ("tongnian.lrc", "[00:00.00]你 好".encode("utf-8"), "text/plain")),
             ],
             data={
-                "title": "带歌词吉他谱",
+                "title": "吉他谱",
                 "tempo": "120",
                 "time_signature": "4/4",
                 "style": "folk",
@@ -376,147 +366,14 @@ def test_guitar_lead_sheet_from_audio_route_accepts_lrc_lyrics(monkeypatch) -> N
 
     assert response.status_code == 200
     body = response.json()["data"]
-    assert captured["lyrics_payload"] is not None
-    assert body["lyrics_import"]["source"] == "lrc"
-    assert body["lyrics_import"]["line_count"] == 1
-    assert body["lyrics_mode"] == "file"
-    assert body["lyrics_language"] == "zh"
+    assert "lyrics_import" not in body
+    assert "lyrics_mode" not in body
+    assert "lyrics_language" not in body
+    assert "lyric_lines" not in body
+    assert all("lyric_text" not in line for line in body["display_lines"])
 
 
-def test_score_creation_from_audio_route_accepts_async_whisperx_mode(
-    score_database: dict[str, int | str],
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(api_routes_module, "validate_whisperx_runtime", lambda: None)
-
-    def fake_async_task(**kwargs):
-        score = score_service.create_score_from_pitch_sequence(
-            {
-                "user_id": score_database["user_id"],
-                "title": "WhisperX Async Score",
-                "analysis_id": kwargs["analysis_id"],
-                "tempo": 96,
-                "time_signature": "4/4",
-                "key_signature": "C",
-                "arrangement_mode": "piano_solo",
-                "pitch_sequence": [
-                    {"time": 0.0, "frequency": 261.63, "duration": 0.5, "note": "C4"},
-                    {"time": 0.5, "frequency": 293.66, "duration": 0.5, "note": "D4"},
-                ],
-                "lyrics_payload": {
-                    "status": "imported",
-                    "source": "whisperx_asr",
-                    "has_timestamps": True,
-                    "timing_kind": "token",
-                    "lines": [
-                        {
-                            "time": 0.0,
-                            "text": "你好",
-                            "tokens": [
-                                {"text": "你", "time": 0.0},
-                                {"text": "好", "time": 0.5},
-                            ],
-                        }
-                    ],
-                    "line_count": 1,
-                    "warnings": [],
-                    "language": "zh",
-                },
-            }
-        )
-        save_analysis_result(
-            analysis_id=kwargs["analysis_id"],
-            file_name=kwargs["file_name"],
-            sample_rate=kwargs["sample_rate"],
-            duration=kwargs["duration"],
-            bpm=96,
-            status=1,
-            params={"lyrics_mode": "asr_whisperx"},
-            result_data={
-                "task_status": "completed",
-                "task_stage": "completed",
-                "lyrics_mode": "asr_whisperx",
-                "score_id": score["score_id"],
-                "arrangement_mode": "piano_solo",
-                "score_mode": score.get("score_mode"),
-                "detected_key_signature": "C",
-                "beat_result": {"bpm": 96.0, "beat_times": [0.0, 0.625]},
-                "tempo_detection": {"resolved_tempo": 96, "used_detected_tempo": True},
-                "key_detection": {"key_signature": "C", "confidence": 0.8},
-                "separation": {"status": "completed", "tracks": [{"name": "vocal"}]},
-                "melody_track": {"name": "vocal", "source": "separated_track"},
-                "melody_track_candidates": [],
-                "pipeline": {"separation_enabled": True, "beat_detection_enabled": True},
-                "piano_arrangement": score.get("piano_arrangement"),
-                "lyrics_import": score.get("lyrics_import"),
-                "warnings": [],
-            },
-            pitch_sequence=[
-                {"time": 0.0, "frequency": 261.63, "duration": 0.5, "note": "C4"},
-                {"time": 0.5, "frequency": 293.66, "duration": 0.5, "note": "D4"},
-            ],
-            user_id=score_database["user_id"],
-        )
-
-    monkeypatch.setattr(api_routes_module, "_run_async_piano_score_from_audio_task", fake_async_task)
-
-    with TestClient(app) as client:
-        accepted = client.post(
-            "/api/v1/score/from-audio",
-            files={"file": ("async.mp3", b"demo-audio", "audio/mpeg")},
-            data={
-                "user_id": str(score_database["user_id"]),
-                "title": "WhisperX Async Score",
-                "tempo": "120",
-                "time_signature": "4/4",
-                "lyrics_mode": "asr_whisperx",
-            },
-        )
-        assert accepted.status_code == 200
-        accepted_body = accepted.json()["data"]
-        assert accepted_body["accepted"] is True
-        assert accepted_body["task_status"] == "pending"
-        assert accepted_body["task_stage"] == "queued"
-
-        detail = client.get(f"/api/v1/analysis/{accepted_body['analysis_id']}")
-
-    assert detail.status_code == 200
-    body = detail.json()["data"]
-    assert body["task_status"] == "completed"
-    assert body["lyrics_import"]["source"] == "whisperx_asr"
-    assert body["lyrics_import"]["language"] == "zh"
-    assert body["summary"]["has_lyrics"] is True
-    assert "<lyric>" in body["musicxml"]
-
-
-def test_score_creation_from_audio_route_rejects_whisperx_when_runtime_missing(
-    score_database: dict[str, int | str],
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(
-        api_routes_module,
-        "validate_whisperx_runtime",
-        lambda: (_ for _ in ()).throw(AudioDependencyError("当前环境缺少 ffmpeg，无法运行 WhisperX 自动歌词识别。")),
-    )
-
-    with TestClient(app) as client:
-        response = client.post(
-            "/api/v1/score/from-audio",
-            files={"file": ("async.mp3", b"demo-audio", "audio/mpeg")},
-            data={
-                "user_id": str(score_database["user_id"]),
-                "title": "WhisperX Missing Runtime",
-                "tempo": "120",
-                "time_signature": "4/4",
-                "lyrics_mode": "asr_whisperx",
-            },
-        )
-
-    assert response.status_code == 503
-    assert "ffmpeg" in response.json()["detail"]
-
-
-def test_analysis_detail_route_returns_pending_task_payload():
+def test_analysis_detail_route_strips_legacy_lyrics_fields():
     save_analysis_result(
         analysis_id="an_async_pending",
         file_name="demo.mp3",
@@ -524,11 +381,12 @@ def test_analysis_detail_route_returns_pending_task_payload():
         duration=30.0,
         bpm=None,
         status=0,
-        params={"lyrics_mode": "asr_whisperx"},
+        params={"lyrics_mode": "file", "source": "legacy"},
         result_data={
             "task_status": "running",
-            "task_stage": "asr_transcription",
-            "lyrics_mode": "asr_whisperx",
+            "task_stage": "score_build",
+            "lyrics_mode": "file",
+            "lyrics_import": {"source": "lrc"},
             "warnings": [],
         },
         pitch_sequence=[],
@@ -540,8 +398,21 @@ def test_analysis_detail_route_returns_pending_task_payload():
     assert response.status_code == 200
     body = response.json()["data"]
     assert body["task_status"] == "running"
-    assert body["task_stage"] == "asr_transcription"
+    assert body["task_stage"] == "score_build"
     assert body["score_id"] is None
+    assert "lyrics_mode" not in body
+    assert "lyrics_import" not in body
+    assert "lyrics_mode" not in body["params"]
+
+
+def test_score_detail_route_returns_404_for_missing_cached_score_when_db_mode_is_disabled(monkeypatch) -> None:
+    monkeypatch.setattr(score_service, "USE_DB", False)
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/scores/score_missing")
+
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"]
 
 
 def test_score_creation_route_rejects_unknown_user(score_database: dict[str, int | str]) -> None:

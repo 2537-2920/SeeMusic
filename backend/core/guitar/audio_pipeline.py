@@ -89,6 +89,7 @@ def generate_guitar_lead_sheet_from_audio(
         "analysis_id": analysis_id,
         "pitch_sequence": list(extraction["raw_pitch_sequence"]),
         "melody_pitch_sequence": list(extraction["pitch_sequence"]),
+        "melody_pitch_sequence": list(extraction["pitch_sequence"]),
         "detected_key_signature": extraction["detected_key_signature"],
         "key_detection": extraction["key_detection"],
         "melody_track": extraction["melody_track"],

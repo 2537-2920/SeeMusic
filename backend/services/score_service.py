@@ -72,12 +72,15 @@ IN_MEMORY_PROJECT_ID_BASE = 900_000_000
 IN_MEMORY_EXPORT_RECORD_ID_BASE = 950_000_000
 _in_memory_project_id_counter = 0
 _in_memory_export_record_id_counter = 0
+USE_DB: bool = True
 _DB_FALLBACK_RUNTIME_MARKERS = (
     "db mode enabled but no session factory configured",
     "database unavailable",
     "mysql tunnel",
     "ssh tunnel",
+    "ssh key file",
     "local mysql port",
+    "timed out waiting for ssh tunnel",
     "ssh:",
     "socket:",
 )
@@ -171,16 +174,18 @@ def _get_cached_export_item(score_id: str, export_record_id: int) -> Dict[str, A
 
 
 def _is_db_fallback_exception(exc: Exception) -> bool:
+    if not USE_DB:
+        return True
     if isinstance(exc, SQLAlchemyError):
         return True
-    if not isinstance(exc, RuntimeError):
-        return False
     message = str(exc).strip().lower()
     return any(marker in message for marker in _DB_FALLBACK_RUNTIME_MARKERS)
 
 
 
 def _load_sheet(score_id: str) -> tuple[Dict[str, Any], int]:
+    if not USE_DB:
+        return _load_sheet_from_cache(score_id)
     try:
         with session_scope() as session:
             sheet = get_sheet_by_score_id(session, score_id)
@@ -219,6 +224,9 @@ def _sync_score_cache(score: Dict[str, Any]) -> Dict[str, Any]:
 
 def _persist_score(score: Dict[str, Any], project_id: int) -> Dict[str, Any]:
     score["project_id"] = int(project_id)
+    if not USE_DB:
+        _cache_score_runtime_state(score, int(project_id))
+        return {**snapshot_score(score), "project_id": project_id}
     try:
         with session_scope() as session:
             sheet = get_sheet_by_score_id(session, score["score_id"])
@@ -371,7 +379,6 @@ def create_score_from_pitch_sequence(payload: Dict[str, Any]) -> Dict[str, Any]:
         title=payload.get("title"),
         auto_detect_key=bool(payload.get("auto_detect_key", False)),
         arrangement_mode=str(payload.get("arrangement_mode") or "piano_solo"),
-        lyrics_payload=payload.get("lyrics_payload"),
     )
     extra_payload = {
         key: value
@@ -393,33 +400,36 @@ def create_score_from_pitch_sequence(payload: Dict[str, Any]) -> Dict[str, Any]:
     score["title"] = title
 
     project_id: int | None = None
-    try:
-        with session_scope() as session:
-            user = get_user_by_id(session, user_id)
-            if user is None:
-                raise UserNotFoundError(f"user {user_id} not found")
+    if USE_DB:
+        try:
+            with session_scope() as session:
+                user = get_user_by_id(session, user_id)
+                if user is None:
+                    raise UserNotFoundError(f"user {user_id} not found")
 
-            project = create_project(
-                session,
-                user_id=user.id,
-                title=title,
-                status=1,
-                analysis_id=payload.get("analysis_id"),
-                audio_url=None,
-                duration=None,
+                project = create_project(
+                    session,
+                    user_id=user.id,
+                    title=title,
+                    status=1,
+                    analysis_id=payload.get("analysis_id"),
+                    audio_url=None,
+                    duration=None,
+                )
+                create_sheet(session, project_id=project.id, score=score)
+                project_id = int(project.id)
+        except Exception as exc:
+            if not _is_db_fallback_exception(exc):
+                raise
+            project_id = _next_in_memory_project_id()
+            logger.warning(
+                "Failed to create score %s in DB; using in-memory fallback project_id=%s instead: %s",
+                score["score_id"],
+                project_id,
+                exc,
             )
-            create_sheet(session, project_id=project.id, score=score)
-            project_id = int(project.id)
-    except Exception as exc:
-        if not _is_db_fallback_exception(exc):
-            raise
+    else:
         project_id = _next_in_memory_project_id()
-        logger.warning(
-            "Failed to create score %s in DB; using in-memory fallback project_id=%s instead: %s",
-            score["score_id"],
-            project_id,
-            exc,
-        )
 
     score["project_id"] = int(project_id)
     save_score(score)
@@ -452,26 +462,46 @@ def export_score(score_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     page_size = str(payload.get("page_size", "A4"))
     with_annotations = bool(payload.get("with_annotations", True))
 
-    try:
-        with session_scope() as session:
-            record = create_export_record(session, project_id=project_id, export_format=export_format, file_url=None)
+    if USE_DB:
+        try:
+            with session_scope() as session:
+                record = create_export_record(session, project_id=project_id, export_format=export_format, file_url=None)
+                export_payload = _build_export_for_record(
+                    score,
+                    export_format=export_format,
+                    export_record_id=int(record.id),
+                    page_size=page_size,
+                    with_annotations=with_annotations,
+                )
+                update_export_record(session, record, file_url=export_payload.get("download_url"))
+                record_payload = _serialize_export_record(score_id, record)
+        except Exception as exc:
+            if not _is_db_fallback_exception(exc):
+                raise
+            logger.warning(
+                "Failed to create export record for %s in DB; using in-memory fallback instead: %s",
+                score_id,
+                exc,
+            )
+            export_record_id = _next_in_memory_export_record_id()
             export_payload = _build_export_for_record(
                 score,
                 export_format=export_format,
-                export_record_id=int(record.id),
+                export_record_id=export_record_id,
                 page_size=page_size,
                 with_annotations=with_annotations,
             )
-            update_export_record(session, record, file_url=export_payload.get("download_url"))
-            record_payload = _serialize_export_record(score_id, record)
-    except Exception as exc:
-        if not _is_db_fallback_exception(exc):
-            raise
-        logger.warning(
-            "Failed to create export record for %s in DB; using in-memory fallback instead: %s",
-            score_id,
-            exc,
-        )
+            now = datetime.now(timezone.utc)
+            record_payload = _build_export_record_payload(
+                score_id,
+                project_id=project_id,
+                export_record_id=export_record_id,
+                export_format=export_format,
+                file_url=export_payload.get("download_url"),
+                created_at=now,
+                updated_at=now,
+            )
+    else:
         export_record_id = _next_in_memory_export_record_id()
         export_payload = _build_export_for_record(
             score,
@@ -498,6 +528,8 @@ def export_score(score_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
 
 def list_score_exports(score_id: str) -> Dict[str, Any]:
     _, project_id = _load_sheet(score_id)
+    if not USE_DB:
+        return _build_cached_export_listing(score_id)
     try:
         with session_scope() as session:
             records = list_export_records_by_project(session, project_id)
@@ -516,6 +548,8 @@ def list_score_exports(score_id: str) -> Dict[str, Any]:
 
 
 def get_score_export_record(score_id: str, export_record_id: int) -> Dict[str, Any]:
+    if not USE_DB:
+        return _get_cached_export_item(score_id, export_record_id)
     try:
         record = _get_export_record(score_id, export_record_id)
         _upsert_cached_export_item(score_id, int(record["project_id"]), record)

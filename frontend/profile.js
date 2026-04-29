@@ -3,6 +3,7 @@ const {
     getCurrentUser,
     clearAuthSession,
     avatarUrl,
+    syncPageUsers,
     buildServerUrl,
     buildApiUrl,
     STORAGE_KEYS,
@@ -43,6 +44,11 @@ function renderUser(user) {
     const currentUser = user || getCurrentUser();
     const avatarElement = document.getElementById("profile-avatar");
     avatarElement.src = avatarUrl(currentUser);
+    syncPageUsers({
+        user: currentUser,
+        fallbackName: "未登录用户",
+        fallbackSeed: "SeeMusic",
+    });
     document.getElementById("profile-name").textContent = (currentUser && (currentUser.nickname || currentUser.username)) 
   ? (currentUser.nickname || currentUser.username) 
   : "未登录用户";
@@ -510,7 +516,7 @@ function setupEditProfileModal() {
                 localStorage.setItem("seeMusic_currentUser", JSON.stringify(newUserData));
             }
 
-            renderUser(updatedUser);
+            renderUser(getCurrentUser() || updatedUser);
             setStatus("个人资料已成功持久化至数据库。");
             modal.classList.remove("active");
         } catch (error) {

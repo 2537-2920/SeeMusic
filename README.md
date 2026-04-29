@@ -200,7 +200,33 @@ pip install -r requirements.txt
 ### 3. 启动后端 API
 
 ```bash
-python backend/main.py
+bash scripts/start_backend.sh
+```
+
+脚本会优先使用仓库里的 `./.venv/bin/python`，找不到时再回退到系统 `python3`。
+如果你想手动启动，也可以直接运行：
+
+```bash
+./.venv/bin/python backend/main.py
+```
+
+或者：
+
+```bash
+python3 backend/main.py
+```
+
+后端默认监听 `8000` 端口。启动后建议立刻做一次健康检查：
+
+```bash
+bash scripts/check_backend_health.sh
+```
+
+手动检查也可以，下面两个地址都会返回 `{"status":"ok"}`：
+
+```text
+http://127.0.0.1:8000/health
+http://127.0.0.1:8000/api/v1/health
 ```
 
 ---
@@ -210,7 +236,7 @@ python backend/main.py
 推荐直接启动一个静态服务器，然后打开前端页面：
 
 ```bash
-python -m http.server 5173 --directory frontend
+python3 -m http.server 5173 --directory frontend
 ```
 
 注意：

@@ -14,7 +14,7 @@ from backend.numba_compat import ensure_numba_cache_dir
 from backend.core.score.score_utils import reset_score_cache
 from backend.db.models import User
 from backend.db.session import init_database, reset_database_state, session_scope
-from backend.services import analysis_service, community_service, reference_track_service, report_service
+from backend.services import analysis_service, community_service, reference_track_service, report_service, score_service
 from tests.compat_testclient import CompatibilityTestClient
 from backend.user import history_manager, user_system
 from backend.user.history_manager import HISTORIES
@@ -68,6 +68,7 @@ def reset_in_memory_state(tmp_path: Path) -> None:
     report_service.USE_DB = False
     community_service.USE_DB = False
     reference_track_service.USE_DB = False
+    score_service.USE_DB = False
     storage_dir = tmp_path / "storage"
     storage_dir.mkdir(parents=True, exist_ok=True)
     object.__setattr__(settings, "storage_dir", storage_dir)
@@ -89,6 +90,7 @@ def reset_in_memory_state(tmp_path: Path) -> None:
     report_service.USE_DB = False
     community_service.USE_DB = False
     reference_track_service.USE_DB = False
+    score_service.USE_DB = False
 
 
 @pytest.fixture
@@ -99,6 +101,7 @@ def score_database(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str,
     reset_database_state()
     reset_score_cache()
     init_database()
+    score_service.USE_DB = True
 
     with session_scope() as session:
         user = User(username="score_tester", password="secret")
@@ -108,6 +111,7 @@ def score_database(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str,
 
     yield {"database_url": str(database_path), "user_id": user_id}
 
+    score_service.USE_DB = False
     reset_score_cache()
     reset_database_state()
 
@@ -136,6 +140,7 @@ def user_database(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str, 
     community_service.USE_DB = True
     reference_track_service.set_db_session_factory(factory)
     reference_track_service.USE_DB = True
+    score_service.USE_DB = True
 
     yield {"database_url": str(database_path)}
 
@@ -145,6 +150,7 @@ def user_database(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str, 
     report_service.USE_DB = False
     community_service.USE_DB = False
     reference_track_service.USE_DB = False
+    score_service.USE_DB = False
     reset_database_state()
 
 
@@ -174,6 +180,7 @@ def mysql_database() -> dict[str, str]:
     community_service.USE_DB = True
     reference_track_service.set_db_session_factory(factory)
     reference_track_service.USE_DB = True
+    score_service.USE_DB = True
 
     yield {"database_url": resolve_database_url()}
 
@@ -183,4 +190,5 @@ def mysql_database() -> dict[str, str]:
     report_service.USE_DB = False
     community_service.USE_DB = False
     reference_track_service.USE_DB = False
+    score_service.USE_DB = False
     reset_database_state()

@@ -34,9 +34,14 @@
             <iconify-icon class="text-lg" icon="solar:upload-bold"></iconify-icon>
             <span>上传乐谱</span>
         </button>
-        <div class="w-10 h-10 rounded-full bg-gradient-to-tr from-[#a8dadc] to-[#457b9d] border-2 border-white shadow-sm overflow-hidden cursor-pointer">
-            <img alt="avatar" id="header-avatar" src="https://api.dicebear.com/7.x/avataaars/svg?seed=Felix"/>
-        </div>
+        <a class="sm-page-user sm-page-user--link" data-seemusic-user href="profile.html">
+            <span class="sm-page-user__avatar-wrap">
+                <img alt="当前用户头像" class="sm-page-user__avatar" data-seemusic-user-avatar id="header-avatar" src="https://api.dicebear.com/7.x/avataaars/svg?seed=SeeMusic"/>
+            </span>
+            <span class="sm-page-user__body">
+                <span class="sm-page-user__name" data-seemusic-user-name id="header-user-name">游客模式</span>
+            </span>
+        </a>
     </div>
 </header>
 

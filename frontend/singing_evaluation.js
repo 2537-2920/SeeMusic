@@ -4,6 +4,7 @@
     getAuthToken,
     buildServerUrl,
     avatarUrl,
+    syncPageUsers,
 } = window.SeeMusicApp;
 
 const evaluationState = {
@@ -11,8 +12,10 @@ const evaluationState = {
     selectedReferenceTrack: null,
     userFile: null,
     analysis: null,
+    pitchDetection: null,
     pitchComparison: null,
     report: null,
+    transposeSuggestions: null,
     referenceSearchTimer: null,
 };
 
@@ -76,10 +79,10 @@ function summarizeFeedback(analysis) {
 }
 
 function renderHeader() {
-    const currentUser = getCurrentUser();
-    document.getElementById("current-date").textContent = new Date().toLocaleDateString("zh-CN");
-    document.getElementById("current-user-name").textContent = currentUser && currentUser.username ? currentUser.username : "游客模式";
-    document.getElementById("current-user-avatar").src = avatarUrl(currentUser && currentUser.username ? currentUser.username : "SeeMusic");
+    syncPageUsers({
+        fallbackName: "游客模式",
+        fallbackSeed: "SeeMusic",
+    });
 }
 
 function referenceDisplayName(track = evaluationState.selectedReferenceTrack, fallbackFile = evaluationState.referenceFile) {
@@ -337,6 +340,129 @@ function renderPitchComparison() {
     document.getElementById("bar-pitch-accuracy").style.width = `${Math.min(accuracy, 100)}%`;
 
     drawPitchCurve(comparison);
+}
+
+function transposeCardClass(index) {
+    const variants = [
+        "bg-[#FDF7FF] border border-purple-100 text-[#8E44AD]",
+        "bg-[#F4FBFF] border border-sky-100 text-[#2563EB]",
+        "bg-[#FFF9F0] border border-orange-100 text-[#D35400]",
+    ];
+    return variants[index % variants.length];
+}
+
+function formatSemitoneText(value) {
+    const numeric = Number(value || 0);
+    if (!numeric) {
+        return "原调";
+    }
+    return `${numeric > 0 ? "+" : ""}${numeric} 半音`;
+}
+
+function syncCurrentKeyInput(detectedKey, options = {}) {
+    const input = document.getElementById("transpose-current-key");
+    if (!input) {
+        return;
+    }
+    if (options.resetManualOverride) {
+        input.dataset.manualOverride = "false";
+    }
+    if (!detectedKey) {
+        return;
+    }
+    if (input.dataset.manualOverride === "true" && input.value.trim()) {
+        return;
+    }
+    input.value = detectedKey;
+}
+
+function clearTransposeCardState() {
+    evaluationState.pitchDetection = null;
+    evaluationState.transposeSuggestions = null;
+    const keyInput = document.getElementById("transpose-current-key");
+    if (keyInput) {
+        keyInput.value = "";
+        keyInput.dataset.manualOverride = "false";
+    }
+    setBanner("transpose-status", "");
+    renderTransposeSuggestions();
+}
+
+function renderTransposeSuggestions() {
+    const container = document.getElementById("transpose-list");
+    const payload = evaluationState.transposeSuggestions;
+
+    if (!container) {
+        return;
+    }
+
+    if (!evaluationState.analysis || !evaluationState.analysis.analysis_id) {
+        container.innerHTML = `
+            <div class="p-4 rounded-2xl bg-gray-50 border border-gray-100 text-sm text-gray-400">
+                先完成一次评估，系统会自动识别当前调性，并生成适合目标声线的变调建议。
+            </div>
+        `;
+        return;
+    }
+
+    if (!payload || !Array.isArray(payload.suggestions) || !payload.suggestions.length) {
+        const detectedKey = evaluationState.pitchDetection && evaluationState.pitchDetection.detected_key_signature;
+        const hint = detectedKey
+            ? `已检测到当前调性 ${escapeHtml(detectedKey)}，可以直接生成变调建议。`
+            : "本次评估尚未拿到稳定调性，你也可以手动填写调号后继续生成建议。";
+        container.innerHTML = `
+            <div class="p-4 rounded-2xl bg-gray-50 border border-gray-100 text-sm text-gray-500">
+                ${hint}
+            </div>
+        `;
+        return;
+    }
+
+    const range = payload.detected_range;
+    const rangeHtml = range
+        ? `
+            <div class="mt-3 flex flex-wrap gap-2 text-xs text-gray-500">
+                <span class="px-2 py-1 rounded-full bg-white border border-gray-200">稳定低点 ${escapeHtml(range.lowest_note || "--")}</span>
+                <span class="px-2 py-1 rounded-full bg-white border border-gray-200">中位音 ${escapeHtml(range.median_note || "--")}</span>
+                <span class="px-2 py-1 rounded-full bg-white border border-gray-200">稳定高点 ${escapeHtml(range.highest_note || "--")}</span>
+            </div>
+        `
+        : `
+            <div class="mt-3 text-xs text-gray-400">
+                当前没有足够稳定的音域数据，本次结果按标准规则给出。
+            </div>
+        `;
+
+    const cards = payload.suggestions.map((item, index) => `
+        <div class="p-4 rounded-2xl relative overflow-hidden ${transposeCardClass(index)}">
+            <div class="relative z-10">
+                <div class="flex justify-between items-start gap-4 mb-2">
+                    <div>
+                        <h5 class="font-bold">${escapeHtml(item.label || `建议 ${index + 1}`)}</h5>
+                        <p class="text-xs opacity-80 mt-1">${escapeHtml(formatSemitoneText(item.semitones))} -> ${escapeHtml(item.target_key || "--")} 调</p>
+                    </div>
+                    <iconify-icon class="text-2xl" icon="solar:music-notes-bold"></iconify-icon>
+                </div>
+                <p class="text-xs leading-relaxed">${escapeHtml(item.reason || "暂无说明")}</p>
+            </div>
+        </div>
+    `).join("");
+
+    container.innerHTML = `
+        <div class="p-4 rounded-2xl bg-[#F8FAFC] border border-slate-100">
+            <div class="flex items-center justify-between gap-4">
+                <div>
+                    <div class="text-sm font-bold text-[#1D3557]">当前调性 ${escapeHtml(payload.current_key || "--")}</div>
+                    <p class="text-xs text-gray-500 mt-1">${escapeHtml(payload.summary_text || "已生成变调建议。")}</p>
+                </div>
+                <span class="text-[10px] font-bold px-2 py-1 rounded-full ${payload.used_audio_adjustment ? "bg-purple-100 text-purple-600" : "bg-gray-100 text-gray-500"}">
+                    ${payload.used_audio_adjustment ? "已结合音域微调" : "标准规则建议"}
+                </span>
+            </div>
+            ${rangeHtml}
+        </div>
+        ${cards}
+    `;
 }
 
 function clearPitchCanvas() {
@@ -614,6 +740,7 @@ function setSelectedFile(kind, file) {
     document.getElementById(labelId).textContent = file
         ? `${file.name} (${Math.round(file.size / 1024)} KB)`
         : (kind === "reference" ? "尚未选择标准歌曲或上传音频" : "尚未选择用户音频");
+    clearTransposeCardState();
 }
 
 function isSupportedAudioFile(fileName) {
@@ -635,15 +762,15 @@ async function runEvaluation() {
         return;
     }
     if (!userFile) {
-        setBanner("evaluation-status", "请先选择用户 WAV 音频。", true);
+        setBanner("evaluation-status", "请先选择用户音频。", true);
         return;
     }
     if (referenceFile && !isSupportedAudioFile(referenceFile.name)) {
-        setBanner("evaluation-status", "标准音频格式需为 WAV、MP3、M4A、OGG 或 FLAC。", true);
+        setBanner("evaluation-status", "标准音频格式需为 MP3、M4A、OGG、FLAC 等常见音频格式。", true);
         return;
     }
     if (!isSupportedAudioFile(userFile.name)) {
-        setBanner("evaluation-status", "用户音频格式需为 WAV、MP3、M4A、OGG 或 FLAC。", true);
+        setBanner("evaluation-status", "用户音频格式需为 MP3、M4A、OGG、FLAC 等常见音频格式。", true);
         return;
     }
 
@@ -662,6 +789,7 @@ async function runEvaluation() {
 
     submitBtn.disabled = true;
     submitBtn.style.opacity = "0.7";
+
     setBanner("evaluation-status", "正在准备标准歌曲人声并进行歌唱评估，请稍候...");
 
     try {
@@ -687,6 +815,7 @@ async function runEvaluation() {
         evaluationState.report = null;
 
         renderAnalysis();
+        renderTransposeSuggestions();
         const analysisId = payload.analysis_id;
         const userModeText = userAudioMode === "with_accompaniment" ? "用户音频已分离人声" : "用户清唱直接评估";
         setBanner("evaluation-status", `分析完成，analysis_id=${analysisId}。标准歌曲已准备人声，${userModeText}，音高与节奏评估已完成。`);
@@ -772,90 +901,73 @@ async function exportReport() {
     }
 }
 
-function variationCardClass(index) {
-    const variants = [
-        "bg-[#FDF7FF] border border-purple-100 text-[#8E44AD]",
-        "bg-[#F0FFF4] border border-green-100 text-[#27AE60]",
-        "bg-[#FFF9F0] border border-orange-100 text-[#D35400]",
-    ];
-    return variants[index % variants.length];
-}
-
-async function loadVariations() {
+async function loadTransposeSuggestions() {
     const analysis = evaluationState.analysis;
-    const style = document.getElementById("variation-style-select").value;
-    const difficulty = document.getElementById("variation-difficulty-select").value;
-    const submitBtn = document.getElementById("variation-submit-btn");
+    const currentKey = document.getElementById("transpose-current-key").value.trim();
+    const sourceGender = document.getElementById("transpose-source-gender").value;
+    const targetGender = document.getElementById("transpose-target-gender").value;
+    const submitBtn = document.getElementById("transpose-submit-btn");
 
     if (!analysis || !analysis.analysis_id) {
-        setBanner("variation-status", "请先完成一次分析，再生成变奏建议。", true);
+        setBanner("transpose-status", "请先完成一次评估，再生成变调建议。", true);
+        return;
+    }
+    if (!currentKey) {
+        setBanner("transpose-status", "请先填写当前歌曲调性，或先完成一次音高检测。", true);
         return;
     }
 
     submitBtn.disabled = true;
     submitBtn.style.opacity = "0.7";
-    setBanner("variation-status", "正在请求后端变奏建议...");
+    setBanner("transpose-status", "正在结合调性与音域生成变调建议...");
 
     try {
-        const payload = await requestJson("/generation/variation-suggestions", {
+        const payload = await requestJson("/generation/transpose-suggestions", {
             method: "POST",
             body: {
-                score_id: analysis.analysis_id,
-                style,
-                difficulty,
+                analysis_id: analysis.analysis_id,
+                current_key: currentKey,
+                source_gender: sourceGender,
+                target_gender: targetGender,
+                pitch_sequence: (evaluationState.pitchDetection?.pitch_sequence || []).map((item) => ({
+                    time: item.time,
+                    frequency: item.frequency,
+                    duration: item.duration || null,
+                    confidence: item.confidence || null,
+                })),
             },
         });
-        renderVariations(payload.suggestions || []);
-        setBanner("variation-status", `已生成 ${payload.suggestions ? payload.suggestions.length : 0} 条建议。`);
+        evaluationState.transposeSuggestions = payload;
+        renderTransposeSuggestions();
+        setBanner("transpose-status", `已生成 ${payload.suggestions ? payload.suggestions.length : 0} 条变调建议。`);
     } catch (error) {
-        setBanner("variation-status", error.message || "变奏建议生成失败。", true);
+        setBanner("transpose-status", error.message || "变调建议生成失败。", true);
     } finally {
         submitBtn.disabled = false;
         submitBtn.style.opacity = "1";
     }
 }
 
-function renderVariations(items) {
-    const list = document.getElementById("variation-list");
-    if (!items.length) {
-        list.innerHTML = `
-            <div class="p-4 rounded-2xl bg-gray-50 border border-gray-100 text-sm text-gray-400">
-                后端当前没有返回可展示的变奏建议。
-            </div>
-        `;
-        return;
-    }
 
-    list.innerHTML = items.map((item, index) => `
-        <div class="p-4 rounded-2xl relative overflow-hidden ${variationCardClass(index)}">
-            <div class="relative z-10">
-                <div class="flex justify-between items-start mb-2">
-                    <h5 class="font-bold">${escapeHtml(item.type || `建议 ${index + 1}`)}</h5>
-                    <iconify-icon class="text-2xl" icon="solar:stars-bold"></iconify-icon>
-                </div>
-                <p class="text-xs leading-relaxed">${escapeHtml(item.description || "暂无说明")}</p>
-            </div>
-        </div>
-    `).join("");
-}
-
-function bindFileUpload() {
-    bindSingleFileUpload("reference", "reference-file-input", "reference-dropzone");
-    bindSingleFileUpload("user", "user-file-input", "user-dropzone");
-    const referenceUploadBtn = document.getElementById("reference-upload-btn");
-    const referenceInput = document.getElementById("reference-file-input");
-    if (referenceUploadBtn && referenceInput) {
-        referenceUploadBtn.addEventListener("click", () => referenceInput.click());
-    }
-}
 
 function bindSingleFileUpload(kind, inputId, dropzoneId) {
     const input = document.getElementById(inputId);
     const dropzone = document.getElementById(dropzoneId);
-    dropzone.addEventListener("click", () => input.click());
+    if (!input || !dropzone) {
+        return;
+    }
+    const openPicker = () => openFilePicker(input);
+
     input.addEventListener("change", () => {
         const file = input.files && input.files[0];
         setSelectedFile(kind, file || null);
+    });
+    dropzone.addEventListener("click", openPicker);
+    dropzone.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            openPicker();
+        }
     });
 
     dropzone.addEventListener("dragover", (event) => {
@@ -877,6 +989,35 @@ function bindSingleFileUpload(kind, inputId, dropzoneId) {
         input.files = transfer.files;
         setSelectedFile(kind, file);
     });
+}
+
+function openFilePicker(input) {
+    if (!input) {
+        return;
+    }
+    if (typeof input.showPicker === "function") {
+        input.showPicker();
+        return;
+    }
+    input.click();
+}
+
+function bindFileInputSelection(kind, inputId, triggerId) {
+    const input = document.getElementById(inputId);
+    const trigger = document.getElementById(triggerId);
+    if (!input || !trigger) {
+        return;
+    }
+    input.addEventListener("change", () => {
+        const file = input.files && input.files[0];
+        setSelectedFile(kind, file || null);
+    });
+    trigger.addEventListener("click", () => openFilePicker(input));
+}
+
+function bindFileUpload() {
+    bindFileInputSelection("reference", "reference-file-input", "reference-upload-btn");
+    bindSingleFileUpload("user", "user-file-input", "user-dropzone");
 }
 
 function bindEvents() {
@@ -905,10 +1046,14 @@ function bindEvents() {
     }
     document.getElementById("evaluation-submit-btn").addEventListener("click", runEvaluation);
     document.getElementById("report-export-btn").addEventListener("click", exportReport);
-    document.getElementById("variation-submit-btn").addEventListener("click", loadVariations);
+    document.getElementById("transpose-submit-btn").addEventListener("click", loadTransposeSuggestions);
+    document.getElementById("transpose-current-key").addEventListener("input", (event) => {
+        event.currentTarget.dataset.manualOverride = event.currentTarget.value.trim() ? "true" : "false";
+    });
 }
 
 renderHeader();
 renderAnalysis();
 clearPitchCanvas();
+renderTransposeSuggestions();
 bindEvents();

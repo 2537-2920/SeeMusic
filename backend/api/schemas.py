@@ -189,6 +189,14 @@ class VariationSuggestionRequest(BaseModel):
     difficulty: str = "medium"
 
 
+class TransposeSuggestionRequest(BaseModel):
+    analysis_id: str = Field(..., min_length=1)
+    current_key: str = Field(..., min_length=1)
+    source_gender: Literal["male", "female"]
+    target_gender: Literal["male", "female"]
+    pitch_sequence: List[PitchSequenceItem] = Field(default_factory=list)
+
+
 class RegisterRequest(BaseModel):
     username: str
     password: str

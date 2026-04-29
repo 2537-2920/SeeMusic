@@ -8,12 +8,7 @@ const STORAGE_KEYS = {
     jianpuLayoutMode: "seemusic.transcription.jianpuLayoutMode",
     jianpuAnnotationLayer: "seemusic.transcription.jianpuAnnotationLayer",
     guitarViewMode: "seemusic.transcription.guitarViewMode",
-    guitarDebugExpanded: "seemusic.transcription.guitarDebugExpanded",
-    guzhengDebugExpanded: "seemusic.transcription.guzhengDebugExpanded",
-    diziDebugExpanded: "seemusic.transcription.diziDebugExpanded",
     diziFluteType: "seemusic.transcription.diziFluteType",
-    lyricsMode: "seemusic.transcription.lyricsMode",
-    lyricsLanguage: "seemusic.transcription.lyricsLanguage",
     scoreId: "seemusic.transcription.scoreId",
     tempo: "seemusic.transcription.tempo",
     timeSignature: "seemusic.transcription.timeSignature",
@@ -21,11 +16,18 @@ const STORAGE_KEYS = {
     pitchSequence: "seemusic.transcription.pitchSequence",
 };
 
-const TRANSCRIPTION_UI_BUILD = "2026-04-25-unified-export-entry-v1";
+const LEGACY_STORAGE_KEYS = [
+    "seemusic.transcription.lyricsMode",
+    "seemusic.transcription.guitarDebugExpanded",
+    "seemusic.transcription.guzhengDebugExpanded",
+    "seemusic.transcription.diziDebugExpanded",
+];
+const TRANSCRIPTION_UI_BUILD = "2026-04-29-lyrics-ui-removed-v1";
 const DEFAULT_BACKEND_ORIGIN = "http://127.0.0.1:8000";
 const DEFAULT_API_BASE = `${DEFAULT_BACKEND_ORIGIN}/api/v1`;
-const MIN_RELIABLE_BEAT_CONFIDENCE = 0.05;
-const MIN_RELIABLE_BEAT_COUNT = 3;
+const VEROVIO_RESOURCE_PATH = "/data";
+const VEROVIO_GLYPHNAMES_PATH = `${VEROVIO_RESOURCE_PATH}/glyphnames.json`;
+const VEROVIO_TUNING_GLYPHNAMES_PATH = `${VEROVIO_RESOURCE_PATH}/tuning-glyphnames.json`;
 const VIEWER_LAYOUT = window.SeeMusicScoreViewerLayout || {};
 const VIEWER_LAYOUT_DEFAULTS = VIEWER_LAYOUT.DEFAULT_VIEWER_LAYOUT_OPTIONS || {
     minMeasuresPerSystem: 4,
@@ -74,13 +76,9 @@ const DEFAULT_PITCH_DETECT_CONFIG = {
 const SUPPORTED_INSTRUMENT_TYPES = new Set(["piano", "guzheng", "guitar", "dizi"]);
 const SUPPORTED_PIANO_RESULT_MODES = new Set(["arranged"]);
 const SUPPORTED_JIANPU_LAYOUT_MODES = new Set(["preview", "print"]);
-const SUPPORTED_JIANPU_ANNOTATION_LAYERS = new Set(["basic", "fingering", "technique", "all"]);
+const SUPPORTED_JIANPU_ANNOTATION_LAYERS = new Set(["basic", "technique"]);
 const SUPPORTED_GUITAR_VIEW_MODES = new Set(["screen", "print"]);
 const SUPPORTED_DIZI_FLUTE_TYPES = new Set(["C", "D", "E", "F", "G", "A", "Bb"]);
-const SUPPORTED_LYRICS_MODES = new Set(["off", "file", "asr_whisperx"]);
-const SUPPORTED_LYRICS_LANGUAGES = new Set(["auto", "zh", "en", "ja", "ko"]);
-const ANALYSIS_POLL_INTERVAL_MS = 2500;
-const ANALYSIS_POLL_TIMEOUT_MS = 12 * 60 * 1000;
 
 const state = {
     apiBase: "",
@@ -90,9 +88,6 @@ const state = {
     jianpuLayoutMode: "preview",
     jianpuAnnotationLayer: "basic",
     guitarViewMode: "screen",
-    guitarDebugExpanded: false,
-    guzhengDebugExpanded: false,
-    diziDebugExpanded: false,
     guitarHighlightedChordSymbol: "",
     currentScore: null,
     guzhengResult: null,
@@ -113,10 +108,6 @@ const state = {
     beatDetectResult: null,
     separateTracksResult: null,
     chordGenerationResult: null,
-    lyricsImportResult: null,
-    lyricsMode: "file",
-    lyricsLanguage: "auto",
-    analysisTaskResult: null,
     rhythmScoreResult: null,
     audioLogs: [],
     analysisToolsOpen: false,
@@ -129,6 +120,8 @@ const state = {
     notationRenderTicket: 0,
     previewPageCount: 0,
     previewPageIndex: 0,
+    previewPageSymbolOffsets: [],
+    previewPageSymbolOffsetsKey: "",
     editorIndexMap: null,
     editorIndexMapKey: "",
     viewerPageCount: 0,
@@ -137,6 +130,8 @@ const state = {
     viewerPreparedMusicxml: "",
     viewerPreparedLayout: null,
     viewerPageCache: new Map(),
+    viewerPageSymbolOffsets: [],
+    viewerPageSymbolOffsetsKey: "",
     viewerTransition: {
         phase: "idle",
         direction: 0,
@@ -167,7 +162,9 @@ const els = {};
 document.addEventListener("DOMContentLoaded", init);
 
 function init() {
+    LEGACY_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
     cacheElements();
+    renderTopbarUser();
     syncFixedTopbarSpacing();
     hydrateInputs();
     bindEvents();
@@ -195,6 +192,21 @@ function syncFixedTopbarSpacing() {
     document.documentElement.style.setProperty("--topbar-reserved-height", `${height}px`);
 }
 
+function renderTopbarUser(user) {
+    const appCommon = window.SeeMusicApp;
+    if (!appCommon || typeof appCommon.syncPageUsers !== "function") {
+        return;
+    }
+    const options = {
+        fallbackName: "游客模式",
+        fallbackSeed: "SeeMusic",
+    };
+    if (arguments.length > 0) {
+        options.user = user;
+    }
+    appCommon.syncPageUsers(options);
+}
+
 function cacheElements() {
     [
         "api-base-input",
@@ -213,22 +225,9 @@ function cacheElements() {
         "piano-result-switch",
         "create-score-btn",
         "analysis-file-input",
-        "beat-bpm-hint-input",
-        "beat-sensitivity-input",
         "separation-model-input",
         "separation-stems-input",
-        "chord-style-input",
-        "rhythm-language-input",
-        "rhythm-model-input",
-        "rhythm-threshold-input",
-        "reference-beats-input",
-        "user-beats-input",
         "pitch-detect-file-input",
-        "lyrics-mode-input",
-        "lyrics-language-field",
-        "lyrics-language-input",
-        "lyrics-file-fields",
-        "lyrics-file-input",
         "pitch-detect-algorithm-input",
         "pitch-detect-frame-ms-input",
         "pitch-detect-hop-ms-input",
@@ -236,16 +235,9 @@ function cacheElements() {
         "pitch-detect-and-score-btn",
         "pitch-detect-status",
         "analysis-tools-panel",
-        "beat-detect-btn",
         "separate-tracks-btn",
-        "generate-chords-btn",
-        "rhythm-score-btn",
         "refresh-audio-logs-btn",
-        "beat-detect-output",
         "separate-tracks-output",
-        "generate-chords-output",
-        "lyrics-import-output",
-        "rhythm-score-output",
         "score-title-display",
         "score-id-badge",
         "project-id-badge",
@@ -328,10 +320,9 @@ function cacheElements() {
         "preview-page-prev-btn",
         "preview-page-next-btn",
         "preview-page-status",
+        "refresh-workbench-btn",
         "edit-note-prev-btn",
         "edit-note-next-btn",
-        "edit-note-index-input",
-        "edit-note-total",
         "edit-nav-hint-piano",
         "edit-nav-hint-traditional",
         "edit-nav-hint-guitar",
@@ -367,24 +358,13 @@ function hydrateInputs() {
     state.jianpuLayoutMode = resolveJianpuLayoutMode(localStorage.getItem(STORAGE_KEYS.jianpuLayoutMode) || "preview");
     state.jianpuAnnotationLayer = resolveJianpuAnnotationLayer(localStorage.getItem(STORAGE_KEYS.jianpuAnnotationLayer) || "basic");
     state.guitarViewMode = resolveGuitarViewMode(localStorage.getItem(STORAGE_KEYS.guitarViewMode) || "screen");
-    state.guitarDebugExpanded = localStorage.getItem(STORAGE_KEYS.guitarDebugExpanded) === "true";
-    state.guzhengDebugExpanded = localStorage.getItem(STORAGE_KEYS.guzhengDebugExpanded) === "true";
-    state.diziDebugExpanded = localStorage.getItem(STORAGE_KEYS.diziDebugExpanded) === "true";
     state.diziFluteType = resolveDiziFluteType(localStorage.getItem(STORAGE_KEYS.diziFluteType) || "G");
-    state.lyricsMode = resolveLyricsMode(localStorage.getItem(STORAGE_KEYS.lyricsMode) || "file");
-    state.lyricsLanguage = resolveLyricsLanguage(localStorage.getItem(STORAGE_KEYS.lyricsLanguage) || "auto");
     state.preferredTempo = parseStoredTempo(localStorage.getItem(STORAGE_KEYS.tempo));
     state.preferredTimeSignature = normalizeTimeSignature(localStorage.getItem(STORAGE_KEYS.timeSignature));
     state.preferredKeySignature = normalizeKeySignature(localStorage.getItem(STORAGE_KEYS.keySignature));
     state.latestPitchSequence = loadStoredPitchSequence();
     if (els.diziFluteTypeInput) {
         els.diziFluteTypeInput.value = state.diziFluteType;
-    }
-    if (els.lyricsModeInput) {
-        els.lyricsModeInput.value = state.lyricsMode;
-    }
-    if (els.lyricsLanguageInput) {
-        els.lyricsLanguageInput.value = state.lyricsLanguage;
     }
     els.pitchDetectAlgorithmInput.value = DEFAULT_PITCH_DETECT_CONFIG.algorithm;
     els.pitchDetectFrameMsInput.value = String(DEFAULT_PITCH_DETECT_CONFIG.frameMs);
@@ -434,11 +414,10 @@ function resolveJianpuLayoutMode(value) {
 
 function resolveJianpuAnnotationLayer(value) {
     const normalized = String(value || "").trim().toLowerCase();
+    if (normalized === "fingering" || normalized === "all") {
+        return "technique";
+    }
     return SUPPORTED_JIANPU_ANNOTATION_LAYERS.has(normalized) ? normalized : "basic";
-}
-
-function resolveTraditionalMarkupMode(value) {
-    return resolveJianpuAnnotationLayer(value) === "basic" ? "plain" : "annotated";
 }
 
 function resolveGuitarViewMode(value) {
@@ -460,16 +439,6 @@ function resolveDiziFluteType(value) {
         return "Bb";
     }
     return SUPPORTED_DIZI_FLUTE_TYPES.has(upper) ? upper : "G";
-}
-
-function resolveLyricsMode(value) {
-    const normalized = String(value || "").trim().toLowerCase();
-    return SUPPORTED_LYRICS_MODES.has(normalized) ? normalized : "file";
-}
-
-function resolveLyricsLanguage(value) {
-    const normalized = String(value || "").trim().toLowerCase();
-    return SUPPORTED_LYRICS_LANGUAGES.has(normalized) ? normalized : "auto";
 }
 
 function parseStoredTempo(value) {
@@ -526,6 +495,10 @@ function isPianoMode() {
     return currentInstrumentType() === "piano";
 }
 
+function supportsManualEdit(instrumentType = resolveActiveInstrumentForEditor()) {
+    return instrumentType === "piano" || instrumentType === "guitar";
+}
+
 function isCustomLeadSheetMode() {
     return isGuitarMode() || isGuzhengMode() || isDiziMode();
 }
@@ -551,6 +524,10 @@ function setInstrumentType(value, { persist = true, announce = false } = {}) {
     }
     if (persist) {
         localStorage.setItem(STORAGE_KEYS.instrumentType, resolved);
+    }
+    if (!supportsManualEdit(resolved)) {
+        resetEditorSelectionState();
+        syncSelectionHighlightToCurrentSelection();
     }
     if (resolved !== "piano" && state.scoreViewerOpen) {
         closeScoreViewer();
@@ -604,30 +581,9 @@ function setJianpuAnnotationLayer(value, { persist = true, announce = false } = 
     if (announce) {
         const labelMap = {
             basic: "基础正文层",
-            fingering: "指法/弦位层",
             technique: "技法提示层",
-            all: "完整标注层",
         };
         setAppStatus(`已切换到${labelMap[resolved] || "基础正文层"}。`);
-    }
-}
-
-function setTraditionalMarkupMode(value, { announce = false } = {}) {
-    const normalized = String(value || "").trim().toLowerCase();
-    if (normalized === "plain") {
-        setJianpuAnnotationLayer("basic", { persist: true, announce: false });
-        if (announce) {
-            setAppStatus("已切换到纯净简谱，只保留单音本身，不显示额外标注。");
-        }
-        return;
-    }
-
-    if (normalized === "annotated") {
-        const currentLayer = resolveJianpuAnnotationLayer(state.jianpuAnnotationLayer);
-        setJianpuAnnotationLayer(currentLayer === "basic" ? "all" : currentLayer, { persist: true, announce: false });
-        if (announce) {
-            setAppStatus("已切换到带标注简谱，会显示当前可用的弦位、指法和技法提示。");
-        }
     }
 }
 
@@ -643,27 +599,6 @@ function setGuitarViewMode(value, { persist = true, announce = false } = {}) {
                 ? "已切换到吉他打印视图。正文会更接近分页打印排版，方便导出或打印。"
                 : "已切换到吉他屏幕视图。正文会优先保证浏览和弹唱时的清晰度。"
         );
-    }
-}
-
-function setGuitarDebugExpanded(value, { persist = true } = {}) {
-    state.guitarDebugExpanded = Boolean(value);
-    if (persist) {
-        localStorage.setItem(STORAGE_KEYS.guitarDebugExpanded, state.guitarDebugExpanded ? "true" : "false");
-    }
-}
-
-function setGuzhengDebugExpanded(value, { persist = true } = {}) {
-    state.guzhengDebugExpanded = Boolean(value);
-    if (persist) {
-        localStorage.setItem(STORAGE_KEYS.guzhengDebugExpanded, state.guzhengDebugExpanded ? "true" : "false");
-    }
-}
-
-function setDiziDebugExpanded(value, { persist = true } = {}) {
-    state.diziDebugExpanded = Boolean(value);
-    if (persist) {
-        localStorage.setItem(STORAGE_KEYS.diziDebugExpanded, state.diziDebugExpanded ? "true" : "false");
     }
 }
 
@@ -747,13 +682,18 @@ function persistScoreOwnerUserId(userId) {
 }
 
 async function syncAuthenticatedUserId() {
+    const appCommon = window.SeeMusicApp;
+    const cachedUser = appCommon && typeof appCommon.getCurrentUser === "function" ? appCommon.getCurrentUser() : null;
+    if (cachedUser) {
+        renderTopbarUser(cachedUser);
+    }
+
     const cachedUserId = resolveCachedScoreOwnerUserId();
     if (cachedUserId) {
         persistScoreOwnerUserId(cachedUserId);
         return cachedUserId;
     }
 
-    const appCommon = window.SeeMusicApp;
     if (!appCommon || typeof appCommon.getAuthToken !== "function" || !appCommon.getAuthToken()) {
         return resolveNumericUserId(els.userIdInput.value);
     }
@@ -763,8 +703,10 @@ async function syncAuthenticatedUserId() {
 
     try {
         const currentUser = await appCommon.requestJson("/users/me");
+        renderTopbarUser(currentUser);
         return persistScoreOwnerUserId(currentUser?.user_id);
     } catch {
+        renderTopbarUser(cachedUser || null);
         return resolveNumericUserId(els.userIdInput.value);
     }
 }
@@ -811,37 +753,6 @@ function handleDiziFluteTypeChange(event) {
     renderAll();
 }
 
-function renderLyricsInputState() {
-    const lyricsMode = resolveLyricsMode(state.lyricsMode || els.lyricsModeInput?.value || "file");
-    if (els.lyricsModeInput && els.lyricsModeInput.value !== lyricsMode) {
-        els.lyricsModeInput.value = lyricsMode;
-    }
-    const lyricsLanguage = resolveLyricsLanguage(state.lyricsLanguage || els.lyricsLanguageInput?.value || "auto");
-    if (els.lyricsLanguageInput && els.lyricsLanguageInput.value !== lyricsLanguage) {
-        els.lyricsLanguageInput.value = lyricsLanguage;
-    }
-    if (els.lyricsFileFields) {
-        els.lyricsFileFields.hidden = lyricsMode !== "file";
-    }
-    if (els.lyricsLanguageField) {
-        els.lyricsLanguageField.hidden = lyricsMode !== "asr_whisperx";
-    }
-}
-
-function handleLyricsModeChange(event) {
-    state.lyricsMode = resolveLyricsMode(event.currentTarget?.value || "file");
-    setLocalStorageSafely(STORAGE_KEYS.lyricsMode, state.lyricsMode, { silent: true });
-    renderLyricsInputState();
-    renderAll();
-}
-
-function handleLyricsLanguageChange(event) {
-    state.lyricsLanguage = resolveLyricsLanguage(event.currentTarget?.value || "auto");
-    setLocalStorageSafely(STORAGE_KEYS.lyricsLanguage, state.lyricsLanguage, { silent: true });
-    renderLyricsInputState();
-    renderAll();
-}
-
 async function handleTraditionalScoreInteraction(event) {
     const activeInstrument = isGuzhengMode() ? "guzheng" : "dizi";
     const exportButton = event.target.closest("[data-traditional-export-format]");
@@ -849,16 +760,6 @@ async function handleTraditionalScoreInteraction(event) {
         const exportFormat = String(exportButton.dataset.traditionalExportFormat || "").trim();
         if (exportFormat) {
             await requestTraditionalExport(activeInstrument, exportFormat);
-        }
-        return;
-    }
-
-    const markupButton = event.target.closest("[data-jianpu-markup-mode]");
-    if (markupButton) {
-        setTraditionalMarkupMode(markupButton.dataset.jianpuMarkupMode, { announce: true });
-        renderAll();
-        if (resolveTraditionalResult(activeInstrument)) {
-            await requestTraditionalEngravedPreview(activeInstrument, { force: true, silent: true });
         }
         return;
     }
@@ -881,19 +782,6 @@ async function handleTraditionalScoreInteraction(event) {
             await requestTraditionalEngravedPreview(activeInstrument, { force: true, silent: true });
         }
         return;
-    }
-
-    const jianpuTarget = event.target.closest(".guzheng-jianpu-note-group[data-mxml-index]");
-    if (jianpuTarget) {
-        const idx = Number(jianpuTarget.getAttribute("data-mxml-index"));
-        if (Number.isFinite(idx)) {
-            state.editorSelectedMxmlIndex = idx;
-            state.editorSelectedKind = "note";
-            const host = event.currentTarget;
-            host.querySelectorAll(".is-edit-selected").forEach((el) => el.classList.remove("is-edit-selected"));
-            jianpuTarget.classList.add("is-edit-selected");
-            renderEditWorkbench();
-        }
     }
 }
 
@@ -923,15 +811,7 @@ function handleGuitarLeadSheetInteraction(event) {
         return;
     }
 
-    const debugToggle = event.target.closest("[data-guitar-toggle-debug]");
-    if (debugToggle) {
-        setGuitarDebugExpanded(!state.guitarDebugExpanded);
-        renderAnalysisOutputs();
-        renderGuitarLeadSheetPanel();
-        return;
-    }
-
-    const chordPair = event.target.closest(".guitar-inline-pair[data-mxml-index]");
+    const chordPair = event.target.closest(".guitar-inline-chord-token[data-mxml-index]");
     if (chordPair) {
         const idx = Number(chordPair.getAttribute("data-mxml-index"));
         if (Number.isFinite(idx)) {
@@ -954,57 +834,21 @@ function handleGuitarLeadSheetInteraction(event) {
     renderGuitarLeadSheetPanel();
 }
 
-function handleGuitarDebugPanelInteraction(event) {
-    const debugToggle = event.target.closest("[data-guitar-toggle-debug]");
-    if (!debugToggle) {
-        return;
-    }
-    setGuitarDebugExpanded(!state.guitarDebugExpanded);
-    renderAnalysisOutputs();
-    renderGuitarLeadSheetPanel();
-}
-
-function handleGuzhengDebugPanelInteraction(event) {
-    const debugToggle = event.target.closest("[data-guzheng-toggle-debug]");
-    if (!debugToggle) {
-        return;
-    }
-    setGuzhengDebugExpanded(!state.guzhengDebugExpanded);
-    renderAnalysisOutputs();
-}
-
-function handleDiziDebugPanelInteraction(event) {
-    const debugToggle = event.target.closest("[data-dizi-toggle-debug]");
-    if (!debugToggle) {
-        return;
-    }
-    setDiziDebugExpanded(!state.diziDebugExpanded);
-    renderAnalysisOutputs();
-}
-
 function bindEvents() {
     els.saveApiBaseBtn.addEventListener("click", handleSaveApiBase);
     els.pingBackendBtn.addEventListener("click", checkBackendConnection);
     els.createScoreBtn.addEventListener("click", handleCreateScore);
     els.pitchDetectBtn?.addEventListener("click", handlePitchDetect);
     els.pitchDetectAndScoreBtn?.addEventListener("click", handlePitchDetectAndScore);
-    els.beatDetectBtn.addEventListener("click", handleBeatDetect);
-    els.separateTracksBtn.addEventListener("click", handleSeparateTracks);
-    els.generateChordsBtn.addEventListener("click", handleGenerateChords);
+    els.separateTracksBtn?.addEventListener("click", handleSeparateTracks);
     els.instrumentToggleButtons.forEach((button) => button.addEventListener("click", handleInstrumentTypeChange));
     els.pianoResultModeButtons.forEach((button) => button.addEventListener("click", handlePianoResultModeChange));
     els.diziFluteTypeInput?.addEventListener("change", handleDiziFluteTypeChange);
-    els.lyricsModeInput?.addEventListener("change", handleLyricsModeChange);
-    els.lyricsLanguageInput?.addEventListener("change", handleLyricsLanguageChange);
     els.guzhengScoreView?.addEventListener("click", handleTraditionalScoreInteraction);
     els.guitarLeadSheetView?.addEventListener("click", handleGuitarLeadSheetInteraction);
     els.diziScoreView?.addEventListener("change", handleTraditionalScoreInputChange);
     els.diziScoreView?.addEventListener("click", handleTraditionalScoreInteraction);
-    els.guzhengDebugPanel?.addEventListener("click", handleGuzhengDebugPanelInteraction);
-    els.guitarDebugPanel?.addEventListener("click", handleGuitarDebugPanelInteraction);
-    els.diziDebugPanel?.addEventListener("click", handleDiziDebugPanelInteraction);
-    els.rhythmScoreBtn.addEventListener("click", handleRhythmScore);
-    els.refreshAudioLogsBtn.addEventListener("click", () => loadAudioLogs());
+    els.refreshAudioLogsBtn?.addEventListener("click", () => loadAudioLogs());
     els.applyScoreSettingsBtn?.addEventListener("click", handleApplyScoreSettings);
     els.undoBtn?.addEventListener("click", handleUndo);
     els.redoBtn?.addEventListener("click", handleRedo);
@@ -1030,12 +874,9 @@ function bindEvents() {
     els.editPaletteButtons?.forEach((button) => button.addEventListener("click", handleEditPaletteClick));
     els.previewPagePrevBtn?.addEventListener("click", () => changePreviewPage(-1));
     els.previewPageNextBtn?.addEventListener("click", () => changePreviewPage(1));
+    els.refreshWorkbenchBtn?.addEventListener("click", handleRefreshWorkbench);
     els.editNotePrevBtn?.addEventListener("click", () => stepEditorSelection(-1));
     els.editNoteNextBtn?.addEventListener("click", () => stepEditorSelection(1));
-    els.editNoteIndexInput?.addEventListener("change", handleEditNoteIndexInput);
-    els.editNoteIndexInput?.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") handleEditNoteIndexInput();
-    });
     els.chordRootButtons?.forEach((btn) =>
         btn.addEventListener("click", () => {
             state.editorChordRoot = btn.dataset.chordRoot || "C";
@@ -1078,8 +919,6 @@ function bindEvents() {
         [els.projectTitleInput, STORAGE_KEYS.title],
         [els.analysisIdInput, STORAGE_KEYS.analysisId],
         [els.diziFluteTypeInput, STORAGE_KEYS.diziFluteType],
-        [els.lyricsModeInput, STORAGE_KEYS.lyricsMode],
-        [els.lyricsLanguageInput, STORAGE_KEYS.lyricsLanguage],
     ].forEach(([element, key]) => {
         if (!element) {
             return;
@@ -1224,7 +1063,10 @@ async function requestJson(path, options = {}) {
     if (!response.ok) {
         const detail =
             (payload && typeof payload === "object" && (payload.detail || payload.message)) || response.statusText;
-        throw new Error(detail || "请求失败");
+        const error = new Error(detail || "请求失败");
+        error.status = response.status;
+        error.payload = payload;
+        throw error;
     }
     if (payload && typeof payload === "object" && Object.prototype.hasOwnProperty.call(payload, "code")) {
         if (payload.code !== 0) {
@@ -1233,6 +1075,17 @@ async function requestJson(path, options = {}) {
         return payload.data;
     }
     return payload;
+}
+
+function clearStaleSelectedScore(scoreId) {
+    if (state.selectedScoreId === scoreId) {
+        state.selectedScoreId = "";
+    }
+    if (state.currentScore?.score_id === scoreId) {
+        state.currentScore = null;
+        renderAll();
+    }
+    localStorage.removeItem(STORAGE_KEYS.scoreId);
 }
 
 async function saveUserHistory(payload) {
@@ -1302,6 +1155,137 @@ function renderBackendState() {
 function setAppStatus(message, isError = false) {
     els.appStatus.textContent = message;
     els.appStatus.style.color = isError ? "var(--danger)" : "var(--accent-strong)";
+}
+
+function clearFileInputValue(input) {
+    if (!input || !("value" in input)) {
+        return;
+    }
+    input.value = "";
+}
+
+function clearWorkbenchState({ preserveProjectTitle = true } = {}) {
+    const preservedTitle = preserveProjectTitle
+        ? String(els.projectTitleInput?.value ?? localStorage.getItem(STORAGE_KEYS.title) ?? "")
+        : "";
+
+    state.currentScore = null;
+    state.guzhengResult = null;
+    state.guzhengEngravedPreview = null;
+    state.guitarLeadSheetResult = null;
+    state.diziResult = null;
+    state.diziEngravedPreview = null;
+    state.guitarHighlightedChordSymbol = "";
+    state.preferredTempo = DEFAULT_TRANSCRIPTION_SETTINGS.tempo;
+    state.preferredTimeSignature = DEFAULT_TRANSCRIPTION_SETTINGS.timeSignature;
+    state.preferredKeySignature = DEFAULT_TRANSCRIPTION_SETTINGS.keySignature;
+    setLatestPitchSequence([]);
+    state.selectedScoreId = "";
+    state.selectedNotationElementId = null;
+    state.exportList = [];
+    state.selectedExportRecordId = null;
+    state.selectedExportDetail = null;
+    state.beatDetectResult = null;
+    state.separateTracksResult = null;
+    state.chordGenerationResult = null;
+    state.rhythmScoreResult = null;
+    state.audioLogs = [];
+    state.scorePageIndex = 0;
+    state.scoreViewerOpen = false;
+    state.previewPageCount = 0;
+    state.previewPageIndex = 0;
+    state.previewPageSymbolOffsets = [];
+    state.previewPageSymbolOffsetsKey = "";
+    state.editorIndexMap = null;
+    state.editorIndexMapKey = "";
+    state.viewerPageCount = 0;
+    state.viewerPageRanges = [];
+    state.viewerPreparedKey = "";
+    state.viewerPreparedMusicxml = "";
+    state.viewerPreparedLayout = null;
+    state.viewerPageCache = new Map();
+    state.viewerPageSymbolOffsets = [];
+    state.viewerPageSymbolOffsetsKey = "";
+    state.viewerGesture = null;
+    state.viewerWheelAccumX = 0;
+    state.viewerSuppressClickUntil = 0;
+    state.editorSelectedMxmlIndex = null;
+    state.editorSelectedKind = null;
+    state.editorSelectedSummary = "";
+    state.editorJianpuLookup = null;
+    state.editorJianpuLookupKey = "";
+    state.editorTechniqueIndex = null;
+    state.editorTechniqueIndexKey = "";
+    state.editorHarmonyIndex = null;
+    state.editorHarmonyIndexKey = "";
+    invalidateViewerRenderState();
+    resetEditorSelectionState();
+
+    if (els.analysisIdInput) {
+        els.analysisIdInput.value = "";
+    }
+    if (els.scoreMusicxmlInput) {
+        els.scoreMusicxmlInput.value = "";
+    }
+    clearFileInputValue(els.pitchDetectFileInput);
+    clearFileInputValue(els.analysisFileInput);
+    clearFileInputValue(els.scoreMusicxmlFileInput);
+    setPitchDetectStatus("");
+
+    if (els.scoreViewerEntry) {
+        els.scoreViewerEntry.innerHTML = "";
+    }
+    if (els.scoreViewerCanvas) {
+        els.scoreViewerCanvas.innerHTML = "";
+    }
+    if (els.guzhengScoreView) {
+        els.guzhengScoreView.innerHTML = "";
+    }
+    if (els.guitarLeadSheetView) {
+        els.guitarLeadSheetView.innerHTML = "";
+    }
+    if (els.diziScoreView) {
+        els.diziScoreView.innerHTML = "";
+    }
+    if (els.guzhengDebugPanel) {
+        els.guzhengDebugPanel.innerHTML = "";
+    }
+    if (els.guitarDebugPanel) {
+        els.guitarDebugPanel.innerHTML = "";
+    }
+    if (els.diziDebugPanel) {
+        els.diziDebugPanel.innerHTML = "";
+    }
+    if (els.separateTracksOutput) {
+        els.separateTracksOutput.innerHTML = "";
+    }
+    if (els.audioLogList) {
+        els.audioLogList.innerHTML = "";
+    }
+    if (els.exportList) {
+        els.exportList.innerHTML = "";
+    }
+
+    localStorage.removeItem(STORAGE_KEYS.analysisId);
+    localStorage.removeItem(STORAGE_KEYS.scoreId);
+    localStorage.removeItem(STORAGE_KEYS.tempo);
+    localStorage.removeItem(STORAGE_KEYS.timeSignature);
+    localStorage.removeItem(STORAGE_KEYS.keySignature);
+
+    if (preserveProjectTitle && els.projectTitleInput) {
+        els.projectTitleInput.value = preservedTitle;
+        setLocalStorageSafely(STORAGE_KEYS.title, preservedTitle, { silent: true });
+    }
+}
+
+function handleRefreshWorkbench() {
+    if (state.busyKeys.size > 0) {
+        setAppStatus("当前仍有任务在执行，请等待完成后再刷新并清空工作台。", true);
+        return;
+    }
+    clearWorkbenchState({ preserveProjectTitle: true });
+    renderAll();
+    setAppStatus("已刷新并清空当前工作台，项目标题已保留。");
 }
 
 function setBusy(key, value) {
@@ -1555,16 +1539,6 @@ function buildPitchDetectFormData(file) {
     return { formData, config };
 }
 
-function buildBeatDetectFormData(file) {
-    const formData = new FormData();
-    formData.append("file", file);
-    if (els.beatBpmHintInput.value) {
-        formData.append("bpm_hint", els.beatBpmHintInput.value);
-    }
-    formData.append("sensitivity", els.beatSensitivityInput.value || "0.5");
-    return formData;
-}
-
 function applyDetectedTempo(tempo, { persist = true } = {}) {
     const numericTempo = Number(tempo);
     if (!Number.isFinite(numericTempo) || numericTempo <= 0) {
@@ -1578,93 +1552,14 @@ function applyDetectedTempo(tempo, { persist = true } = {}) {
     return resolvedTempo;
 }
 
-function resolveReliableBeatTempo(result) {
-    const bpm = Number(result?.bpm || 0);
-    const confidence = Number(result?.beat_quality?.confidence || 0);
-    const beatCount = Number(
-        result?.num_beats || (Array.isArray(result?.beat_times) ? result.beat_times.length : 0)
-    );
-    if (!Number.isFinite(bpm) || bpm <= 0) {
-        return null;
-    }
-    if (!Number.isFinite(confidence) || confidence < MIN_RELIABLE_BEAT_CONFIDENCE) {
-        return null;
-    }
-    if (!Number.isFinite(beatCount) || beatCount < MIN_RELIABLE_BEAT_COUNT) {
-        return null;
-    }
-    return Math.round(bpm);
-}
-
-async function requestBeatDetect(file, { syncAnalysisId = true, refreshAudioLogs = false } = {}) {
-    const formData = buildBeatDetectFormData(file);
-    const result = await requestJson("/rhythm/beat-detect", { method: "POST", body: formData });
-    state.beatDetectResult = result;
-    if (syncAnalysisId) {
-        els.analysisIdInput.value = result.analysis_id || els.analysisIdInput.value;
-        setLocalStorageSafely(STORAGE_KEYS.analysisId, els.analysisIdInput.value, { silent: true });
-    }
-    if (els.userBeatsInput) {
-        els.userBeatsInput.value = JSON.stringify(result.beats || result.beat_times || [], null, 2);
-    }
-    renderAll();
-    if (refreshAudioLogs) {
-        await loadAudioLogs();
-    }
-    return result;
-}
-
-function isAsyncAnalysisPending(result) {
-    const taskStatus = String(result?.task_status || "").toLowerCase();
-    return Boolean(result?.accepted) && ["pending", "running"].includes(taskStatus);
-}
-
-function sleep(ms) {
-    return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-async function requestAnalysisResult(analysisId) {
-    if (!analysisId) {
-        throw new Error("缺少 analysis_id，无法查询异步识谱任务。");
-    }
-    return requestJson(`/analysis/${encodeURIComponent(analysisId)}`);
-}
-
-async function waitForAnalysisCompletion(analysisId) {
-    const deadline = Date.now() + ANALYSIS_POLL_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-        const taskResult = await requestAnalysisResult(analysisId);
-        state.analysisTaskResult = taskResult;
-        renderAll();
-        const taskStatus = String(taskResult?.task_status || "").toLowerCase();
-        if (taskStatus === "completed") {
-            state.analysisTaskResult = null;
-            return taskResult;
-        }
-        if (taskStatus === "failed") {
-            throw new Error(taskResult?.error || "自动歌词识别失败。");
-        }
-        await sleep(ANALYSIS_POLL_INTERVAL_MS);
-    }
-    throw new Error("自动歌词识别等待超时，请稍后根据 analysis_id 刷新结果。");
-}
-
 async function requestPianoScoreFromAudio(file) {
     const config = getPitchDetectConfig();
     const resolvedUserId = await ensureScoreOwnerUserId();
     setAnalysisToolsOpen(true);
     const arrangementMode = resolvePianoArrangementModeValue();
-    const lyricsMode = resolveLyricsMode(els.lyricsModeInput?.value || state.lyricsMode || "file");
-    const lyricsLanguage = resolveLyricsLanguage(els.lyricsLanguageInput?.value || state.lyricsLanguage || "auto");
-    const lyricsFile = els.lyricsFileInput?.files?.[0] || null;
     const defaultTitle = "Untitled Piano Arrangement";
     const formData = new FormData();
     formData.append("file", file);
-    if (lyricsMode === "file" && lyricsFile) {
-        formData.append("lyrics_file", lyricsFile);
-    }
-    formData.append("lyrics_mode", lyricsMode);
-    formData.append("lyrics_language", lyricsLanguage);
     formData.append("user_id", String(resolvedUserId));
     formData.append("sample_rate", "16000");
     formData.append("frame_ms", String(config.frameMs));
@@ -1673,30 +1568,18 @@ async function requestPianoScoreFromAudio(file) {
     formData.append("title", (els.projectTitleInput.value || "").trim() || defaultTitle);
     formData.append("tempo", String(parsePositiveInteger(String(state.preferredTempo), "速度")));
     formData.append("time_signature", normalizeTimeSignature(state.preferredTimeSignature));
-    if (els.beatBpmHintInput.value) {
-        formData.append("bpm_hint", els.beatBpmHintInput.value);
-    }
-    formData.append("beat_sensitivity", els.beatSensitivityInput.value || "0.5");
-    formData.append("separation_model", (els.separationModelInput.value || "").trim() || "demucs");
-    formData.append("separation_stems", els.separationStemsInput.value || "2");
+    formData.append("beat_sensitivity", "0.5");
+    formData.append("separation_model", (els.separationModelInput?.value || "").trim() || "demucs");
+    formData.append("separation_stems", els.separationStemsInput?.value || "2");
     formData.append("arrangement_mode", arrangementMode);
 
-    let result = await requestJson("/score/from-audio", {
+    const result = await requestJson("/score/from-audio", {
         method: "POST",
         body: formData,
     });
     if (result.analysis_id) {
         els.analysisIdInput.value = result.analysis_id || "";
         setLocalStorageSafely(STORAGE_KEYS.analysisId, els.analysisIdInput.value, { silent: true });
-    }
-    if (isAsyncAnalysisPending(result)) {
-        state.analysisTaskResult = result;
-        state.lyricsImportResult = null;
-        renderAll();
-        await loadAudioLogs();
-        const completed = await waitForAnalysisCompletion(result.analysis_id);
-        state.analysisTaskResult = null;
-        result = completed;
     }
     state.beatDetectResult = result.beat_result
         ? { ...result.beat_result, analysis_id: result.analysis_id, audio_log: result.audio_log }
@@ -1925,7 +1808,7 @@ function buildGuitarExportPayload(format) {
         key: base.key,
         tempo: base.tempo,
         time_signature: base.timeSignature,
-        style: (els.chordStyleInput.value || "").trim() || "pop",
+        style: "pop",
         format,
         layout_mode: resolveGuitarViewMode(state.guitarViewMode),
     };
@@ -2033,7 +1916,7 @@ async function requestGuitarLeadSheet({ pitchSequence = null, analysisId = null,
         key: base.key,
         tempo: base.tempo,
         time_signature: base.timeSignature,
-        style: (els.chordStyleInput.value || "").trim() || "pop",
+        style: "pop",
     };
     if (scoreId) {
         payload.score_id = scoreId;
@@ -2055,6 +1938,7 @@ async function requestGuitarLeadSheet({ pitchSequence = null, analysisId = null,
     state.guitarLeadSheetResult = result;
     state.chordGenerationResult = result;
     applyDetectedKeySignature(result.key);
+    await ensureEditableScoreForGuitarResult({ result, base, scoreId, analysisId });
     renderAll();
     await saveUserHistory({
         type: "transcription",
@@ -2085,12 +1969,9 @@ async function requestGuzhengScoreFromAudio(file) {
     formData.append("tempo", String(base.tempo));
     formData.append("time_signature", base.timeSignature);
     formData.append("style", "traditional");
-    if (els.beatBpmHintInput.value) {
-        formData.append("bpm_hint", els.beatBpmHintInput.value);
-    }
-    formData.append("beat_sensitivity", els.beatSensitivityInput.value || "0.5");
-    formData.append("separation_model", (els.separationModelInput.value || "").trim() || "demucs");
-    formData.append("separation_stems", els.separationStemsInput.value || "2");
+    formData.append("beat_sensitivity", "0.5");
+    formData.append("separation_model", (els.separationModelInput?.value || "").trim() || "demucs");
+    formData.append("separation_stems", els.separationStemsInput?.value || "2");
 
     const result = await requestJson("/generation/guzheng-score-from-audio", {
         method: "POST",
@@ -2139,12 +2020,9 @@ async function requestDiziScoreFromAudio(file) {
     formData.append("time_signature", base.timeSignature);
     formData.append("style", "traditional");
     formData.append("flute_type", fluteType);
-    if (els.beatBpmHintInput.value) {
-        formData.append("bpm_hint", els.beatBpmHintInput.value);
-    }
-    formData.append("beat_sensitivity", els.beatSensitivityInput.value || "0.5");
-    formData.append("separation_model", (els.separationModelInput.value || "").trim() || "demucs");
-    formData.append("separation_stems", els.separationStemsInput.value || "2");
+    formData.append("beat_sensitivity", "0.5");
+    formData.append("separation_model", (els.separationModelInput?.value || "").trim() || "demucs");
+    formData.append("separation_stems", els.separationStemsInput?.value || "2");
 
     const result = await requestJson("/generation/dizi-score-from-audio", {
         method: "POST",
@@ -2182,16 +2060,8 @@ async function requestDiziScoreFromAudio(file) {
 async function requestGuitarLeadSheetFromAudio(file) {
     const config = getPitchDetectConfig();
     const base = resolveCustomLeadSheetBase(null);
-    const lyricsMode = resolveLyricsMode(els.lyricsModeInput?.value || state.lyricsMode || "file");
-    const lyricsLanguage = resolveLyricsLanguage(els.lyricsLanguageInput?.value || state.lyricsLanguage || "auto");
-    const lyricsFile = els.lyricsFileInput?.files?.[0] || null;
     const formData = new FormData();
     formData.append("file", file);
-    if (lyricsMode === "file" && lyricsFile) {
-        formData.append("lyrics_file", lyricsFile);
-    }
-    formData.append("lyrics_mode", lyricsMode);
-    formData.append("lyrics_language", lyricsLanguage);
     formData.append("sample_rate", "16000");
     formData.append("frame_ms", String(config.frameMs));
     formData.append("hop_ms", String(config.hopMs));
@@ -2200,7 +2070,7 @@ async function requestGuitarLeadSheetFromAudio(file) {
     formData.append("key", base.key || "");
     formData.append("tempo", String(base.tempo));
     formData.append("time_signature", base.timeSignature);
-    formData.append("style", (els.chordStyleInput.value || "").trim() || "pop");
+    formData.append("style", "pop");
     formData.append("separation_model", "demucs");
     formData.append("separation_stems", "2");
 
@@ -2211,11 +2081,16 @@ async function requestGuitarLeadSheetFromAudio(file) {
     state.guitarLeadSheetResult = result;
     state.chordGenerationResult = result;
     state.separateTracksResult = result.separation || null;
-    state.lyricsImportResult = result.lyrics_import || null;
     setLatestPitchSequence(result.pitch_sequence || []);
     els.analysisIdInput.value = result.analysis_id || "";
     setLocalStorageSafely(STORAGE_KEYS.analysisId, els.analysisIdInput.value, { silent: true });
     applyDetectedKeySignature(result.detected_key_signature || result.key);
+    await ensureEditableScoreForGuitarResult({
+        result,
+        base,
+        scoreId: null,
+        analysisId: result.analysis_id || null,
+    });
     renderAll();
     await saveUserHistory({
         type: "transcription",
@@ -2230,6 +2105,49 @@ async function requestGuitarLeadSheetFromAudio(file) {
         },
     });
     return result;
+}
+
+async function ensureEditableScoreForGuitarResult({ result, base, scoreId = null, analysisId = null } = {}) {
+    if (scoreId) {
+        if (state.currentScore?.score_id !== scoreId || !state.currentScore?.musicxml) {
+            try {
+                await loadCurrentScore(scoreId, { silent: true });
+            } catch (error) {
+                console.warn("[SeeMusic] failed to load guitar source score:", error);
+            }
+        }
+        return;
+    }
+
+    const pitchSequence = Array.isArray(result?.pitch_sequence) && result.pitch_sequence.length
+        ? result.pitch_sequence
+        : parsePitchSequenceOrEmpty();
+    if (!pitchSequence.length) {
+        return;
+    }
+
+    try {
+        const created = await requestJson("/score/from-pitch-sequence", {
+            method: "POST",
+            body: {
+                user_id: await ensureScoreOwnerUserId(),
+                title: base?.title || result?.title || "Untitled Guitar Lead Sheet",
+                analysis_id: result?.analysis_id || analysisId || null,
+                tempo: parsePositiveInteger(String(result?.tempo || base?.tempo || DEFAULT_TRANSCRIPTION_SETTINGS.tempo), "速度"),
+                time_signature: normalizeTimeSignature(result?.time_signature || base?.timeSignature || DEFAULT_TRANSCRIPTION_SETTINGS.timeSignature),
+                key_signature: normalizeKeySignature(result?.detected_key_signature || result?.key || base?.key || DEFAULT_TRANSCRIPTION_SETTINGS.keySignature),
+                auto_detect_key: false,
+                arrangement_mode: "melody",
+                pitch_sequence: pitchSequence,
+            },
+        });
+        state.exportList = [];
+        state.selectedExportRecordId = null;
+        state.selectedExportDetail = null;
+        applyScoreResult(created);
+    } catch (error) {
+        console.warn("[SeeMusic] failed to create editable guitar base score:", error);
+    }
 }
 
 async function handlePitchDetect() {
@@ -2301,11 +2219,10 @@ async function handlePitchDetectAndScore() {
             const warnings = Array.isArray(generatedLeadSheet.warnings) && generatedLeadSheet.warnings.length
                 ? `，附带 ${generatedLeadSheet.warnings.length} 条提示`
                 : "";
-            const lyricsSummary = buildLyricsImportSummary(generatedLeadSheet.lyrics_import);
             setPitchDetectStatus(
-                `吉他弹唱谱生成完成：已优先使用 ${melodyTrackName} 轨识别旋律，生成 ${generatedLeadSheet.measures?.length || 0} 小节，${lyricsSummary}${warnings}。`
+                `吉他弹唱谱生成完成：已优先使用 ${melodyTrackName} 轨识别旋律，生成 ${generatedLeadSheet.measures?.length || 0} 小节${warnings}。`
             );
-            setAppStatus(`吉他弹唱谱已生成，当前调号 ${generatedLeadSheet.key || "--"}，旋律来源 ${melodyTrackName}，${lyricsSummary}。`);
+            setAppStatus(`吉他弹唱谱已生成，当前调号 ${generatedLeadSheet.key || "--"}，旋律来源 ${melodyTrackName}。`);
             return;
         }
         if (instrumentType === "guzheng") {
@@ -2355,14 +2272,8 @@ async function handlePitchDetectAndScore() {
             );
             return;
         }
-        const lyricsMode = resolveLyricsMode(els.lyricsModeInput?.value || state.lyricsMode || "file");
-        if (lyricsMode === "asr_whisperx") {
-            setPitchDetectStatus("正在提交钢琴识谱任务，随后会用 WhisperX 自动识别人声歌词…");
-            setAppStatus("钢琴模式会先提交异步识谱任务，再用 WhisperX 自动识别歌词并挂到最终钢琴谱。");
-        } else {
-            setPitchDetectStatus("正在分离主旋律、检测节拍速度，并生成双手钢琴谱…");
-            setAppStatus("钢琴模式会先分离主旋律，再做定速、定调、和弦分析与双手编配。");
-        }
+        setPitchDetectStatus("正在分离主旋律、检测节拍速度，并生成双手钢琴谱…");
+        setAppStatus("钢琴模式会先分离主旋律，再做定速、定调、和弦分析与双手编配。");
         let created;
         try {
             created = await requestPianoScoreFromAudio(file);
@@ -2382,10 +2293,9 @@ async function handlePitchDetectAndScore() {
             return;
         }
         const chordCount = Array.isArray(created.piano_arrangement?.chords) ? created.piano_arrangement.chords.length : 0;
-        const lyricsSummary = buildLyricsImportSummary(created.lyrics_import);
-        const msg = `双手钢琴谱生成完成：旋律来源 ${melodyTrackName}，调号 ${created.key_signature || "--"}，速度 ${tempoSummary}，和弦 ${chordCount} 组，${lyricsSummary}，乐谱 ${created.score_id} 已生成`;
+        const msg = `双手钢琴谱生成完成：旋律来源 ${melodyTrackName}，调号 ${created.key_signature || "--"}，速度 ${tempoSummary}，和弦 ${chordCount} 组，乐谱 ${created.score_id} 已生成`;
         setPitchDetectStatus(msg);
-        setAppStatus(`双手钢琴谱已完成，已生成带左手伴奏的钢琴谱，旋律来源 ${melodyTrackName}，速度 ${tempoSummary}，${lyricsSummary}。`);
+        setAppStatus(`双手钢琴谱已完成，已生成带左手伴奏的钢琴谱，旋律来源 ${melodyTrackName}，速度 ${tempoSummary}。`);
     } catch (error) {
         setPitchDetectStatus(`识谱失败：${error.message}`, true);
         setAppStatus("音频识谱未完成，请查看识别区域提示。", true);
@@ -2520,8 +2430,8 @@ async function handleSeparateTracks() {
         const file = ensureAnalysisFile();
         const formData = new FormData();
         formData.append("file", file);
-        formData.append("model", (els.separationModelInput.value || "").trim() || "demucs");
-        formData.append("stems", els.separationStemsInput.value || "2");
+        formData.append("model", (els.separationModelInput?.value || "").trim() || "demucs");
+        formData.append("stems", els.separationStemsInput?.value || "2");
         const result = await requestJson("/audio/separate-tracks", { method: "POST", body: formData });
         state.separateTracksResult = result;
         els.analysisIdInput.value = result.analysis_id || els.analysisIdInput.value;
@@ -2897,6 +2807,9 @@ async function loadCurrentScore(scoreId, { silent = false } = {}) {
         }
         return score;
     } catch (error) {
+        if (Number(error?.status) === 404) {
+            clearStaleSelectedScore(scoreId);
+        }
         if (!silent) {
             setAppStatus(`乐谱加载失败：${error.message}`, true);
         }
@@ -2915,14 +2828,16 @@ function applyScoreResult(score) {
         previousScoreVersion === score?.version;
 
     state.currentScore = score;
-    state.lyricsImportResult = score?.lyrics_import || null;
-    state.analysisTaskResult = null;
     state.editorIndexMap = null;
     state.editorIndexMapKey = "";
     state.editorJianpuLookup = null;
     state.editorJianpuLookupKey = "";
     state.editorHarmonyIndex = null;
     state.editorHarmonyIndexKey = "";
+    state.previewPageSymbolOffsets = [];
+    state.previewPageSymbolOffsetsKey = "";
+    state.viewerPageSymbolOffsets = [];
+    state.viewerPageSymbolOffsetsKey = "";
     if (score) {
         setPianoResultMode(resolvePianoResultModeFromScore(score), { persist: true, announce: false });
     }
@@ -2955,6 +2870,8 @@ function invalidateViewerRenderState({ preservePageIndex = false } = {}) {
     state.viewerPreparedMusicxml = "";
     state.viewerPreparedLayout = null;
     state.viewerPageCache = new Map();
+    state.viewerPageSymbolOffsets = [];
+    state.viewerPageSymbolOffsetsKey = "";
     state.viewerPageRanges = [];
     state.viewerPageCount = 0;
     state.viewerWheelAccumX = 0;
@@ -2974,7 +2891,7 @@ function resolveMeasureCount(score) {
 }
 
 function defaultSelectionHint() {
-    return "点击谱面中的音符或休止符可高亮查看当前选中位置。";
+    return "点击谱面中的音符或休止符可高亮查看当前选中位置；如果点不中，可用上一个/下一个切换。";
 }
 
 function renderInstrumentToggleButtons() {
@@ -3048,7 +2965,7 @@ function renderInstrumentMode() {
         : guzhengMode
             ? "上传样例音频并生成古筝谱后，这里可展开查看分离轨、定调结果、五声音阶统计与技法候选。"
             : diziMode
-                ? "上传样例音频并生成笛子谱后，这里可展开查看分离轨、定调结果、可吹性统计与指法候选。"
+                ? "上传样例音频并生成笛子谱后，这里会直接展示定调结果、可吹性统计与指法候选。"
                 : "双手钢琴模式下会展示节拍、分轨、和弦时间轴、左手织体和双手分配规则。";
     if (els.pitchDetectAndScoreBtn) {
         els.pitchDetectAndScoreBtn.textContent = guitarMode
@@ -3066,13 +2983,6 @@ function renderInstrumentMode() {
             : diziMode
                 ? "生成笛子谱"
                 : "生成双手钢琴谱";
-    els.generateChordsBtn.textContent = guitarMode
-        ? "生成吉他弹唱谱"
-        : guzhengMode
-            ? "刷新古筝谱"
-            : diziMode
-                ? "刷新笛子谱"
-                : "查看编配和弦";
     els.exportScorePdfBtn.hidden = false;
     if (els.openScoreViewerBtn) {
         els.openScoreViewerBtn.hidden = customMode;
@@ -3090,7 +3000,6 @@ function renderInstrumentMode() {
 function renderAll() {
     renderBackendState();
     renderInstrumentMode();
-    renderLyricsInputState();
     renderScoreSummary();
     renderGuzhengScorePanel();
     renderDiziScorePanel();
@@ -3102,6 +3011,7 @@ function renderAll() {
     renderControlState();
     renderEditWorkbench();
     renderPreviewPageNav();
+    syncSelectionHighlightToCurrentSelection();
     if (isPianoMode()) {
         scheduleNotationRender();
     } else {
@@ -3126,7 +3036,7 @@ async function ensureVerovioRuntime() {
 
     const tryConstruct = () => {
         const moduleRef = verovioApi.module;
-        return new verovioApi.toolkit(moduleRef);
+        return configureVerovioToolkit(new verovioApi.toolkit(moduleRef), moduleRef);
     };
 
     try {
@@ -3167,17 +3077,58 @@ async function ensureVerovioRuntime() {
     }
 }
 
+function ensureVerovioResourceAliases(moduleRef = window.verovio?.module) {
+    const fs = moduleRef?.FS;
+    if (!fs || typeof fs.readFile !== "function" || typeof fs.writeFile !== "function") {
+        return;
+    }
+    const pathExists = (targetPath) => {
+        try {
+            return Boolean(fs.analyzePath?.(targetPath)?.exists);
+        } catch (_) {
+            return false;
+        }
+    };
+    if (pathExists(VEROVIO_GLYPHNAMES_PATH) || !pathExists(VEROVIO_TUNING_GLYPHNAMES_PATH)) {
+        return;
+    }
+    try {
+        const glyphJson = fs.readFile(VEROVIO_TUNING_GLYPHNAMES_PATH, { encoding: "utf8" });
+        if (glyphJson) {
+            fs.writeFile(VEROVIO_GLYPHNAMES_PATH, glyphJson);
+        }
+    } catch (error) {
+        console.warn(`Failed to alias Verovio glyphnames.json: ${error?.message || error}`);
+    }
+}
+
+function configureVerovioToolkit(toolkit, moduleRef = window.verovio?.module) {
+    if (!toolkit) {
+        return null;
+    }
+    ensureVerovioResourceAliases(moduleRef);
+    if (typeof toolkit.setResourcePath === "function") {
+        try {
+            toolkit.setResourcePath(VEROVIO_RESOURCE_PATH);
+        } catch (error) {
+            console.warn(`Failed to set Verovio resource path: ${error?.message || error}`);
+        }
+    }
+    return toolkit;
+}
+
 function createVerovioToolkit() {
     if (!state.verovioReady || !window.verovio || typeof window.verovio.toolkit !== "function") {
         return null;
     }
-    return new window.verovio.toolkit(window.verovio.module);
+    return configureVerovioToolkit(new window.verovio.toolkit(window.verovio.module), window.verovio.module);
 }
 
 function buildVerovioOptions(mode = "preview") {
     const measureCount = Math.max(resolveMeasureCount(state.currentScore), 1);
     if (mode === "viewer") {
         return {
+            resourcePath: VEROVIO_RESOURCE_PATH,
             breaks: "encoded",
             pageWidth: 2100,
             pageHeight: Math.round(2100 / VIEWER_A4_RATIO),
@@ -3199,6 +3150,7 @@ function buildVerovioOptions(mode = "preview") {
         };
     }
     return {
+        resourcePath: VEROVIO_RESOURCE_PATH,
         breaks: "auto",
         pageWidth: 2100,
         pageHeight: 1500,
@@ -3379,7 +3331,7 @@ function resolveGuitarMeasureWidthRem(measure) {
     return Math.min(Math.max(8.5 + chordCount * 2.25, 9.5), 18);
 }
 
-function buildGuitarDisplayTokens(measures, lyricText) {
+function buildGuitarDisplayTokens(measures) {
     const tokens = [];
     (Array.isArray(measures) ? measures : []).forEach((measure, measureIndex) => {
         tokens.push({ type: "bar", measureNo: Number(measure?.measure_no || measureIndex + 1) });
@@ -3399,9 +3351,6 @@ function buildGuitarDisplayTokens(measures, lyricText) {
                     tokens.push({ type: "spacer", measureNo: Number(measure?.measure_no || measureIndex + 1), width: "beat" });
                 }
             });
-        }
-        if (measureIndex === 0) {
-            tokens.push({ type: "lyric", text: lyricText || "歌词待补", measureNo: Number(measure?.measure_no || 1) });
         }
     });
     return tokens;
@@ -3478,15 +3427,14 @@ function buildGuitarSongSheetModel(result) {
     const measures = Array.isArray(result?.measures) ? result.measures : [];
     const chords = Array.isArray(result?.chords) ? result.chords : [];
     const sectionPatterns = Array.isArray(result?.strumming_pattern?.section_patterns) ? result.strumming_pattern.section_patterns : [];
-    const fallbackLineMeasures = measures.length
+    const fallbackLines = measures.length
         ? [{
             line_no: 1,
-            line_label: "歌词行 1",
+            line_label: "第 1 行",
             measure_start: measures[0].measure_no || 1,
             measure_end: measures[measures.length - 1].measure_no || measures.length,
             measure_count: measures.length,
             cadence: measures.length ? "open" : "resolved",
-            lyric_placeholder: "歌词待补",
             measures,
         }]
         : [];
@@ -3495,11 +3443,11 @@ function buildGuitarSongSheetModel(result) {
             section_no: 1,
             section_label: "A",
             section_title: "主歌",
-            measure_start: fallbackLineMeasures[0]?.measure_start || 1,
-            measure_end: fallbackLineMeasures[0]?.measure_end || 1,
+            measure_start: fallbackLines[0]?.measure_start || 1,
+            measure_end: fallbackLines[0]?.measure_end || 1,
             measure_count: measures.length,
-            cadence: fallbackLineMeasures[fallbackLineMeasures.length - 1]?.cadence || "open",
-            lyric_lines: fallbackLineMeasures,
+            cadence: fallbackLines[fallbackLines.length - 1]?.cadence || "open",
+            lines: fallbackLines,
         }]
         : [];
     const sourceSections = Array.isArray(result?.display_sections) && result.display_sections.length
@@ -3507,6 +3455,21 @@ function buildGuitarSongSheetModel(result) {
         : Array.isArray(result?.sections) && result.sections.length
             ? result.sections
             : fallbackSections;
+    const normalizeGuitarLineTokens = (tokens, lineMeasures) => {
+        if (!Array.isArray(tokens) || !tokens.length) {
+            return buildGuitarDisplayTokens(lineMeasures);
+        }
+        return tokens
+            .filter((token) => token?.type !== "lyric")
+            .map((token) => ({
+                type: token?.type || "spacer",
+                measureNo: Number(token?.measureNo || token?.measure_no || 0) || null,
+                width: token?.width || "beat",
+                symbol: token?.symbol || "",
+                source: token?.source || "diatonic",
+                beatInMeasure: Number(token?.beatInMeasure || token?.beat_in_measure || 1) || 1,
+            }));
+    };
     const roleCounts = new Map();
     const sections = sourceSections.map((section, sectionIndex) => {
         const sectionPattern = findMatchingGuitarSectionPattern(sectionPatterns, section, sectionIndex);
@@ -3528,18 +3491,13 @@ function buildGuitarSongSheetModel(result) {
             ? section.lines
             : Array.isArray(section?.display_lines) && section.display_lines.length
                 ? section.display_lines
-                : Array.isArray(section?.lyric_lines) && section.lyric_lines.length
-                    ? section.lyric_lines
-                    : fallbackLineMeasures;
+                : fallbackLines;
         const lines = sourceLines.map((line, lineIndex) => {
             const lineMeasures = Array.isArray(line?.measures) ? line.measures : [];
-            const lyricText = String(line?.lyric || line?.lyric_text || line?.lyric_placeholder || "歌词待补").trim() || "歌词待补";
             const measureSegments = lineMeasures.map((measure, measureIndex) => ({
                 measureNo: Number(measure?.measure_no || measureIndex + 1),
                 widthRem: resolveGuitarMeasureWidthRem(measure),
                 chords: Array.isArray(measure?.chords) ? measure.chords : [],
-                lyricText: measureIndex === 0 ? lyricText : "",
-                hasLyrics: Boolean(line?.lyric || line?.lyric_text),
             }));
             return {
                 lineNo: Number(line?.line_no || lineIndex + 1),
@@ -3548,12 +3506,8 @@ function buildGuitarSongSheetModel(result) {
                 measureEnd: Number(line?.measure_end || measureSegments[measureSegments.length - 1]?.measureNo || 1),
                 measureCount: Number(line?.measure_count || measureSegments.length || 0),
                 cadence: line?.cadence || "open",
-                lyricText,
-                hasLyrics: Boolean(line?.lyric || line?.lyric_text),
                 measureSegments,
-                tokens: Array.isArray(line?.tokens) && line.tokens.length
-                    ? line.tokens
-                    : buildGuitarDisplayTokens(lineMeasures, lyricText),
+                tokens: normalizeGuitarLineTokens(line?.tokens, lineMeasures),
             };
         });
         return {
@@ -3769,44 +3723,78 @@ function buildChordLyricPairs(allChords, lyricText) {
  */
 function renderGuitarLeadLineInline(line, { highlightedChordSymbol = "" } = {}) {
     const measureSegments = Array.isArray(line?.measureSegments) ? line.measureSegments : [];
-    if (!measureSegments.length) {
+    const tokens = Array.isArray(line?.tokens) && line.tokens.length
+        ? line.tokens
+        : buildGuitarDisplayTokens(
+            measureSegments.map((measure, measureIndex) => ({
+                measure_no: measure?.measureNo || measureIndex + 1,
+                chords: Array.isArray(measure?.chords) ? measure.chords : [],
+            }))
+        );
+    if (!tokens.length) {
         return '<div class="analysis-note">当前这一行还没有可展示的弹唱内容。</div>';
     }
-    const allChords = measureSegments.flatMap((m) => Array.isArray(m.chords) ? m.chords : []);
-    const lyricText = line?.lyricText || "";
-    const pairs = buildChordLyricPairs(allChords, lyricText);
-
-    if (!pairs.length) {
-        return `
-            <div class="guitar-inline-lyric-line">
-                <span class="guitar-inline-pair">
-                    <span class="guitar-inline-chord is-empty">\u00a0</span>
-                    <span class="guitar-inline-syllable">${escapeHtmlText(lyricText || "\u00a0")}</span>
-                </span>
-            </div>
-        `;
-    }
-
     return `
-        <div class="guitar-inline-lyric-line">
-            ${pairs.map((pair) => {
-                const anchorIdx = pair.chord ? lookupAnchorMxmlIndexForChord(pair.measure_no, pair.beat_in_measure) : null;
-                const override = anchorIdx != null ? lookupChordOverrideForAnchor(anchorIdx) : null;
-                const displaySymbol = override || pair.chord || "";
-                const dataAttrs = anchorIdx != null
-                    ? `data-mxml-index="${anchorIdx}"`
-                    : "";
-                return `
-                    <span class="guitar-inline-pair${displaySymbol && highlightedChordSymbol === displaySymbol ? " is-highlighted" : ""}" ${dataAttrs}>
-                        <span class="guitar-inline-chord ${displaySymbol ? escapeHtmlText(pair.source || "diatonic") : "is-empty"}${override ? " has-override" : ""}"
-                              ${displaySymbol ? `data-guitar-chord-symbol="${escapeHtmlAttribute(displaySymbol)}" role="button" tabindex="0"` : ""}
-                              ${override ? `title="\u8986\u76d6\uff1a${escapeHtmlAttribute(override)}\uff08\u539f\u63a8\u5bfc\uff1a${escapeHtmlAttribute(pair.chord || "--")}\uff09"` : ""}>
-                            ${displaySymbol ? escapeHtmlText(displaySymbol) : "\u00a0"}
+        <div class="guitar-inline-chord-line">
+            ${tokens.map((token) => {
+                if (token?.type === "bar") {
+                    return `
+                        <span class="guitar-inline-bar">
+                            <span class="guitar-inline-bar-mark">|</span>
+                            <span class="guitar-inline-bar-number">${escapeHtmlText(String(token.measureNo || "--"))}</span>
                         </span>
-                        <span class="guitar-inline-syllable">${escapeHtmlText(pair.lyric || "\u00a0")}</span>
+                    `;
+                }
+                if (token?.type === "spacer") {
+                    return `<span class="guitar-inline-spacer ${token.width === "measure" ? "measure" : "beat"}" aria-hidden="true"></span>`;
+                }
+                if (token?.type !== "chord") {
+                    return "";
+                }
+                const anchorIdx = lookupAnchorMxmlIndexForChord(token.measureNo, token.beatInMeasure);
+                const override = anchorIdx != null ? lookupChordOverrideForAnchor(anchorIdx) : null;
+                const displaySymbol = override || token.symbol || "";
+                const dataAttrs = anchorIdx != null ? `data-mxml-index="${anchorIdx}"` : "";
+                return `
+                    <span class="guitar-inline-chord-token${displaySymbol && highlightedChordSymbol === displaySymbol ? " is-highlighted" : ""}" ${dataAttrs}>
+                        <span class="guitar-inline-chord ${escapeHtmlText(token.source || "diatonic")}${override ? " has-override" : ""}"
+                              data-guitar-chord-symbol="${escapeHtmlAttribute(displaySymbol || "--")}"
+                              role="button"
+                              tabindex="0"
+                              ${override ? `title="\u8986\u76d6\uff1a${escapeHtmlAttribute(override)}\uff08\u539f\u63a8\u5bfc\uff1a${escapeHtmlAttribute(token.symbol || "--")}\uff09"` : ""}>
+                            ${escapeHtmlText(displaySymbol || "--")}
+                        </span>
                     </span>
                 `;
             }).join("")}
+            <span class="guitar-inline-bar closing">
+                <span class="guitar-inline-bar-mark">|</span>
+            </span>
+        </div>
+    `;
+}
+
+function renderGuitarChordFlowLine(line, options = {}) {
+    const measureCount = Number(line?.measureCount || line?.measureSegments?.length || 0);
+    const cadence = localizeGuitarCadence(line?.cadence || "open");
+    const summaryParts = [];
+    if (measureCount > 0) {
+        summaryParts.push(`${measureCount} 小节`);
+    }
+    if (cadence) {
+        summaryParts.push(cadence);
+    }
+    return `
+        <div class="guitar-lead-line-shell">
+            <div class="guitar-lead-line-meta">
+                <span class="guitar-lead-line-label">${escapeHtmlText(line?.label || "当前行")}</span>
+                <span class="guitar-lead-line-summary">${escapeHtmlText(summaryParts.join(" · ") || "等待正文生成")}</span>
+            </div>
+            <div class="guitar-lead-line-scroll">
+                <div class="guitar-lead-line">
+                    ${renderGuitarLeadLineInline(line, options)}
+                </div>
+            </div>
         </div>
     `;
 }
@@ -3820,49 +3808,6 @@ function lookupChordOverrideForAnchor(mxmlIndex) {
         }
     }
     return null;
-}
-
-/** Legacy measure-grid line renderer kept for reference; not used in main flow. */
-function renderGuitarLeadLine(line, { highlightedChordSymbol = "" } = {}) {
-    const measureSegments = Array.isArray(line?.measureSegments) ? line.measureSegments : [];
-    if (!measureSegments.length) {
-        return '<div class="analysis-note">当前这一行还没有可展示的弹唱内容。</div>';
-    }
-    return `
-        <article class="guitar-lead-line-shell">
-            <div class="guitar-lead-line-meta">
-                <span class="guitar-lead-line-label">${escapeHtmlText(line.label || "正文行")}</span>
-                <span class="guitar-lead-line-summary">${escapeHtmlText(String(line.measureCount || measureSegments.length))} 小节 · ${escapeHtmlText(localizeGuitarCadence(line.cadence))}</span>
-            </div>
-            <div class="guitar-lead-line-scroll">
-                <div class="guitar-lead-line">
-                    ${measureSegments.map((measure) => `
-                        <div class="guitar-lead-measure" style="--measure-width:${measure.widthRem}rem">
-                            <div class="guitar-lead-measure-head">
-                                <span class="guitar-lead-measure-bar">|</span>
-                                <span class="guitar-lead-measure-number">${escapeHtmlText(String(measure.measureNo || "--"))}</span>
-                            </div>
-                            <div class="guitar-lead-chord-row">
-                                ${measure.chords.length ? measure.chords.map((chord) => `
-                                    <button
-                                        class="guitar-lead-chord-chip ${escapeHtmlText(chord.source || "diatonic")} ${highlightedChordSymbol && highlightedChordSymbol === chord.symbol ? "active" : ""}"
-                                        data-guitar-chord-symbol="${escapeHtmlAttribute(chord.symbol || "--")}"
-                                        type="button"
-                                    >
-                                        ${escapeHtmlText(chord.symbol || "--")}
-                                    </button>
-                                `).join("") : '<span class="guitar-lead-spacer">—</span>'}
-                            </div>
-                            <div class="guitar-lead-lyric-row ${measure.hasLyrics ? "" : "is-placeholder"} ${measure.lyricText ? "" : "is-empty"}">
-                                <span class="guitar-lead-lyric-text">${escapeHtmlText(measure.lyricText || "")}</span>
-                            </div>
-                        </div>
-                    `).join("")}
-                    <span class="guitar-lead-final-bar">|</span>
-                </div>
-            </div>
-        </article>
-    `;
 }
 
 function renderGuitarLeadSection(section, options = {}) {
@@ -3881,7 +3826,7 @@ function renderGuitarLeadSection(section, options = {}) {
                 ${renderGuitarInlineStrumming(section.strumming)}
             </header>
             <div class="guitar-lead-lines">
-                ${lines.map((line) => renderGuitarLeadLineInline(line, options)).join("")}
+                ${lines.map((line) => renderGuitarChordFlowLine(line, options)).join("")}
             </div>
         </section>
     `;
@@ -4143,7 +4088,7 @@ function resolveGuzhengTechniqueMark(note) {
         return "∿";
     }
     if (tags.includes("按音候选") || note?.press_note_candidate) {
-        return "按";
+        return "∽";
     }
     return "&nbsp;";
 }
@@ -4159,7 +4104,7 @@ function renderGuzhengPaperOrnaments(note) {
     } else if (tags.includes("下滑音候选")) {
         items.push('<span class="guzheng-jianpu-slide-arc slide-down"></span>');
     } else if (tags.includes("按音候选") || note?.press_note_candidate) {
-        items.push('<span class="guzheng-jianpu-bend-mark">⌒</span>');
+        items.push('<span class="guzheng-jianpu-bend-mark">∽</span>');
     }
     if (!items.length) {
         return '<span class="guzheng-jianpu-ornament-placeholder"></span>';
@@ -4173,7 +4118,7 @@ function resolveGuzhengPressText(note) {
     }
     const openDegree = Number(note?.open_degree);
     if (!Number.isFinite(openDegree) || openDegree <= 0) {
-        return "按";
+        return "∽";
     }
     return String(openDegree);
 }
@@ -4445,11 +4390,11 @@ function buildTraditionalFallbackMeasures(result, instrumentType) {
             annotation_text: instrumentType === "guzheng"
                 ? resolveGuzhengPressText(note)
                 : note?.out_of_range
-                    ? "超"
+                    ? "↑"
                     : note?.special_fingering_candidate
-                        ? "特"
+                        ? "✱"
                         : note?.half_hole_candidate
-                            ? "半"
+                            ? "◐"
                             : "",
             annotation_hint: instrumentType === "guzheng"
                 ? note?.position_hint || ""
@@ -4534,24 +4479,10 @@ function renderTraditionalLayoutModeToggle(current) {
     `;
 }
 
-function renderTraditionalMarkupModeToggle(currentLayer, instrumentType) {
-    const mode = resolveTraditionalMarkupMode(currentLayer);
-    const annotatedLabel = instrumentType === "guzheng" ? "带弦位/技法" : "带指法/技法";
-    return `
-        <div class="instrument-toggle traditional-markup-mode-toggle" role="tablist" aria-label="简谱标注模式">
-            <button class="instrument-toggle-button ${mode === "plain" ? "active" : ""}" data-jianpu-markup-mode="plain" role="tab" type="button" aria-selected="${mode === "plain" ? "true" : "false"}">纯净简谱</button>
-            <button class="instrument-toggle-button ${mode === "annotated" ? "active" : ""}" data-jianpu-markup-mode="annotated" role="tab" type="button" aria-selected="${mode === "annotated" ? "true" : "false"}">${escapeHtmlText(annotatedLabel)}</button>
-        </div>
-    `;
-}
-
-function renderTraditionalAnnotationLayerToggle(current, instrumentType) {
-    const labelPrefix = instrumentType === "guzheng" ? "弦位" : "指法";
+function renderTraditionalAnnotationLayerToggle(current) {
     const options = [
         { value: "basic", label: "基础正文" },
-        { value: "fingering", label: `${labelPrefix}层` },
         { value: "technique", label: "技法层" },
-        { value: "all", label: "完整标注" },
     ];
     return `
         <div class="instrument-toggle traditional-annotation-toggle" role="tablist" aria-label="简谱标注层">
@@ -4609,12 +4540,9 @@ function renderTraditionalEngravedPreview(model, preview, instrumentType) {
     const previewPages = Array.isArray(preview?.preview_pages) ? preview.preview_pages : [];
     const renderEngine = previewPages.length ? "jianpu-ly + LilyPond" : "统一排版器";
     const pageCount = Number(preview?.manifest?.page_count || previewPages.length || 0);
-    const markupMode = resolveTraditionalMarkupMode(model.annotationLayer);
     const layerLabels = {
         basic: "基础正文",
-        fingering: instrumentType === "guzheng" ? "弦位层" : "指法层",
         technique: "技法层",
-        all: "完整标注",
     };
 
     if (busy && !previewPages.length) {
@@ -4650,7 +4578,6 @@ function renderTraditionalEngravedPreview(model, preview, instrumentType) {
                 <div class="analysis-chip-row">
                     <span class="analysis-chip">${pageCount} 页</span>
                     <span class="analysis-chip">${model.layoutMode === "print" ? "打印模式" : "预览模式"}</span>
-                    <span class="analysis-chip">${markupMode === "plain" ? "纯净简谱" : "带标注简谱"}</span>
                     <span class="analysis-chip">${escapeHtmlText(layerLabels[resolveJianpuAnnotationLayer(model.annotationLayer)] || "基础正文")}</span>
                 </div>
             </div>
@@ -4713,9 +4640,9 @@ function renderTraditionalPaperOrnaments(note, instrumentType) {
     if (tags.includes("倚音候选") && instrumentType === "dizi") {
         items.push('<span class="dizi-jianpu-grace-mark" title="倚音">𝆔</span>');
     }
-    // 按音 — 古筝按弦，用小字 "按"，避免与连线 ⌒ 混淆
+    // 按音 — 古筝按弦用波浪线，和当前页面技法按钮保持一致
     if ((tags.includes("按音候选") || note?.press_note_candidate) && instrumentType === "guzheng") {
-        items.push('<span class="guzheng-jianpu-bend-mark" title="按音">按</span>');
+        items.push('<span class="guzheng-jianpu-bend-mark" title="按音">∽</span>');
     }
     if (!items.length) {
         return '<span class="guzheng-jianpu-ornament-placeholder"></span>';
@@ -4773,7 +4700,10 @@ function renderTraditionalPaperNote(note, options = {}, instrumentType, annotati
     const octave = renderGuzhengPaperOctaveMarks(note);
     const graceMarkup = renderGuzhengGraceNotes(options.graceNotes || []);
     const annotationText = resolveTraditionalAnnotationText(note, instrumentType, annotationLayer);
-    const mxmlIndex = isRest ? null : lookupJianpuMxmlIndex(note?.measure_no, note?.start_beat, note?.pitch);
+    const explicitMxmlIndex = options?.mxmlIndex;
+    const mxmlIndex = isRest
+        ? null
+        : (typeof explicitMxmlIndex === "number" ? explicitMxmlIndex : lookupJianpuMxmlIndex(note?.measure_no, note?.start_beat, note?.pitch));
     const techniqueBadges = mxmlIndex != null ? buildTechniqueBadgesForIndex(mxmlIndex) : "";
     const dataIndexAttr = mxmlIndex != null ? `data-mxml-index="${mxmlIndex}"` : "";
     const noteTitle = isRest
@@ -4854,16 +4784,28 @@ function renderTraditionalJianpuPaper(model) {
                                             ${Number(page?.page_no || 1) === 1 && lineIndex === 0 ? "&nbsp;" : escapeHtmlText(String(measures[0]?.measure_no || ""))}
                                         </div>
                                         <div class="guzheng-jianpu-line-content" style="--guzheng-line-measure-count:${Math.max(measures.length, 1)};">
-                                            ${measures.map((measure, measureIndex) => `
-                                                <div class="guzheng-jianpu-measure ${measureIndex === measures.length - 1 ? "is-line-end" : ""}">
+                                            ${measures.map((measure, measureIndex) => {
+                                                const measureNo = Number(measure?.measure_no || 0);
+                                                const items = buildGuzhengVisualNoteItems(measure);
+                                                let pitchedPos = 0;
+                                                const itemsMarkup = items.map((item) => {
+                                                    const isRest = Boolean(item.note?.is_rest);
+                                                    const enrichedItem = isRest
+                                                        ? item
+                                                        : Object.assign({}, item, { mxmlIndex: lookupJianpuMxmlIndexByPosition(measureNo, pitchedPos++) });
+                                                    return renderTraditionalPaperNote(item.note, enrichedItem, model.instrumentType, model.annotationLayer);
+                                                }).join("");
+                                                return `
+                                                <div class="guzheng-jianpu-measure ${measureIndex === measures.length - 1 ? "is-line-end" : ""}" data-edit-measure-no="${measureNo}">
                                                     <div class="guzheng-jianpu-measure-notes">
-                                                        ${measureRepeatLookup.get(Number(measure?.measure_no || 0))
+                                                        ${measureRepeatLookup.get(measureNo)
                                                             ? '<span class="guzheng-jianpu-repeat-sign" title="同前小节">〃</span>'
-                                                            : (buildGuzhengVisualNoteItems(measure).map((item) => renderTraditionalPaperNote(item.note, item, model.instrumentType, model.annotationLayer)).join("") || '<span class="guzheng-jianpu-note-group"><span class="guzheng-jianpu-note is-rest"><span class="guzheng-jianpu-ornaments"><span class="guzheng-jianpu-ornament-placeholder"></span></span><span class="guzheng-jianpu-octave-top">&nbsp;</span><span class="guzheng-jianpu-glyph"><span class="guzheng-jianpu-digit">0</span></span><span class="guzheng-jianpu-underlines"><span class="guzheng-jianpu-underline guzheng-jianpu-underline-empty"></span></span><span class="guzheng-jianpu-octave-bottom">&nbsp;</span><span class="guzheng-jianpu-press-text">&nbsp;</span></span></span>')}
+                                                            : (itemsMarkup || '<span class="guzheng-jianpu-note-group"><span class="guzheng-jianpu-note is-rest"><span class="guzheng-jianpu-ornaments"><span class="guzheng-jianpu-ornament-placeholder"></span></span><span class="guzheng-jianpu-octave-top">&nbsp;</span><span class="guzheng-jianpu-glyph"><span class="guzheng-jianpu-digit">0</span></span><span class="guzheng-jianpu-underlines"><span class="guzheng-jianpu-underline guzheng-jianpu-underline-empty"></span></span><span class="guzheng-jianpu-octave-bottom">&nbsp;</span><span class="guzheng-jianpu-press-text">&nbsp;</span></span></span>')}
                                                     </div>
                                                     <span class="guzheng-jianpu-bar"></span>
                                                 </div>
-                                            `).join("")}
+                                            `;
+                                            }).join("")}
                                         </div>
                                     </div>
                                 `;
@@ -5064,8 +5006,6 @@ function renderGuzhengScorePanel() {
     const model = buildTraditionalJianpuSheetModel(result, "guzheng");
     const expectedPreviewSignature = buildTraditionalPreviewSignature("guzheng", result);
     const preview = state.guzhengEngravedPreview?.signature === expectedPreviewSignature ? state.guzhengEngravedPreview : null;
-    const markupMode = resolveTraditionalMarkupMode(model.annotationLayer);
-    const measures = model.measures;
     const melodyTrackName = result.melody_track?.name || "--";
     const melodyRange = [
         result.pitch_range?.lowest || "",
@@ -5084,16 +5024,7 @@ function renderGuzhengScorePanel() {
                 </div>
                 <div class="traditional-sheet-controls">
                     ${renderTraditionalLayoutModeToggle(model.layoutMode)}
-                    ${renderTraditionalMarkupModeToggle(model.annotationLayer, "guzheng")}
-                    ${markupMode === "annotated" ? renderTraditionalAnnotationLayerToggle(model.annotationLayer, "guzheng") : ""}
-                </div>
-                <div class="guzheng-sheet-metrics traditional-sheet-metrics">
-                    ${metricCard("调号", escapeHtmlText(model.meta.keySignature || "--"))}
-                    ${metricCard("速度", model.meta.tempo ? `${model.meta.tempo} BPM` : "--")}
-                    ${metricCard("拍号", escapeHtmlText(model.meta.timeSignature || "--"))}
-                    ${metricCard("小节", measures.length || 0)}
-                    ${metricCard("音符", model.noteCount || 0)}
-                    ${metricCard("按音候选", pentatonicSummary.press_note_candidates || 0)}
+                    ${renderTraditionalAnnotationLayerToggle(model.annotationLayer)}
                 </div>
             </div>
             <div class="guzheng-sheet-meta traditional-sheet-meta">
@@ -5118,7 +5049,6 @@ function renderGuzhengScorePanel() {
                     <span class="guzheng-meta-subtle">直弹 ${escapeHtmlText(String(pentatonicSummary.direct_open_notes || 0))} / 按音 ${escapeHtmlText(String(pentatonicSummary.press_note_candidates || 0))}</span>
                 </div>
             </div>
-            ${renderTraditionalExportButtons("guzheng")}
             ${warningMarkup}
             <section class="guzheng-shell traditional-shell">
                 <div class="guzheng-shell-head">
@@ -5128,16 +5058,6 @@ function renderGuzhengScorePanel() {
                     </div>
                 </div>
                 ${renderTraditionalEngravedPreview(model, preview, "guzheng")}
-            </section>
-            <section class="traditional-edit-shell">
-                <div class="traditional-edit-shell-head">
-                    <div>
-                        <span class="guzheng-section-kicker">手动编辑视图</span>
-                        <h4 class="guzheng-shell-title">点击下方简谱中任意音符即可修改</h4>
-                        <p class="helper-text">上方为 LilyPond 引擎排版的最终版式，下方是可交互的 HTML 简谱：在这里点选音符 / 改技法，改动会同步写回 MusicXML，然后上方排版会重新生成。</p>
-                    </div>
-                </div>
-                ${renderTraditionalJianpuPaper(model)}
             </section>
             ${renderTraditionalTechniqueSummary(model)}
         </div>
@@ -5303,8 +5223,6 @@ function renderDiziScorePanel() {
     const model = buildTraditionalJianpuSheetModel(result, "dizi");
     const expectedPreviewSignature = buildTraditionalPreviewSignature("dizi", result);
     const preview = state.diziEngravedPreview?.signature === expectedPreviewSignature ? state.diziEngravedPreview : null;
-    const markupMode = resolveTraditionalMarkupMode(model.annotationLayer);
-    const measures = model.measures;
     const melodyTrackName = result.melody_track?.name || "--";
     const melodyRange = [
         result.pitch_range?.lowest || "",
@@ -5323,16 +5241,7 @@ function renderDiziScorePanel() {
                 </div>
                 <div class="traditional-sheet-controls">
                     ${renderTraditionalLayoutModeToggle(model.layoutMode)}
-                    ${renderTraditionalMarkupModeToggle(model.annotationLayer, "dizi")}
-                    ${markupMode === "annotated" ? renderTraditionalAnnotationLayerToggle(model.annotationLayer, "dizi") : ""}
-                </div>
-                <div class="dizi-sheet-metrics traditional-sheet-metrics">
-                    ${metricCard("调号", escapeHtmlText(model.meta.keySignature || "--"))}
-                    ${metricCard("速度", model.meta.tempo ? `${model.meta.tempo} BPM` : "--")}
-                    ${metricCard("拍号", escapeHtmlText(model.meta.timeSignature || "--"))}
-                    ${metricCard("小节", measures.length || 0)}
-                    ${metricCard("音符", model.noteCount || 0)}
-                    ${metricCard("可吹音", playabilitySummary.playable_notes || 0)}
+                    ${renderTraditionalAnnotationLayerToggle(model.annotationLayer)}
                 </div>
             </div>
             <div class="dizi-sheet-meta traditional-sheet-meta">
@@ -5356,7 +5265,6 @@ function renderDiziScorePanel() {
                     <span class="dizi-meta-subtle">半孔 ${escapeHtmlText(String(playabilitySummary.half_hole_candidates || 0))} / 特殊指法 ${escapeHtmlText(String(playabilitySummary.special_fingering_candidates || 0))}</span>
                 </div>
             </div>
-            ${renderTraditionalExportButtons("dizi")}
             ${warningMarkup}
             <section class="dizi-shell traditional-shell">
                 <div class="dizi-shell-head">
@@ -5366,16 +5274,6 @@ function renderDiziScorePanel() {
                     </div>
                 </div>
                 ${renderTraditionalEngravedPreview(model, preview, "dizi")}
-            </section>
-            <section class="traditional-edit-shell">
-                <div class="traditional-edit-shell-head">
-                    <div>
-                        <span class="dizi-section-kicker">手动编辑视图</span>
-                        <h4 class="dizi-shell-title">点击下方简谱中任意音符即可修改</h4>
-                        <p class="helper-text">上方为 LilyPond 引擎排版的最终版式，下方是可交互的 HTML 简谱：在这里点选音符 / 改技法，改动会同步写回 MusicXML，然后上方排版会重新生成。</p>
-                    </div>
-                </div>
-                ${renderTraditionalJianpuPaper(model)}
             </section>
             ${renderTraditionalTechniqueSummary(model)}
         </div>
@@ -5427,11 +5325,7 @@ function renderGuitarLeadSheetPanel() {
                         </div>
                     </div>
                     <div class="guitar-sheet-metrics">
-                        ${metricCard("调号", escapeHtmlText(songSheet.meta.key))}
                         ${metricCard("Capo", escapeHtmlText(songSheet.meta.capoText))}
-                        ${metricCard("拍号", escapeHtmlText(songSheet.meta.timeSignature))}
-                        ${metricCard("速度", songSheet.meta.tempo ? `${songSheet.meta.tempo} BPM` : "--")}
-                        ${metricCard("小节", songSheet.measures.length || 0)}
                         ${metricCard("旋律来源", escapeHtmlText(localizeTrackName(songSheet.meta.melodyTrackName)))}
                     </div>
                     <div class="guitar-sheet-meta">
@@ -5449,11 +5343,6 @@ function renderGuitarLeadSheetPanel() {
                             <span class="guitar-meta-label">常用调位</span>
                             <strong class="guitar-meta-value">${escapeHtmlText(songSheet.meta.transposedKey)}</strong>
                             <span class="guitar-meta-subtle">当前 Capo 方案下更顺手的开放和弦调位。</span>
-                        </div>
-                        <div class="guitar-meta-card">
-                            <span class="guitar-meta-label">识别质量</span>
-                            <strong class="guitar-meta-value">${escapeHtmlText(songSheet.meta.melodyTrackQuality)}</strong>
-                            <span class="guitar-meta-subtle">${escapeHtmlText(localizePitchSource(songSheet.meta.melodyTrackSource))}</span>
                         </div>
                     </div>
                 </div>
@@ -5484,7 +5373,7 @@ function renderGuitarLeadSheetPanel() {
                                 <span class="guitar-sheet-kicker">Lead Sheet Body</span>
                                 <h4 class="guitar-lead-body-title">弹唱谱正文</h4>
                             </div>
-                            <span class="guitar-meta-subtle">${viewMode === "print" ? "打印模式会收紧边栏并按更稳的版式分页。" : "屏幕模式允许局部横向滚动，优先保证和弦与占位歌词不重叠。"}</span>
+                            <span class="guitar-meta-subtle">${viewMode === "print" ? "打印模式会收紧边栏并按更稳的版式分页。" : "屏幕模式允许局部横向滚动，优先保证和弦与小节分隔保持清晰。"}</span>
                         </div>
                         <div class="guitar-lead-sections">
                             ${songSheet.sections.map((section) => renderGuitarLeadSection(section, { highlightedChordSymbol })).join("") || '<div class="analysis-note">当前还没有可展示的弹唱谱正文。</div>'}
@@ -5522,11 +5411,12 @@ async function renderNotationTarget(targetElement, { mode = "preview", pageIndex
         }
         const pageCount = Math.max(Number(toolkit.getPageCount() || 0), 1);
         const clampedPage = Math.min(Math.max(Number(pageIndex || 0), 0), pageCount - 1);
+        ensureRenderedPageSymbolOffsets({ mode, toolkit, pageCount });
         if (mode === "viewer") {
             state.scorePageIndex = clampedPage;
         }
         const svgMarkup = toolkit.renderToSVG(clampedPage + 1);
-        const markup = `<div class="verovio-stage ${mode === "viewer" ? "viewer" : "preview"}"><div class="verovio-pane">${svgMarkup}</div></div>`;
+        const markup = `<div class="verovio-stage ${mode === "viewer" ? "viewer" : "preview"}" data-page-index="${clampedPage}" data-render-mode="${escapeHtmlAttribute(mode)}"><div class="verovio-pane">${svgMarkup}</div></div>`;
         targetElement.innerHTML = markup;
         targetElement.querySelectorAll(".note, .rest").forEach((element) => {
             element.classList.remove("is-selected");
@@ -5956,6 +5846,7 @@ async function resolveViewerPageMarkup(pageIndex) {
     const resolvedIndex = VIEWER_LAYOUT.clamp
         ? VIEWER_LAYOUT.clamp(pageIndex, 0, actualPageCount - 1)
         : Math.min(Math.max(pageIndex, 0), actualPageCount - 1);
+    ensureRenderedPageSymbolOffsets({ mode: "viewer", toolkit, pageCount: actualPageCount });
     const payload = {
         pageIndex: resolvedIndex,
         svgMarkup: toolkit.renderToSVG(resolvedIndex + 1),
@@ -5977,7 +5868,7 @@ function buildViewerSheetMarkup(pagePayload, role, { interactive = false } = {})
         return "";
     }
     return `
-        <section class="score-paper-sheet ${role}${interactive ? " is-live" : ""}" data-page-index="${pagePayload.pageIndex}">
+        <section class="score-paper-sheet ${role}${interactive ? " is-live" : ""}" data-page-index="${pagePayload.pageIndex}" data-render-mode="viewer">
             <div class="score-paper-surface">
                 <div class="score-paper-canvas">
                     <div class="score-paper-svg">
@@ -6013,20 +5904,8 @@ function buildViewerStackMarkup(currentPage, incomingPage) {
 }
 
 function reapplySelectedNotationState() {
-    if (!state.selectedNotationElementId) {
-        return;
-    }
-    const safeId = window.CSS?.escape
-        ? window.CSS.escape(state.selectedNotationElementId)
-        : String(state.selectedNotationElementId).replace(/"/g, '\\"');
-    els.scoreViewerCanvas
-        .querySelectorAll(`.note.is-selected, .rest.is-selected, [id="${safeId}"].is-selected`)
-        .forEach((element) => element.classList.remove("is-selected"));
-
-    const target = els.scoreViewerCanvas.querySelector(`#${safeId}, [id="${safeId}"]`);
-    if (target?.classList) {
-        target.classList.add("is-selected");
-    }
+    tagRenderedSymbolsWithMxmlIndex(els.scoreViewerCanvas);
+    syncSelectionHighlightToCurrentSelection();
 }
 
 async function renderScoreViewer() {
@@ -6088,6 +5967,7 @@ async function renderScoreViewer() {
 
         els.scoreViewerStage.classList.toggle("is-dragging", transition.phase === "dragging");
         els.scoreViewerCanvas.innerHTML = buildViewerStackMarkup(currentPage, incomingPage);
+        tagRenderedSymbolsWithMxmlIndex(els.scoreViewerCanvas);
         reapplySelectedNotationState();
         renderScoreViewerPagination(pageCount);
         renderControlState();
@@ -6146,7 +6026,7 @@ function renderScoreSummary() {
         : (Array.isArray(score?.measures) ? score.measures.length : "--");
     if (els.selectedNoteSummary) {
         els.selectedNoteSummary.textContent = isPianoMode()
-            ? state.selectedNotationElementId
+            ? state.editorSelectedMxmlIndex != null
                 ? "当前已在谱面中高亮一个音符或休止符。"
                 : defaultSelectionHint()
             : guzhengMode
@@ -6360,31 +6240,41 @@ function handleViewerWheel(event) {
 }
 
 function handleScoreCanvasInteraction(event) {
+    const host = event.currentTarget;
+    const isFromViewer = host === els.scoreViewerCanvas;
     if (
-        state.viewerGesture?.dragging ||
-        state.viewerTransition.phase === "dragging" ||
-        Date.now() < (state.viewerSuppressClickUntil || 0)
+        isFromViewer && (
+            state.viewerGesture?.dragging ||
+            state.viewerTransition.phase === "dragging" ||
+            Date.now() < (state.viewerSuppressClickUntil || 0)
+        )
     ) {
         return;
     }
     const clickedSymbol = event.target.closest(".note, .rest");
-    const host = event.currentTarget;
-    host.querySelectorAll(".note.is-selected, .rest.is-selected").forEach((element) => {
-        element.classList.remove("is-selected");
-    });
     if (clickedSymbol) {
-        clickedSymbol.classList.add("is-selected");
-        state.selectedNotationElementId = clickedSymbol.id || "selected-symbol";
+        const selection = updateEditorSelectionFromSymbol(clickedSymbol, host);
+        if (!selection?.ok) {
+            state.selectedNotationElementId = null;
+            syncSelectionHighlightToCurrentSelection();
+            if (els.selectedNoteSummary) {
+                els.selectedNoteSummary.textContent = "当前音符无法定位到 MusicXML，请尝试点击相邻音符，或使用上一个/下一个按钮。";
+            }
+            setAppStatus("当前音符无法定位到 MusicXML，请尝试点击相邻音符，或使用上一个/下一个按钮。", true);
+            return;
+        }
+        state.selectedNotationElementId = clickedSymbol.id || null;
+        syncSelectionHighlightToCurrentSelection();
         if (els.selectedNoteSummary) {
             els.selectedNoteSummary.textContent = "当前已在谱面中高亮一个音符或休止符。";
         }
-        updateEditorSelectionFromSymbol(clickedSymbol);
     } else {
         state.selectedNotationElementId = null;
+        clearEditorSelection();
+        syncSelectionHighlightToCurrentSelection();
         if (els.selectedNoteSummary) {
             els.selectedNoteSummary.textContent = defaultSelectionHint();
         }
-        clearEditorSelection();
     }
 }
 
@@ -6491,9 +6381,25 @@ function renderAnalysisOutputs() {
     const guzhengMode = isGuzhengMode();
     const diziMode = isDiziMode();
     els.pianoAnalysisGrid.hidden = guitarMode || guzhengMode || diziMode;
+    if (els.pianoAnalysisGrid) {
+        if (els.pianoAnalysisGrid.style && typeof els.pianoAnalysisGrid.style === "object") {
+            els.pianoAnalysisGrid.style.display = guitarMode || guzhengMode || diziMode ? "none" : "";
+        } else {
+            els.pianoAnalysisGrid.style = { display: guitarMode || guzhengMode || diziMode ? "none" : "" };
+        }
+    }
     els.guzhengDebugPanel.hidden = !guzhengMode;
     els.guitarDebugPanel.hidden = !guitarMode;
     els.diziDebugPanel.hidden = !diziMode;
+    if (!guzhengMode && els.guzhengDebugPanel) {
+        els.guzhengDebugPanel.innerHTML = "";
+    }
+    if (!guitarMode && els.guitarDebugPanel) {
+        els.guitarDebugPanel.innerHTML = "";
+    }
+    if (!diziMode && els.diziDebugPanel) {
+        els.diziDebugPanel.innerHTML = "";
+    }
     if (guitarMode) {
         renderGuitarDebugPanel();
         return;
@@ -6506,174 +6412,7 @@ function renderAnalysisOutputs() {
         renderDiziDebugPanel();
         return;
     }
-    renderBeatDetectPanel();
     renderSeparateTracksPanel();
-    renderChordGenerationPanel();
-    renderLyricsImportPanel();
-    renderRhythmScorePanel();
-}
-
-function localizeLyricsStatus(status) {
-    switch (String(status || "").toLowerCase()) {
-        case "imported":
-            return "已导入";
-        case "persisted":
-            return "已保留";
-        case "missing":
-            return "未找到";
-        case "pending":
-            return "处理中";
-        case "running":
-            return "执行中";
-        case "failed":
-            return "失败";
-        default:
-            return status || "--";
-    }
-}
-
-function localizeLyricsSource(source) {
-    switch (String(source || "").toLowerCase()) {
-        case "id3_sylt":
-            return "MP3 内嵌同步歌词";
-        case "id3_uslt":
-            return "MP3 内嵌普通歌词";
-        case "lrc":
-            return "外部 LRC";
-        case "whisperx_asr":
-            return "WhisperX 自动识别";
-        case "musicxml":
-            return "已写入乐谱";
-        case "none":
-            return "无";
-        default:
-            return source || "--";
-    }
-}
-
-function localizeLyricsAlignment(mode) {
-    switch (String(mode || "").toLowerCase()) {
-        case "timestamped_tokens":
-            return "逐音符时间对齐";
-        case "timestamped_lines":
-            return "逐行时间对齐";
-        case "measure_fallback":
-            return "按小节回退";
-        case "persisted":
-            return "已从 MusicXML 恢复";
-        case "none":
-            return "未对齐";
-        default:
-            return mode || "--";
-    }
-}
-
-function localizeAnalysisTaskStage(stage) {
-    switch (String(stage || "").toLowerCase()) {
-        case "queued":
-            return "等待执行";
-        case "separation":
-            return "音轨分离";
-        case "pitch_detection":
-            return "主旋律提取";
-        case "asr_transcription":
-            return "歌词转写";
-        case "asr_alignment":
-            return "时间对齐";
-        case "score_build":
-            return "生成乐谱";
-        case "completed":
-            return "已完成";
-        case "failed":
-            return "失败";
-        default:
-            return stage || "--";
-    }
-}
-
-function resolveLyricsImportDisplayModel() {
-    const taskStatus = String(state.analysisTaskResult?.task_status || "").toLowerCase();
-    if (["pending", "running", "failed"].includes(taskStatus)) {
-        return {
-            status: taskStatus,
-            source: "whisperx_asr",
-            has_timestamps: false,
-            alignment_mode: "none",
-            line_count: 0,
-            note_count_with_lyrics: 0,
-            warnings: Array.isArray(state.analysisTaskResult?.warnings) ? state.analysisTaskResult.warnings : [],
-            task_stage: state.analysisTaskResult?.task_stage || "queued",
-            task_error: state.analysisTaskResult?.error || "",
-        };
-    }
-    if (state.lyricsImportResult && typeof state.lyricsImportResult === "object") {
-        return state.lyricsImportResult;
-    }
-    const summary = state.currentScore?.summary || {};
-    if (summary.has_lyrics) {
-        return {
-            status: "persisted",
-            source: "musicxml",
-            has_timestamps: false,
-            alignment_mode: "persisted",
-            line_count: 0,
-            note_count_with_lyrics: Number(summary.lyric_note_count || 0),
-            warnings: [],
-        };
-    }
-    return null;
-}
-
-function buildLyricsImportSummary(model) {
-    if (!model || typeof model !== "object") {
-        return "未检测到歌词";
-    }
-    const status = String(model.status || "").toLowerCase();
-    if (status === "pending" || status === "running") {
-        return `WhisperX 自动歌词识别处理中：${localizeAnalysisTaskStage(model.task_stage || "queued")}`;
-    }
-    if (status === "failed") {
-        return `WhisperX 自动歌词识别失败：${model.task_error || "请检查后端日志"}`;
-    }
-    if (status === "missing") {
-        return "未检测到歌词";
-    }
-    const noteCount = Number(model.note_count_with_lyrics || 0);
-    const sourceLabel = localizeLyricsSource(model.source);
-    const alignmentLabel = localizeLyricsAlignment(model.alignment_mode || "none");
-    return `歌词 ${sourceLabel} / ${alignmentLabel} / ${noteCount} 个挂词音符`;
-}
-
-function renderLyricsImportPanel() {
-    if (!els.lyricsImportOutput) {
-        return;
-    }
-    const model = resolveLyricsImportDisplayModel();
-    if (!model) {
-        els.lyricsImportOutput.innerHTML = '<p class="analysis-placeholder">生成带歌词的钢琴谱后，这里会展示歌词来源、对齐方式和告警。</p>';
-        return;
-    }
-    const warnings = Array.isArray(model.warnings) ? model.warnings : [];
-    const noteCount = Number(model.note_count_with_lyrics || 0);
-    const hasTimestamps = Boolean(model.has_timestamps);
-    const taskStage = String(model.task_stage || "").trim();
-    const taskError = String(model.task_error || "").trim();
-    els.lyricsImportOutput.innerHTML = `
-        <div class="analysis-stack analysis-tone-blue">
-            <div class="analysis-metrics">
-                ${metricCard("状态", localizeLyricsStatus(model.status))}
-                ${metricCard("来源", localizeLyricsSource(model.source))}
-                ${metricCard("对齐", localizeLyricsAlignment(model.alignment_mode || "none"))}
-                ${taskStage ? metricCard("阶段", localizeAnalysisTaskStage(taskStage)) : ""}
-                ${metricCard("歌词行", Number(model.line_count || 0))}
-                ${metricCard("挂词音符", noteCount)}
-                ${metricCard("时间戳", hasTimestamps ? "有" : "无")}
-            </div>
-            <div class="analysis-note">${escapeHtmlText(buildLyricsImportSummary(model))}</div>
-            ${taskError ? `<div class="analysis-note">${escapeHtmlText(taskError)}</div>` : ""}
-            ${warnings.length ? `<div class="analysis-note">${escapeHtmlText(warnings.join("；"))}</div>` : ""}
-        </div>
-    `;
 }
 
 function renderGuzhengDebugPanel() {
@@ -6683,40 +6422,12 @@ function renderGuzhengDebugPanel() {
         return;
     }
 
-    const separation = result.separation || state.separateTracksResult || null;
-    const tracks = Array.isArray(separation?.tracks) ? separation.tracks : [];
     const selectedTrack = result.melody_track || null;
     const keyDetection = result.key_detection || null;
     const warnings = Array.isArray(result.warnings) ? result.warnings : [];
-    const trackCandidates = Array.isArray(result.melody_track_candidates) ? result.melody_track_candidates : [];
-    const trackCandidateMap = new Map(trackCandidates.map((candidate) => [String(candidate.name || "").toLowerCase(), candidate]));
-    const selectedTrackName = String(selectedTrack?.name || "").toLowerCase();
     const techniqueCounts = result.technique_summary?.counts || {};
     const pentatonicSummary = result.pentatonic_summary || {};
     const keyCandidates = Array.isArray(keyDetection?.candidates) ? keyDetection.candidates : [];
-
-    const trackMarkup = tracks.length
-        ? tracks.map((track) => {
-            const normalizedName = String(track.name || "").toLowerCase();
-            const candidate = trackCandidateMap.get(normalizedName) || null;
-            return `
-                <div class="analysis-item">
-                    <div>
-                        <div class="analysis-item-title">${escapeHtmlText(localizeTrackName(track.name || "other"))}</div>
-                        <div class="analysis-item-meta">${escapeHtmlText([
-                            track.file_name || "",
-                            Number.isFinite(Number(track.duration)) ? formatSeconds(track.duration) : "",
-                        ].filter(Boolean).join(" / ") || "暂无文件信息")}</div>
-                    </div>
-                    <div class="analysis-item-value">${escapeHtmlText([
-                        normalizedName === selectedTrackName ? "已选主旋律" : "",
-                        candidate && Number.isFinite(Number(candidate.selection_score)) ? `评分 ${Number(candidate.selection_score).toFixed(2)}` : "",
-                        candidate && Number.isFinite(Number(candidate.average_confidence)) ? `置信 ${Math.round(Number(candidate.average_confidence) * 100)}%` : "",
-                    ].filter(Boolean).join(" / ") || "待评估")}</div>
-                </div>
-            `;
-        }).join("")
-        : '<div class="analysis-note">当前没有分离轨明细，可能走了混音回退。</div>';
 
     const candidateMarkup = keyCandidates.length
         ? `
@@ -6751,25 +6462,9 @@ function renderGuzhengDebugPanel() {
         ? `<div class="analysis-note">${escapeHtmlText(warnings.join("；"))}</div>`
         : '<div class="analysis-note">当前流程没有额外告警。</div>';
 
-    if (!state.guzhengDebugExpanded) {
-        els.guzhengDebugPanel.innerHTML = `
-            <div class="guitar-debug-shell">
-                ${renderDebugToggleControl("guzheng", state.guzhengDebugExpanded)}
-            </div>
-        `;
-        return;
-    }
-
     els.guzhengDebugPanel.innerHTML = `
         <div class="guitar-debug-shell">
-            ${renderDebugToggleControl("guzheng", state.guzhengDebugExpanded)}
             <div class="analysis-grid">
-                <div class="analysis-card">
-                    <h3>分离轨与选轨</h3>
-                    <div class="analysis-output">
-                        ${trackMarkup}
-                    </div>
-                </div>
                 <div class="analysis-card">
                     <h3>测速与定调</h3>
                     <div class="analysis-output">
@@ -6826,40 +6521,12 @@ function renderDiziDebugPanel() {
         return;
     }
 
-    const separation = result.separation || state.separateTracksResult || null;
-    const tracks = Array.isArray(separation?.tracks) ? separation.tracks : [];
     const selectedTrack = result.melody_track || null;
     const keyDetection = result.key_detection || null;
     const warnings = Array.isArray(result.warnings) ? result.warnings : [];
-    const trackCandidates = Array.isArray(result.melody_track_candidates) ? result.melody_track_candidates : [];
-    const trackCandidateMap = new Map(trackCandidates.map((candidate) => [String(candidate.name || "").toLowerCase(), candidate]));
-    const selectedTrackName = String(selectedTrack?.name || "").toLowerCase();
     const techniqueCounts = result.technique_summary?.counts || {};
     const playabilitySummary = result.playability_summary || {};
     const keyCandidates = Array.isArray(keyDetection?.candidates) ? keyDetection.candidates : [];
-
-    const trackMarkup = tracks.length
-        ? tracks.map((track) => {
-            const normalizedName = String(track.name || "").toLowerCase();
-            const candidate = trackCandidateMap.get(normalizedName) || null;
-            return `
-                <div class="analysis-item">
-                    <div>
-                        <div class="analysis-item-title">${escapeHtmlText(localizeTrackName(track.name || "other"))}</div>
-                        <div class="analysis-item-meta">${escapeHtmlText([
-                            track.file_name || "",
-                            Number.isFinite(Number(track.duration)) ? formatSeconds(track.duration) : "",
-                        ].filter(Boolean).join(" / ") || "暂无文件信息")}</div>
-                    </div>
-                    <div class="analysis-item-value">${escapeHtmlText([
-                        normalizedName === selectedTrackName ? "已选主旋律" : "",
-                        candidate && Number.isFinite(Number(candidate.selection_score)) ? `评分 ${Number(candidate.selection_score).toFixed(2)}` : "",
-                        candidate && Number.isFinite(Number(candidate.average_confidence)) ? `置信 ${Math.round(Number(candidate.average_confidence) * 100)}%` : "",
-                    ].filter(Boolean).join(" / ") || "待评估")}</div>
-                </div>
-            `;
-        }).join("")
-        : '<div class="analysis-note">当前没有分离轨明细，可能走了混音回退。</div>';
 
     const candidateMarkup = keyCandidates.length
         ? `
@@ -6894,25 +6561,9 @@ function renderDiziDebugPanel() {
         ? `<div class="analysis-note">${escapeHtmlText(warnings.join("；"))}</div>`
         : '<div class="analysis-note">当前流程没有额外告警。</div>';
 
-    if (!state.diziDebugExpanded) {
-        els.diziDebugPanel.innerHTML = `
-            <div class="guitar-debug-shell">
-                ${renderDebugToggleControl("dizi", state.diziDebugExpanded)}
-            </div>
-        `;
-        return;
-    }
-
     els.diziDebugPanel.innerHTML = `
         <div class="guitar-debug-shell">
-            ${renderDebugToggleControl("dizi", state.diziDebugExpanded)}
             <div class="analysis-grid">
-                <div class="analysis-card">
-                    <h3>分离轨与选轨</h3>
-                    <div class="analysis-output">
-                        ${trackMarkup}
-                    </div>
-                </div>
                 <div class="analysis-card">
                     <h3>测速与定调</h3>
                     <div class="analysis-output">
@@ -7038,20 +6689,10 @@ function renderGuitarDebugPanel() {
 
     const warningMarkup = warnings.length
         ? `<div class="analysis-note">${escapeHtmlText(warnings.join("；"))}</div>`
-        : '<div class="analysis-note">当前没有额外告警，流程已按分离轨 -> 定调 -> 和弦推断完成返回。</div>';
-
-    if (!state.guitarDebugExpanded) {
-        els.guitarDebugPanel.innerHTML = `
-            <div class="guitar-debug-shell">
-                ${renderDebugToggleControl("guitar", state.guitarDebugExpanded)}
-            </div>
-        `;
-        return;
-    }
+        : "";
 
     els.guitarDebugPanel.innerHTML = `
         <div class="guitar-debug-shell">
-            ${renderDebugToggleControl("guitar", state.guitarDebugExpanded)}
             <div class="analysis-grid guitar-debug-grid">
                 <section class="analysis-card">
                     <h3>分离轨与主旋律</h3>
@@ -7135,36 +6776,6 @@ function renderGuitarDebugPanel() {
     `;
 }
 
-function renderBeatDetectPanel() {
-    if (!state.beatDetectResult) {
-        els.beatDetectOutput.innerHTML = '<p class="analysis-placeholder">运行节拍检测后，这里会展示 BPM、拍点分布和节拍时间轴。</p>';
-        return;
-    }
-    const result = state.beatDetectResult;
-    const beats = Array.isArray(result.beats)
-        ? result.beats
-        : Array.isArray(result.beat_times)
-            ? result.beat_times
-            : [];
-    els.beatDetectOutput.innerHTML = `
-        <div class="analysis-stack analysis-tone-blue">
-            <div class="analysis-metrics">
-                ${metricCard("BPM", result.bpm ? Math.round(Number(result.bpm)) : "--")}
-                ${metricCard("拍点数", beats.length)}
-                ${metricCard("时长", formatSeconds(result.duration || result.audio_log?.duration))}
-            </div>
-            <div class="analysis-note">${escapeHtmlText(buildBeatSummary(beats))}</div>
-            <p class="analysis-subtitle">节拍尺</p>
-            ${buildBeatRuler(beats, result.duration || result.audio_log?.duration)}
-            <p class="analysis-subtitle">拍点间隔</p>
-            ${buildBeatIntervalChart(beats)}
-            <div class="analysis-chip-row">
-                ${beats.slice(0, 8).map((beat, index) => `<span class="analysis-chip">第 ${index + 1} 拍 ${formatBeat(beat)} 秒</span>`).join("") || '<span class="analysis-chip">暂无拍点</span>'}
-            </div>
-        </div>
-    `;
-}
-
 function renderSeparateTracksPanel() {
     if (!state.separateTracksResult) {
         els.separateTracksOutput.innerHTML = '<p class="analysis-placeholder">运行音轨分离后，这里会展示分离出的音轨、时长和处理信息。</p>';
@@ -7184,169 +6795,6 @@ function renderSeparateTracksPanel() {
                 ${tracks.map((track) => buildTrackCard(track)).join("") || '<div class="analysis-note">暂未返回分离后的分轨结果。</div>'}
             </div>
             ${result.warnings && result.warnings.length ? `<div class="analysis-note">${escapeHtmlText(result.warnings.join("；"))}</div>` : ""}
-        </div>
-    `;
-}
-
-function renderChordGenerationPanel() {
-    if (!state.chordGenerationResult) {
-        els.generateChordsOutput.innerHTML = isGuitarMode()
-            ? '<p class="analysis-placeholder">吉他模式下，这里会展示和弦时间轴；更完整的小节和弦、按法、Capo 与扫弦型会显示在上方的吉他弹唱谱预览模块。</p>'
-            : '<p class="analysis-placeholder">当前双手钢琴谱会在这里展示和弦时间轴、左手织体和双手分配规则。生成或载入一份双手钢琴谱后即可查看。</p>';
-        return;
-    }
-    const result = state.chordGenerationResult;
-    const chords = Array.isArray(result.chords) ? result.chords : [];
-    if (result.arrangement_type === "piano_solo") {
-        const leftHandPattern = result.left_hand_pattern?.name || "--";
-        const splitPoint = result.split_point?.note || "--";
-        const accompanimentNoteCount = result.accompaniment_note_count || 0;
-        const harmonicSummary = [
-            result.harmonic_strategy?.secondary_dominants_enabled ? "副属" : null,
-            result.harmonic_strategy?.borrowed_chords_enabled ? "借和弦" : null,
-            result.harmonic_strategy?.segment_smoothing_enabled ? "段落平滑" : null,
-        ].filter(Boolean).join(" / ") || "基础和声";
-        const handRules = Array.isArray(result.hand_assignment?.rule_summary) ? result.hand_assignment.rule_summary : [];
-        els.generateChordsOutput.innerHTML = `
-            <div class="analysis-stack analysis-tone-green">
-                <div class="analysis-metrics">
-                    ${metricCard("调号", escapeHtmlText(result.key || "--"))}
-                    ${metricCard("速度", result.tempo ? `${result.tempo} BPM` : "--")}
-                    ${metricCard("左手型", escapeHtmlText(leftHandPattern))}
-                    ${metricCard("分手点", escapeHtmlText(splitPoint))}
-                    ${metricCard("和弦数", chords.length)}
-                    ${metricCard("伴奏音符", accompanimentNoteCount)}
-                </div>
-                <p class="analysis-subtitle">和弦时间轴</p>
-                ${buildChordTimeline(chords)}
-                ${result.left_hand_pattern?.description ? `<div class="analysis-note">${escapeHtmlText(result.left_hand_pattern.description)}</div>` : ""}
-                <div class="analysis-list">
-                    <div class="analysis-item">
-                        <div>
-                            <div class="analysis-item-title">双手分配</div>
-                            <div class="analysis-item-meta">主旋律固定右手，左手负责低音与和声音壳。</div>
-                        </div>
-                        <div class="analysis-item-value">${escapeHtmlText(splitPoint)}</div>
-                    </div>
-                    <div class="analysis-item">
-                        <div>
-                            <div class="analysis-item-title">和声策略</div>
-                            <div class="analysis-item-meta">当前双手钢琴谱会复用调内和弦、副属、借和弦和段落平滑。</div>
-                        </div>
-                        <div class="analysis-item-value">${escapeHtmlText(harmonicSummary)}</div>
-                    </div>
-                    ${chords.map((chord) => `
-                        <div class="analysis-item">
-                            <div>
-                                <div class="analysis-item-title">${escapeHtmlText(chord.symbol || "--")}</div>
-                                <div class="analysis-item-meta">第 ${escapeHtmlText(String(chord.measure_no || "--"))} 小节 / 第 ${escapeHtmlText(String(chord.beat_in_measure || "--"))} 拍 / ${escapeHtmlText(chord.source || "diatonic")}</div>
-                            </div>
-                            <div class="analysis-item-value">${escapeHtmlText(chord.roman || "--")}</div>
-                        </div>
-                    `).join("") || '<div class="analysis-note">暂未返回和弦结果。</div>'}
-                </div>
-                ${handRules.length ? `
-                    <p class="analysis-subtitle">分手规则</p>
-                    <div class="analysis-chip-row">
-                        ${handRules.map((rule) => `<span class="analysis-chip">${escapeHtmlText(rule)}</span>`).join("")}
-                    </div>
-                ` : ""}
-            </div>
-        `;
-        return;
-    }
-    const capoText = Number.isFinite(Number(result.capo_suggestion?.capo))
-        ? `Capo ${Number(result.capo_suggestion.capo)}`
-        : "--";
-    const strummingText = resolveStrummingDisplayPattern(result.strumming_pattern);
-    const guitarShapes = result.guitar_shapes && typeof result.guitar_shapes === "object" ? Object.values(result.guitar_shapes) : [];
-    els.generateChordsOutput.innerHTML = `
-        <div class="analysis-stack analysis-tone-green">
-            <div class="analysis-metrics">
-                ${metricCard("调号", result.key || "--")}
-                ${metricCard("速度", result.tempo ? `${result.tempo} BPM` : "--")}
-                ${metricCard("风格", result.style || "--")}
-                ${metricCard("旋律音符", result.melody_size || 0)}
-                ${metricCard("变调夹", capoText)}
-                ${metricCard("扫弦型", strummingText)}
-            </div>
-            <p class="analysis-subtitle">和弦时间轴</p>
-            ${buildChordTimeline(chords)}
-            ${result.strumming_pattern?.description ? `<div class="analysis-note">${escapeHtmlText(result.strumming_pattern.description)}</div>` : ""}
-            ${guitarShapes.length ? `
-                <p class="analysis-subtitle">常用吉他按法</p>
-                <div class="analysis-list">
-                    ${guitarShapes.map((shape) => `
-                        <div class="analysis-item">
-                            <div>
-                                <div class="analysis-item-title">${escapeHtmlText(shape.symbol || shape.display_name || "--")}</div>
-                                <div class="analysis-item-meta">${escapeHtmlText(shape.family || "guitar")} / ${escapeHtmlText(shape.difficulty || "medium")}</div>
-                            </div>
-                            <div class="analysis-item-value">${escapeHtmlText(shape.fingering || "--")}</div>
-                        </div>
-                    `).join("")}
-                </div>
-            ` : ""}
-            <div class="analysis-list">
-                ${chords.map((chord) => `
-                    <div class="analysis-item">
-                        <div>
-                            <div class="analysis-item-title">${escapeHtmlText(chord.symbol || "--")}</div>
-                            <div class="analysis-item-meta">第 ${escapeHtmlText(String(chord.measure_no || "--"))} 小节 / 第 ${escapeHtmlText(String(chord.beat_in_measure || "--"))} 拍</div>
-                        </div>
-                        <div class="analysis-item-value">${formatBeat(chord.time || 0)}秒</div>
-                    </div>
-                `).join("") || '<div class="analysis-note">暂未返回和弦结果。</div>'}
-            </div>
-        </div>
-    `;
-}
-
-function renderRhythmScorePanel() {
-    if (!state.rhythmScoreResult) {
-        els.rhythmScoreOutput.innerHTML = '<p class="analysis-placeholder">运行节奏评分后，这里会对比参考拍点与用户拍点，并展示得分与反馈。</p>';
-        return;
-    }
-    const result = state.rhythmScoreResult;
-    const feedback = flattenFeedback(result.feedback);
-    els.rhythmScoreOutput.innerHTML = `
-        <div class="analysis-stack analysis-tone-blue">
-            <div class="analysis-metrics">
-                ${metricCard("得分", result.score ? `${Math.round(Number(result.score))}/100` : "--")}
-                ${metricCard("准确率", formatPercentValue(result.timing_accuracy))}
-                ${metricCard("漏拍", result.missing_beats || 0)}
-                ${metricCard("多拍", result.extra_beats || 0)}
-            </div>
-            <p class="analysis-subtitle">表现概览</p>
-            <div class="analysis-progress-list">
-                ${progressBar("准确率", normalizePercent(result.timing_accuracy), "blue")}
-                ${progressBar("覆盖率", normalizePercent(result.coverage_ratio), "orange")}
-                ${progressBar("稳定性", normalizePercent(result.consistency_ratio || result.user_consistency), "green")}
-            </div>
-            <div class="analysis-list">
-                <div class="analysis-item">
-                    <div>
-                        <div class="analysis-item-title">偏差</div>
-                        <div class="analysis-item-meta">平均值 / 最大值</div>
-                    </div>
-                    <div class="analysis-item-value">${Math.round(Number(result.mean_deviation_ms || 0))} / ${Math.round(Number(result.max_deviation_ms || 0))} ms</div>
-                </div>
-                <div class="analysis-item">
-                    <div>
-                        <div class="analysis-item-title">覆盖率</div>
-                        <div class="analysis-item-meta">匹配拍点占比</div>
-                    </div>
-                    <div class="analysis-item-value">${formatPercentValue(result.coverage_ratio)}</div>
-                </div>
-                <div class="analysis-item">
-                    <div>
-                        <div class="analysis-item-title">稳定性</div>
-                        <div class="analysis-item-meta">节奏稳定程度</div>
-                    </div>
-                    <div class="analysis-item-value">${formatPercentValue(result.consistency_ratio || result.user_consistency)}</div>
-                </div>
-            </div>
-            <div class="analysis-note">${escapeHtmlText(result.detailed_assessment || feedback || "暂未返回文字评语。")}</div>
         </div>
     `;
 }
@@ -7422,7 +6870,6 @@ function buildBeatIntervalChart(beats) {
 function buildTrackCard(track) {
     const name = String(track.name || "other");
     const slug = slugifyTrackName(name);
-    const downloadUrl = track.download_url ? buildServerUrl(track.download_url) : "";
     return `
         <div class="analysis-track-card">
             <div class="analysis-track-icon ${slug}">${escapeHtmlText(trackGlyph(name))}</div>
@@ -7431,13 +6878,6 @@ function buildTrackCard(track) {
                 <div class="analysis-track-file">${escapeHtmlText(track.file_name || "")}</div>
             </div>
             <div class="analysis-track-meta">${formatSeconds(track.duration)}</div>
-            <div class="analysis-track-actions">
-                ${downloadUrl ? `<audio controls preload="none" src="${downloadUrl}"></audio>` : '<div class="analysis-note">当前没有可预览音频。</div>'}
-                <div class="analysis-track-buttons">
-                    ${downloadUrl ? `<a class="analysis-link-button" href="${downloadUrl}" target="_blank" rel="noopener">试听</a>` : ""}
-                    ${downloadUrl ? `<a class="analysis-link-button" href="${downloadUrl}" download="${escapeHtmlAttribute(track.file_name || `${name}.wav`)}">下载</a>` : ""}
-                </div>
-            </div>
         </div>
     `;
 }
@@ -7530,8 +6970,6 @@ function localizeAudioStage(stage) {
         "beat-detect": "节拍检测",
         "track-separation": "音轨分离",
         "separate-tracks": "音轨分离",
-        asr_transcription: "歌词转写",
-        asr_alignment: "歌词对齐",
         score_build: "乐谱生成",
         "generate-chords": "和弦生成",
         guitar_lead_sheet_audio: "吉他识谱",
@@ -7913,19 +7351,12 @@ function renderControlState() {
 
     els.pingBackendBtn.disabled = isBusy("ping");
     els.createScoreBtn.disabled = isBusy("create-score");
-    els.beatDetectBtn.disabled = !hasAnalysisFile || isBusy("beat-detect");
-    els.separateTracksBtn.disabled = !hasAnalysisFile || isBusy("separate-tracks");
-    els.generateChordsBtn.disabled = !(
-        guitarMode
-            ? hasGuitarSource || hasGuitarLeadSheet
-            : guzhengMode
-                ? hasGuzhengSource || hasGuzhengScore
-                : diziMode
-                    ? hasDiziSource || hasDiziResult
-                : hasScore
-    ) || isBusy("generate-chords");
-    els.rhythmScoreBtn.disabled = isBusy("rhythm-score");
-    els.refreshAudioLogsBtn.disabled = isBusy("audio-logs");
+    if (els.separateTracksBtn) {
+        els.separateTracksBtn.disabled = !hasAnalysisFile || isBusy("separate-tracks");
+    }
+    if (els.refreshAudioLogsBtn) {
+        els.refreshAudioLogsBtn.disabled = isBusy("audio-logs");
+    }
     if (els.applyScoreSettingsBtn) {
         els.applyScoreSettingsBtn.disabled = customMode || !hasScore || isBusy("score-settings");
     }
@@ -7967,6 +7398,9 @@ function renderControlState() {
     }
     if (els.pitchDetectAndScoreBtn) {
         els.pitchDetectAndScoreBtn.disabled = isBusy("pitch-detect") || isBusy("pitch-detect-score");
+    }
+    if (els.refreshWorkbenchBtn) {
+        els.refreshWorkbenchBtn.disabled = state.busyKeys.size > 0;
     }
 }
 
@@ -8091,6 +7525,11 @@ function buildEditorIndexMapKey(score) {
 }
 
 function ensureEditorIndexMap(toolkit) {
+    /* Build a meiId → mxmlIndex map by walking BOTH structures per-measure.
+       The previous flat parallel walk drifted off whenever Verovio inserted
+       layer-alignment rests or chord/grace differences shifted counts; once
+       drift starts every subsequent click maps to the wrong note. By zipping
+       per measure, alignment errors are local and don't propagate. */
     if (!state.currentScore?.musicxml || !toolkit?.getMEI) {
         state.editorIndexMap = null;
         state.editorIndexMapKey = "";
@@ -8121,24 +7560,60 @@ function ensureEditorIndexMap(toolkit) {
         state.editorIndexMapKey = "";
         return null;
     }
-    const meiSymbols = Array.from(meiDoc.getElementsByTagName("*")).filter(
-        (el) => el.localName === "note" || el.localName === "rest",
-    );
     const mxmlDoc = parseMusicXmlDocument(state.currentScore.musicxml);
     if (!mxmlDoc) {
         state.editorIndexMap = null;
         state.editorIndexMapKey = "";
         return null;
     }
+
+    // 1) MusicXML side: indices grouped by measure number, in document order.
     const mxmlNotes = listMxmlNoteElements(mxmlDoc);
-    const map = new Map();
-    const limit = Math.min(meiSymbols.length, mxmlNotes.length);
-    for (let i = 0; i < limit; i += 1) {
-        const meiId = meiSymbols[i].getAttribute("xml:id") || meiSymbols[i].getAttributeNS("http://www.w3.org/XML/1998/namespace", "id");
-        if (meiId) {
-            map.set(meiId, i);
+    const mxmlByMeasure = new Map();
+    let unnumberedCounter = 0;
+    mxmlNotes.forEach((noteEl, idx) => {
+        const measureEl = noteEl.parentNode;
+        let measureNo = Number(measureEl?.getAttribute("number") || 0);
+        if (!measureNo) {
+            measureNo = ++unnumberedCounter;
         }
-    }
+        if (!mxmlByMeasure.has(measureNo)) mxmlByMeasure.set(measureNo, []);
+        mxmlByMeasure.get(measureNo).push(idx);
+    });
+    const mxmlMeasureNumbers = Array.from(mxmlByMeasure.keys());
+
+    // 2) MEI side: walk <measure> elements in document order.
+    const meiMeasures = Array.from(meiDoc.getElementsByTagName("*")).filter(
+        (el) => el.localName === "measure",
+    );
+
+    const map = new Map();
+    meiMeasures.forEach((meiMeasure, measurePos) => {
+        // Try MEI's @n first (matches MusicXML measure number); fall back to position.
+        const meiNAttr = meiMeasure.getAttribute("n") || meiMeasure.getAttribute("label") || "";
+        const candidateNum = Number(meiNAttr);
+        let mxmlIndices;
+        if (Number.isFinite(candidateNum) && candidateNum > 0 && mxmlByMeasure.has(candidateNum)) {
+            mxmlIndices = mxmlByMeasure.get(candidateNum);
+        } else if (measurePos < mxmlMeasureNumbers.length) {
+            mxmlIndices = mxmlByMeasure.get(mxmlMeasureNumbers[measurePos]);
+        }
+        if (!mxmlIndices) return;
+
+        // Walk MEI note/rest descendants of this measure in document order.
+        const meiSymbols = Array.from(meiMeasure.getElementsByTagName("*")).filter(
+            (el) => el.localName === "note" || el.localName === "rest",
+        );
+        const limit = Math.min(meiSymbols.length, mxmlIndices.length);
+        for (let i = 0; i < limit; i += 1) {
+            const meiId = meiSymbols[i].getAttribute("xml:id")
+                || meiSymbols[i].getAttributeNS("http://www.w3.org/XML/1998/namespace", "id");
+            if (meiId) {
+                map.set(meiId, mxmlIndices[i]);
+            }
+        }
+    });
+
     state.editorIndexMap = map;
     state.editorIndexMapKey = key;
     return map;
@@ -8150,26 +7625,169 @@ function tagRenderedSymbolsWithMxmlIndex(host) {
     }
     const map = state.editorIndexMap;
     const symbolNodes = host.querySelectorAll(".verovio-pane .note, .verovio-pane .rest");
+    const renderMode = host === els.scoreViewerCanvas ? "viewer" : "preview";
+    const renderedPageCount = renderMode === "viewer" ? state.viewerPageCount : state.previewPageCount;
+    if (!symbolNodes.length) return;
+
+    // 1) Primary: id-based lookup via the MEI-anchored map (works across pages).
+    let coveredCount = 0;
     if (map && map.size) {
         symbolNodes.forEach((node) => {
             const id = node.getAttribute("id");
             if (id && map.has(id)) {
                 node.setAttribute("data-mxml-index", String(map.get(id)));
+                coveredCount += 1;
             } else {
                 node.removeAttribute("data-mxml-index");
             }
         });
-        return;
+        if (coveredCount === symbolNodes.length) return;
     }
+
+    // 2) Per-measure fallback by SVG `data-n` attribute. Verovio emits
+    //    <g class="measure" data-n="N"> on each measure; pair its note/rest
+    //    descendants positionally with that MusicXML measure's notes. This
+    //    keeps multi-page clicks working even when the MEI map is partial.
     const doc = parseMusicXmlDocument(state.currentScore.musicxml);
-    if (!doc) {
-        return;
-    }
+    if (!doc) return;
+    const mxmlByMeasure = new Map();
+    let unnumberedCounter = 0;
+    listMxmlNoteElements(doc).forEach((noteEl, idx) => {
+        const measureEl = noteEl.parentNode;
+        let measureNo = Number(measureEl?.getAttribute?.("number") || 0);
+        if (!measureNo) measureNo = ++unnumberedCounter;
+        if (!mxmlByMeasure.has(measureNo)) mxmlByMeasure.set(measureNo, []);
+        mxmlByMeasure.get(measureNo).push(idx);
+    });
+    const svgMeasures = host.querySelectorAll(".verovio-pane .measure");
+    let perMeasureCovered = 0;
+    svgMeasures.forEach((svgMeasure) => {
+        const candidate = svgMeasure.getAttribute("data-n") || svgMeasure.getAttribute("n") || "";
+        const measureNo = Number(candidate);
+        const indices = Number.isFinite(measureNo) && measureNo > 0
+            ? mxmlByMeasure.get(measureNo)
+            : null;
+        if (!indices) return;
+        const inMeasure = svgMeasure.querySelectorAll(".note, .rest");
+        const limit = Math.min(inMeasure.length, indices.length);
+        for (let i = 0; i < limit; i += 1) {
+            if (!inMeasure[i].getAttribute("data-mxml-index")) {
+                inMeasure[i].setAttribute("data-mxml-index", String(indices[i]));
+                perMeasureCovered += 1;
+            }
+        }
+    });
+    if (perMeasureCovered + coveredCount >= symbolNodes.length) return;
+
+    // 3) Last-resort flat fallback (single-page only — drifts on page breaks).
+    if (renderedPageCount && renderedPageCount > 1) return;
     const noteElements = listMxmlNoteElements(doc);
     const limit = Math.min(noteElements.length, symbolNodes.length);
     for (let i = 0; i < limit; i += 1) {
-        symbolNodes[i].setAttribute("data-mxml-index", String(i));
+        if (!symbolNodes[i].getAttribute("data-mxml-index")) {
+            symbolNodes[i].setAttribute("data-mxml-index", String(i));
+        }
     }
+}
+
+function readSymbolMxmlIndex(symbol) {
+    if (!symbol) {
+        return null;
+    }
+    const raw = symbol.getAttribute("data-mxml-index");
+    if (raw == null) {
+        return null;
+    }
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function buildRenderedPageSymbolOffsetCacheKey(mode, pageCount) {
+    const normalizedMode = mode === "viewer" ? "viewer" : "preview";
+    const baseKey = normalizedMode === "viewer"
+        ? state.viewerPreparedKey || buildViewerPreparedKey(state.currentScore)
+        : buildEditorIndexMapKey(state.currentScore);
+    return `${normalizedMode}:${baseKey}:${Math.max(Number(pageCount || 0), 0)}`;
+}
+
+function countRenderedSymbolMarkup(svgMarkup) {
+    if (!svgMarkup) {
+        return 0;
+    }
+    const matches = String(svgMarkup).match(/<[^>]+class="[^"]*\b(?:note|rest)\b[^"]*"/g);
+    return Array.isArray(matches) ? matches.length : 0;
+}
+
+function ensureRenderedPageSymbolOffsets({ mode = "preview", toolkit, pageCount = 0 } = {}) {
+    if (!toolkit || pageCount <= 0) {
+        return [];
+    }
+    const normalizedMode = mode === "viewer" ? "viewer" : "preview";
+    const cacheKey = buildRenderedPageSymbolOffsetCacheKey(normalizedMode, pageCount);
+    const cachedOffsets = normalizedMode === "viewer" ? state.viewerPageSymbolOffsets : state.previewPageSymbolOffsets;
+    const cachedKey = normalizedMode === "viewer" ? state.viewerPageSymbolOffsetsKey : state.previewPageSymbolOffsetsKey;
+    if (Array.isArray(cachedOffsets) && cachedOffsets.length === pageCount && cachedKey === cacheKey) {
+        return cachedOffsets;
+    }
+
+    const offsets = [];
+    let runningOffset = 0;
+    for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+        offsets.push(runningOffset);
+        runningOffset += countRenderedSymbolMarkup(toolkit.renderToSVG(pageIndex + 1));
+    }
+
+    if (normalizedMode === "viewer") {
+        state.viewerPageSymbolOffsets = offsets;
+        state.viewerPageSymbolOffsetsKey = cacheKey;
+    } else {
+        state.previewPageSymbolOffsets = offsets;
+        state.previewPageSymbolOffsetsKey = cacheKey;
+    }
+    return offsets;
+}
+
+function resolveRenderedSymbolPageContext(symbol, host) {
+    if (!symbol) {
+        return null;
+    }
+    const pageScope = symbol.closest?.("[data-page-index]") || null;
+    const rawPageIndex = pageScope?.getAttribute?.("data-page-index")
+        ?? host?.dataset?.verovioPageIndex
+        ?? (host === els.scoreViewerCanvas ? state.scorePageIndex : state.previewPageIndex);
+    const pageIndex = Number(rawPageIndex);
+    if (!Number.isFinite(pageIndex) || pageIndex < 0) {
+        return null;
+    }
+    const renderMode = pageScope?.getAttribute?.("data-render-mode")
+        || host?.dataset?.verovioRenderMode
+        || (host === els.scoreViewerCanvas ? "viewer" : "preview");
+    return {
+        pageIndex,
+        renderMode: renderMode === "viewer" ? "viewer" : "preview",
+        pageScope: pageScope || host || null,
+    };
+}
+
+function resolveRenderedSymbolPageBaseOffset(symbol, host) {
+    const context = resolveRenderedSymbolPageContext(symbol, host);
+    if (!context) {
+        return null;
+    }
+    const pageCount = context.renderMode === "viewer" ? state.viewerPageCount : state.previewPageCount;
+    const cacheKey = buildRenderedPageSymbolOffsetCacheKey(context.renderMode, pageCount);
+    const offsets = context.renderMode === "viewer" ? state.viewerPageSymbolOffsets : state.previewPageSymbolOffsets;
+    const currentKey = context.renderMode === "viewer" ? state.viewerPageSymbolOffsetsKey : state.previewPageSymbolOffsetsKey;
+    if (!Array.isArray(offsets) || context.pageIndex >= offsets.length) {
+        return null;
+    }
+    if (currentKey && currentKey !== cacheKey) {
+        return null;
+    }
+    return {
+        baseOffset: Number(offsets[context.pageIndex] || 0),
+        pageScope: context.pageScope,
+    };
 }
 
 function changePreviewPage(direction) {
@@ -8224,26 +7842,109 @@ function reapplyEditorSelectionHighlight(host) {
     }
 }
 
-function updateEditorSelectionFromSymbol(symbol) {
+function resolveSymbolMxmlIndexByPosition(symbol, host) {
+    /* Strict positional fallback for symbols that are missing MEI tags.
+
+       Single-page renders can still rely on flat document order. On
+       multi-page renders we only trust measure-local ordering when the
+       rendered measure carries a stable number; otherwise we give up
+       instead of guessing across page breaks. */
+    if (!symbol || !state.currentScore?.musicxml) return null;
+    const stage = host
+        || symbol.closest(".verovio-stage")
+        || symbol.closest(".verovio-pane")?.parentNode
+        || symbol.ownerSVGElement?.parentNode
+        || els.scoreViewerEntry;
+    if (!stage) return null;
+
+    const allSymbols = Array.from(stage.querySelectorAll(".note, .rest"));
+    const symbolPos = allSymbols.indexOf(symbol);
+    if (symbolPos < 0) return null;
+
+    const doc = parseMusicXmlDocument(state.currentScore.musicxml);
+    if (!doc) return null;
+    const mxmlNotes = listMxmlNoteElements(doc);
+    if (!mxmlNotes.length) return null;
+    const renderedPageContext = resolveRenderedSymbolPageContext(symbol, stage);
+    const renderedPageCount = renderedPageContext?.renderMode === "viewer"
+        ? state.viewerPageCount
+        : state.previewPageCount;
+
+    // Single-page renders: SVG document order tracks MusicXML 1:1.
+    if ((renderedPageCount || 1) <= 1) {
+        return symbolPos < mxmlNotes.length ? symbolPos : null;
+    }
+
+    // Multi-page: prefer measure-anchored mapping when Verovio gave us @n.
+    const measure = symbol.closest(".measure");
+    const measureLabel = Number(
+        measure?.getAttribute?.("data-n") || measure?.getAttribute?.("n") || 0,
+    );
+    if (measure && Number.isFinite(measureLabel) && measureLabel > 0) {
+        const inMeasure = Array.from(measure.querySelectorAll(".note, .rest"));
+        const localPos = inMeasure.indexOf(symbol);
+        if (localPos >= 0) {
+            const indices = [];
+            let unnumbered = 0;
+            mxmlNotes.forEach((noteEl, idx) => {
+                const m = Number(noteEl.parentNode?.getAttribute?.("number") || 0) || ++unnumbered;
+                if (m === measureLabel) indices.push(idx);
+            });
+            if (localPos < indices.length) return indices[localPos];
+        }
+    }
+
+    const pageContext = resolveRenderedSymbolPageBaseOffset(symbol, stage);
+    if (pageContext?.pageScope) {
+        const pageSymbols = Array.from(pageContext.pageScope.querySelectorAll(".note, .rest"));
+        const localPos = pageSymbols.indexOf(symbol);
+        const resolvedIndex = localPos >= 0 ? pageContext.baseOffset + localPos : null;
+        if (resolvedIndex != null && resolvedIndex < mxmlNotes.length) {
+            return resolvedIndex;
+        }
+    }
+
+    return null;
+}
+
+function updateEditorSelectionFromSymbol(symbol, host) {
     if (!symbol) {
         clearEditorSelection();
-        return;
+        return { ok: false, reason: "missing-symbol" };
     }
-    const indexAttr = symbol.getAttribute("data-mxml-index");
-    if (indexAttr === null) {
+    // Primary: use the rendered symbol's explicit MusicXML tag when present.
+    let resolvedIndex = readSymbolMxmlIndex(symbol);
+    if (resolvedIndex == null && host) {
+        // Secondary: rebuild tags once and retry before any positional guess.
+        tagRenderedSymbolsWithMxmlIndex(host);
+        resolvedIndex = readSymbolMxmlIndex(symbol);
+    }
+    if (resolvedIndex == null) {
+        // Tertiary: strict positional fallback.
+        resolvedIndex = resolveSymbolMxmlIndexByPosition(symbol, host);
+    }
+    if (resolvedIndex == null || !Number.isFinite(resolvedIndex)) {
         clearEditorSelection();
-        return;
+        return { ok: false, reason: "unmapped" };
     }
-    state.editorSelectedMxmlIndex = Number(indexAttr);
+    state.editorSelectedMxmlIndex = resolvedIndex;
+    symbol.setAttribute("data-mxml-index", String(resolvedIndex));
     state.editorSelectedKind = symbol.classList.contains("rest") ? "rest" : "note";
     renderEditWorkbench();
+    return { ok: true, index: resolvedIndex, kind: state.editorSelectedKind };
 }
 
 function clearEditorSelection() {
+    resetEditorSelectionState();
+    syncSelectionHighlightToCurrentSelection();
+    renderEditWorkbench();
+}
+
+function resetEditorSelectionState() {
     state.editorSelectedMxmlIndex = null;
     state.editorSelectedKind = null;
     state.editorSelectedSummary = "";
-    renderEditWorkbench();
+    state.selectedNotationElementId = null;
 }
 
 function describeMxmlNote(noteEl) {
@@ -8280,45 +7981,63 @@ function getEditorTotalNotes() {
 
 function stepEditorSelection(direction) {
     const total = getEditorTotalNotes();
-    if (total <= 0) return;
-    const current = state.editorSelectedMxmlIndex;
-    let next;
-    if (current == null) {
-        next = direction > 0 ? 0 : total - 1;
-    } else {
-        next = Math.max(0, Math.min(current + direction, total - 1));
+    if (total <= 0) {
+        return;
     }
-    if (next === current) return;
-    state.editorSelectedMxmlIndex = next;
-    state.editorSelectedKind = null;
+    const current = state.editorSelectedMxmlIndex;
+    let nextIndex;
+    if (current == null) {
+        nextIndex = direction >= 0 ? 0 : total - 1;
+    } else {
+        nextIndex = Math.max(0, Math.min(current + direction, total - 1));
+    }
+    if (nextIndex === current) {
+        return;
+    }
+    state.editorSelectedMxmlIndex = nextIndex;
+    state.selectedNotationElementId = null;
+    const doc = parseMusicXmlDocument(state.currentScore?.musicxml || "");
+    const noteEl = locateMxmlNoteByIndex(doc, nextIndex);
+    state.editorSelectedKind = noteEl?.querySelector("rest") ? "rest" : "note";
     syncSelectionHighlightToCurrentSelection();
-    renderEditWorkbench();
-}
-
-function handleEditNoteIndexInput() {
-    const total = getEditorTotalNotes();
-    if (total <= 0) return;
-    const raw = Number(els.editNoteIndexInput?.value);
-    if (!Number.isFinite(raw)) return;
-    const idx = Math.max(0, Math.min(Math.floor(raw) - 1, total - 1));
-    state.editorSelectedMxmlIndex = idx;
-    state.editorSelectedKind = null;
-    syncSelectionHighlightToCurrentSelection();
+    if (els.selectedNoteSummary) {
+        els.selectedNoteSummary.textContent = "当前已在谱面中高亮一个音符或休止符。";
+    }
     renderEditWorkbench();
 }
 
 function syncSelectionHighlightToCurrentSelection() {
-    if (!els.scoreViewerEntry) return;
-    els.scoreViewerEntry.querySelectorAll(".note.is-selected, .rest.is-selected").forEach((el) => {
-        el.classList.remove("is-selected");
+    const idx = state.editorSelectedMxmlIndex;
+    [els.scoreViewerEntry, els.scoreViewerCanvas].forEach((host) => {
+        if (!host) {
+            return;
+        }
+        host.querySelectorAll(".note.is-selected, .rest.is-selected").forEach((el) => {
+            el.classList.remove("is-selected");
+        });
+        if (idx == null) {
+            return;
+        }
+        const target = host.querySelector(`.verovio-pane [data-mxml-index="${idx}"]`);
+        if (target) {
+            target.classList.add("is-selected");
+            return;
+        }
+        if (host === els.scoreViewerCanvas && state.selectedNotationElementId) {
+            const safeId = window.CSS?.escape
+                ? window.CSS.escape(state.selectedNotationElementId)
+                : String(state.selectedNotationElementId).replace(/"/g, '\\"');
+            const fallback = host.querySelector(`#${safeId}, [id="${safeId}"]`);
+            fallback?.classList?.add("is-selected");
+        }
     });
-    if (state.editorSelectedMxmlIndex == null) return;
-    const target = els.scoreViewerEntry.querySelector(
-        `.verovio-pane [data-mxml-index="${state.editorSelectedMxmlIndex}"]`,
-    );
-    if (target) {
-        target.classList.add("is-selected");
-    }
+    [els.guzhengScoreView, els.diziScoreView, els.guitarLeadSheetView].forEach((host) => {
+        if (!host) return;
+        host.querySelectorAll(".is-edit-selected").forEach((el) => el.classList.remove("is-edit-selected"));
+        if (idx == null) return;
+        const target = host.querySelector(`[data-mxml-index="${idx}"]`);
+        if (target) target.classList.add("is-edit-selected");
+    });
 }
 
 function resolveActiveInstrumentForEditor() {
@@ -8329,15 +8048,16 @@ function renderEditWorkbench() {
     if (!els.editWorkbenchPanel) {
         return;
     }
+    const instrument = resolveActiveInstrumentForEditor();
     const hasScore = Boolean(state.currentScore?.musicxml);
-    els.editWorkbenchPanel.hidden = !hasScore;
-    if (!hasScore) {
+    const manualEditEnabled = supportsManualEdit(instrument);
+    els.editWorkbenchPanel.hidden = !hasScore || !manualEditEnabled;
+    if (!hasScore || !manualEditEnabled) {
         return;
     }
     if (els.editWorkbenchBody) {
         els.editWorkbenchBody.hidden = false;
     }
-    const instrument = resolveActiveInstrumentForEditor();
     if (els.editNavHintPiano) els.editNavHintPiano.hidden = instrument !== "piano";
     if (els.editNavHintTraditional) els.editNavHintTraditional.hidden = !(instrument === "guzheng" || instrument === "dizi");
     if (els.editNavHintGuitar) els.editNavHintGuitar.hidden = instrument !== "guitar";
@@ -8348,17 +8068,6 @@ function renderEditWorkbench() {
     els.editPaletteSections?.forEach((section) => {
         section.hidden = section.dataset.paletteFor !== instrument;
     });
-
-    const total = getEditorTotalNotes();
-    if (els.editNoteTotal) {
-        els.editNoteTotal.textContent = total ? `/ 共 ${total} 个音符` : "/ --";
-    }
-    if (els.editNoteIndexInput) {
-        els.editNoteIndexInput.max = String(Math.max(total, 1));
-        if (state.editorSelectedMxmlIndex != null) {
-            els.editNoteIndexInput.value = String(state.editorSelectedMxmlIndex + 1);
-        }
-    }
 
     let summary = instrument === "guitar" ? "尚未选中和弦位置" : "尚未选中音符";
     let selectionValid = false;
@@ -8413,14 +8122,17 @@ function renderEditWorkbench() {
             ),
         );
     });
+    const total = getEditorTotalNotes();
     if (els.editNotePrevBtn) {
-        els.editNotePrevBtn.disabled = total <= 0 || editing || (state.editorSelectedMxmlIndex || 0) <= 0;
+        els.editNotePrevBtn.disabled =
+            total <= 0 || editing || (state.editorSelectedMxmlIndex != null && state.editorSelectedMxmlIndex <= 0);
     }
     if (els.editNoteNextBtn) {
-        const cur = state.editorSelectedMxmlIndex;
-        els.editNoteNextBtn.disabled = total <= 0 || editing || (cur != null && cur >= total - 1);
+        els.editNoteNextBtn.disabled =
+            total <= 0 ||
+            editing ||
+            (state.editorSelectedMxmlIndex != null && state.editorSelectedMxmlIndex >= total - 1);
     }
-
     els.chordRootButtons?.forEach((b) => b.classList.toggle("selected", b.dataset.chordRoot === state.editorChordRoot));
     els.chordAlterButtons?.forEach((b) => b.classList.toggle("selected", Number(b.dataset.chordAlter) === state.editorChordAlter));
     els.chordKindButtons?.forEach((b) => b.classList.toggle("selected", b.dataset.chordKind === state.editorChordKind));
@@ -8588,6 +8300,11 @@ async function applyEditorMutation(action, value) {
         setAppStatus(successMessage);
         const versionLabel = updated?.version != null ? `（v${updated.version}）` : "";
         setEditorSaveStatus("saved", `${successMessage} 已保存到后端${versionLabel}`);
+        // Round-trip: when the active mode is guzheng/dizi/guitar, the upper
+        // LilyPond/lead-sheet view is derived server-side from the score data.
+        // After a successful PATCH we must regenerate that derived view so
+        // both panels (engraved + edit) reflect the new MusicXML.
+        await regenerateActiveTraditionalView();
     } catch (error) {
         const detail = error?.message || "未知错误";
         setAppStatus(`保存失败：${detail}`, true);
@@ -8595,6 +8312,26 @@ async function applyEditorMutation(action, value) {
     } finally {
         setBusy("edit-workbench", false);
         renderEditWorkbench();
+    }
+}
+
+async function regenerateActiveTraditionalView() {
+    const scoreId = state.currentScore?.score_id;
+    if (!scoreId) return;
+    const instrument = resolveActiveInstrumentForEditor();
+    try {
+        if (instrument === "guzheng") {
+            await requestGuzhengScore({ scoreId });
+        } else if (instrument === "dizi") {
+            await requestDiziScore({ scoreId });
+        } else if (instrument === "guitar") {
+            await requestGuitarLeadSheet({ scoreId });
+        }
+    } catch (error) {
+        // Don't fail the whole edit on regen — the MusicXML still saved correctly.
+        const detail = error?.message || "未知错误";
+        console.warn(`Traditional view regen failed: ${detail}`);
+        setAppStatus(`保存成功，但 ${instrument} 视图重渲失败：${detail}`, true);
     }
 }
 
@@ -8974,7 +8711,7 @@ function describeTechniqueBadges(noteEl) {
     const badges = [];
     const set = collectNoteTechniques(noteEl);
     if (set.has("ornament:trill")) badges.push("tr");
-    if (set.has("ornament:mordent")) badges.push("𝆑");
+    if (set.has("ornament:mordent")) badges.push("∽");
     if (set.has("ornament:tremolo")) badges.push("⫽");
     if (set.has("technical:harmonic")) badges.push("○");
     if (set.has("glissando:start")) badges.push("↗");
@@ -9043,6 +8780,11 @@ function describeChordSymbolFromHarmony(harmonyEl) {
    Used when the jianpu / lead-sheet click target carries pitch+beat info. */
 
 function ensureJianpuLookup() {
+    /* Position-based per-measure map: measure_no → [mxml_index_of_pitched_note_0, ...]
+       For each measure, collects MusicXML <note> indices in document order,
+       skipping rests and chord-extension notes. The Nth pitched jianpu note
+       in a measure maps to the Nth entry here. Far more robust than matching
+       by (beat, pitch) because it tolerates quantization differences. */
     const xml = state.currentScore?.musicxml;
     if (!xml) {
         state.editorJianpuLookup = null;
@@ -9061,59 +8803,34 @@ function ensureJianpuLookup() {
     }
     const allNotes = listMxmlNoteElements(doc);
     const lookup = new Map();
-    let currentMeasureNo = 0;
-    let cursor = 0;
-    let lastDur = 0;
-    let divisions = 8;
-
     allNotes.forEach((noteEl, idx) => {
         const measureEl = noteEl.parentNode;
         const measureNo = Number(measureEl?.getAttribute("number") || 0);
-        if (measureNo !== currentMeasureNo) {
-            currentMeasureNo = measureNo;
-            cursor = 0;
-            lastDur = 0;
-            const div = measureEl?.querySelector("attributes > divisions")?.textContent;
-            if (div) divisions = Math.max(Number(div) || 8, 1);
-        }
         const isChord = !!findChild(noteEl, "chord");
-        const dur = Number(findChild(noteEl, "duration")?.textContent || 0);
-        const noteStartTime = isChord ? Math.max(cursor - lastDur, 0) : cursor;
-        const startBeat = noteStartTime / divisions + 1;
-
         const isRest = !!findChild(noteEl, "rest");
-        if (!isRest) {
-            const pitch = findChild(noteEl, "pitch");
-            const step = findChild(pitch, "step")?.textContent || "";
-            const alter = Number(findChild(pitch, "alter")?.textContent || 0);
-            const octave = findChild(pitch, "octave")?.textContent || "";
-            const acc = alter === 1 ? "#" : alter === -1 ? "b" : "";
-            const pitchStr = `${step}${acc}${octave}`;
-            const key1 = `${measureNo}|${startBeat.toFixed(3)}|${pitchStr}`;
-            if (!lookup.has(key1)) lookup.set(key1, idx);
-            // also key by pitch only within measure (fallback)
-            const key2 = `${measureNo}||${pitchStr}`;
-            if (!lookup.has(key2)) lookup.set(key2, idx);
-        }
-
-        if (!isChord) {
-            cursor += dur;
-            lastDur = dur;
-        }
+        if (isChord || isRest) return;
+        if (!lookup.has(measureNo)) lookup.set(measureNo, []);
+        lookup.get(measureNo).push(idx);
     });
     state.editorJianpuLookup = lookup;
     state.editorJianpuLookupKey = key;
     return lookup;
 }
 
-function lookupJianpuMxmlIndex(measureNo, startBeat, pitch) {
+function lookupJianpuMxmlIndexByPosition(measureNo, positionInMeasure) {
     const lookup = ensureJianpuLookup();
-    if (!lookup || !pitch) return null;
-    const key1 = `${measureNo}|${Number(startBeat || 1).toFixed(3)}|${pitch}`;
-    if (lookup.has(key1)) return lookup.get(key1);
-    const key2 = `${measureNo}||${pitch}`;
-    if (lookup.has(key2)) return lookup.get(key2);
-    return null;
+    if (!lookup) return null;
+    const list = lookup.get(Number(measureNo));
+    if (!Array.isArray(list)) return null;
+    if (positionInMeasure < 0 || positionInMeasure >= list.length) return null;
+    return list[positionInMeasure];
+}
+
+function lookupJianpuMxmlIndex(measureNo, _startBeat, _pitch) {
+    /* Legacy adapter: returns first pitched note in the measure. The active
+       renderer now passes explicit per-measure positions, so this is only a
+       fallback when caller didn't compute the position. */
+    return lookupJianpuMxmlIndexByPosition(measureNo, 0);
 }
 
 /* Build harmony lookup: measure_no → list of chord positions (measure-level, since harmony anchors before notes).

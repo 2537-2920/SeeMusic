@@ -10,6 +10,12 @@ from contextlib import asynccontextmanager
 if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+# Heal a broken Python SSL trust store *before* anything else imports a module
+# that might open an HTTPS connection (Demucs / Torch / HuggingFace etc.).
+# Idempotent and a no-op when the OS CA bundle is already usable.
+from backend.ssl_bootstrap import ensure_ssl_cert_bundle as _ensure_ssl_cert_bundle
+_ensure_ssl_cert_bundle()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -18,7 +24,7 @@ import uvicorn
 from backend.api.api_routes import router
 from backend.config.settings import settings
 from backend.db.session import close_mysql_tunnel, get_session_factory, init_database
-from backend.services import analysis_service, community_service, reference_track_service, report_service
+from backend.services import analysis_service, community_service, reference_track_service, report_service, score_service
 from backend.user import history_manager, user_system
 import os
 
@@ -49,6 +55,7 @@ async def lifespan(_: FastAPI):
         analysis_service.USE_DB = False
         reference_track_service.USE_DB = False
         report_service.USE_DB = False
+        score_service.USE_DB = False
     try:
         yield
     finally:

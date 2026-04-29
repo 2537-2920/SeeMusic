@@ -10,7 +10,7 @@
 </head>
 <body class="p-8 md:p-12">
 
-<header class="w-full px-12 mx-auto mb-12 flex justify-between items-end">
+<header class="w-full px-12 mx-auto mb-12 flex flex-col gap-6 lg:flex-row lg:justify-between lg:items-center">
 <div class="flex items-center gap-6">
 <a class="flex items-center gap-2 group" href="index.html">
 <div class="w-10 h-10 bg-[#457b9d] rounded flex items-center justify-center text-white transition-all duration-300 group-hover:rotate-12 group-hover:scale-110">
@@ -24,9 +24,14 @@
 <p class="text-sm text-gray-400 mt-1 uppercase tracking-widest">User Profile &amp; History</p>
 </div>
 </div>
-<div class="text-right text-xs text-gray-400 font-medium">
-<p>LAST UPDATE</p>
-<p class="text-gray-600" id="profile-last-update">--</p>
+<div class="sm-page-user" data-seemusic-user>
+<span class="sm-page-user__avatar-wrap">
+<img alt="当前用户头像" class="sm-page-user__avatar" data-seemusic-user-avatar id="header-avatar" src="https://api.dicebear.com/7.x/avataaars/svg?seed=SeeMusic"/>
+</span>
+<span class="sm-page-user__body">
+<span class="sm-page-user__name" data-seemusic-user-name id="header-user-name">未登录用户</span>
+<span class="sm-page-user__meta">LAST UPDATE <span class="text-gray-600" id="profile-last-update">--</span></span>
+</span>
 </div>
 </header>
 

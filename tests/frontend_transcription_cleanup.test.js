@@ -188,3 +188,17 @@ test("singing evaluation visible copy no longer hardcodes WAV wording", () => {
     assert.ok(!singingHtml.includes("上传用户 WAV 音频"));
     assert.ok(!singingScript.includes("请先选择用户 WAV 音频"));
 });
+
+test("singing evaluation transpose suggestions use auto-detected key display instead of manual input", () => {
+    const singingScript = fs.readFileSync(path.join(__dirname, "../frontend/singing_evaluation.js"), "utf8");
+    assert.ok(!/id="transpose-current-key"/.test(singingHtml));
+    assert.match(singingHtml, /id="transpose-current-key-display"/);
+    assert.ok(!singingHtml.includes("你也可以手动修改并以手动输入为准"));
+    assert.match(singingScript, /detectedCurrentKey: null/);
+    assert.match(singingScript, /function syncDetectedCurrentKeyDisplay/);
+    assert.match(singingScript, /const currentKey = evaluationState\.detectedCurrentKey/);
+    assert.match(singingScript, /pitch_sequence: evaluationState\.transposePitchSequence\.map/);
+    assert.ok(!singingScript.includes('document.getElementById("transpose-current-key")'));
+    assert.ok(!singingScript.includes("function syncCurrentKeyInput"));
+    assert.ok(!singingScript.includes('transpose-current-key").addEventListener("input"'));
+});

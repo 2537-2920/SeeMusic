@@ -16,12 +16,18 @@ def _load_env_file(path: Path) -> None:
     if not path.exists():
         return
 
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
+    for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         line = raw_line.strip()
+        if line.startswith(("<<<<<<<", "=======", ">>>>>>>")):
+            raise RuntimeError(
+                f"Unresolved merge conflict marker found in {path} at line {line_number}: {line}"
+            )
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
         key = key.strip()
+        if not key:
+            raise RuntimeError(f"Invalid environment variable name in {path} at line {line_number}: {raw_line!r}")
         file_value = value.strip().strip("\"'")
         current_value = os.environ.get(key)
         if current_value is not None:

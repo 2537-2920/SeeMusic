@@ -265,9 +265,9 @@
             </h2>
             <div class="space-y-6">
                 <div>
-                    <label class="block text-sm font-bold text-gray-600 mb-2" for="transpose-current-key">当前歌曲调性</label>
-                    <input class="w-full bg-gray-50 border-none rounded-xl py-3 px-4 text-sm outline-none" id="transpose-current-key" placeholder="例如 C / G / Am" type="text"/>
-                    <p class="text-xs text-gray-400 mt-3">完成一次评估后会自动回填检测调性；你也可以手动修改并以手动输入为准。</p>
+                    <span class="block text-sm font-bold text-gray-600 mb-2">当前歌曲调性</span>
+                    <div class="w-full bg-gray-50 rounded-xl py-3 px-4 text-sm text-[#1D3557] font-bold border border-gray-100" id="transpose-current-key-display">--</div>
+                    <p class="text-xs text-gray-400 mt-3">完成一次评估后，系统会自动识别标准音频的当前调性，并直接用于生成变调建议。</p>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div>
@@ -314,6 +314,6 @@
 </footer>
 
 <script src="app_common.js?v=20260429-shared-app-v1"></script>
-<script src="singing_evaluation.js?v=20260429-upload-fix-v7"></script>
+<script src="singing_evaluation.js?v=20260429-upload-fix-v8"></script>
 </body>
 </html>

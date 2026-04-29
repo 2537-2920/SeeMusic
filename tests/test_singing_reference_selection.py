@@ -48,6 +48,8 @@ def test_singing_evaluate_uses_reference_ref_id_from_mysql(user_database, monkey
             "overall_score": 91,
             "score": 90,
             "scoring_model": "balanced",
+            "detected_key_signature": "G",
+            "key_detection": {"key_signature": "G", "confidence": 0.92},
             "user_audio_mode": kwargs["user_audio_mode"],
             "resolved_ref_id": kwargs.get("reference_ref_id"),
             "reference_track": kwargs.get("reference_track"),
@@ -67,6 +69,8 @@ def test_singing_evaluate_uses_reference_ref_id_from_mysql(user_database, monkey
     assert response.status_code == 200
     payload = response.json()["data"]
     assert payload["reference_track"]["song_name"] == "Keyword Song"
+    assert payload["detected_key_signature"] == "G"
+    assert payload["key_detection"]["key_signature"] == "G"
     assert captured["reference_file_name"] == reference_file.name
     assert captured["reference_audio_bytes"] == b"reference-from-db"
     assert captured["reference_ref_id"] == reference_track["ref_id"]
@@ -105,6 +109,8 @@ def test_singing_evaluate_keeps_legacy_reference_upload(monkeypatch) -> None:
             "overall_score": 88,
             "score": 88,
             "scoring_model": "balanced",
+            "detected_key_signature": None,
+            "key_detection": {"key_signature": "C", "confidence": 0.0},
             "user_audio_mode": kwargs["user_audio_mode"],
             "resolved_ref_id": kwargs.get("reference_ref_id"),
             "reference_track": kwargs.get("reference_track"),
@@ -125,6 +131,8 @@ def test_singing_evaluate_keeps_legacy_reference_upload(monkeypatch) -> None:
         )
 
     assert response.status_code == 200
+    assert response.json()["data"]["detected_key_signature"] is None
+    assert response.json()["data"]["key_detection"]["confidence"] == 0.0
     assert captured["reference_file_name"] == "standard.wav"
     assert captured["reference_audio_bytes"] == b"reference-upload"
     assert captured["reference_ref_id"] is None

@@ -111,7 +111,9 @@ const evaluationState = {
     selectedReferenceTrack: null,
     userFile: null,
     analysis: null,
-    pitchDetection: null,
+    detectedCurrentKey: null,
+    keyDetection: null,
+    transposePitchSequence: [],
     pitchComparison: null,
     report: null,
     transposeSuggestions: null,
@@ -467,31 +469,20 @@ function formatSemitoneText(value) {
     return `${numeric > 0 ? "+" : ""}${numeric} 半音`;
 }
 
-function syncCurrentKeyInput(detectedKey, options = {}) {
-    const input = document.getElementById("transpose-current-key");
-    if (!input) {
+function syncDetectedCurrentKeyDisplay() {
+    const display = document.getElementById("transpose-current-key-display");
+    if (!display) {
         return;
     }
-    if (options.resetManualOverride) {
-        input.dataset.manualOverride = "false";
-    }
-    if (!detectedKey) {
-        return;
-    }
-    if (input.dataset.manualOverride === "true" && input.value.trim()) {
-        return;
-    }
-    input.value = detectedKey;
+    display.textContent = evaluationState.detectedCurrentKey || "--";
 }
 
 function clearTransposeCardState() {
-    evaluationState.pitchDetection = null;
+    evaluationState.detectedCurrentKey = null;
+    evaluationState.keyDetection = null;
+    evaluationState.transposePitchSequence = [];
     evaluationState.transposeSuggestions = null;
-    const keyInput = document.getElementById("transpose-current-key");
-    if (keyInput) {
-        keyInput.value = "";
-        keyInput.dataset.manualOverride = "false";
-    }
+    syncDetectedCurrentKeyDisplay();
     setBanner("transpose-status", "");
     renderTransposeSuggestions();
 }
@@ -514,10 +505,10 @@ function renderTransposeSuggestions() {
     }
 
     if (!payload || !Array.isArray(payload.suggestions) || !payload.suggestions.length) {
-        const detectedKey = evaluationState.pitchDetection && evaluationState.pitchDetection.detected_key_signature;
+        const detectedKey = evaluationState.detectedCurrentKey;
         const hint = detectedKey
             ? `已检测到当前调性 ${escapeHtml(detectedKey)}，可以直接生成变调建议。`
-            : "本次评估尚未拿到稳定调性，你也可以手动填写调号后继续生成建议。";
+            : "当前歌曲调性暂未识别，请先完成一次评估并确保标准音频能检测到稳定音高。";
         container.innerHTML = `
             <div class="p-4 rounded-2xl bg-gray-50 border border-gray-100 text-sm text-gray-500">
                 ${hint}
@@ -783,7 +774,7 @@ function renderReferenceSearchResults(items, message = "") {
     });
 }
 
-function selectReferenceTrack(track) {
+function selectReferenceTrack(track, options = {}) {
     evaluationState.selectedReferenceTrack = track || null;
     evaluationState.referenceFile = null;
     const input = document.getElementById("reference-file-input");
@@ -804,6 +795,9 @@ function selectReferenceTrack(track) {
         title.textContent = "--";
         meta.textContent = "--";
         document.getElementById("reference-file-name").textContent = "尚未选择标准歌曲或上传音频";
+    }
+    if (!options.suppressTransposeReset) {
+        clearTransposeCardState();
     }
 }
 
@@ -846,7 +840,7 @@ function setSelectedFile(kind, file) {
     const labelId = kind === "reference" ? "reference-file-name" : "user-file-name";
     evaluationState[stateKey] = file || null;
     if (kind === "reference" && file) {
-        selectReferenceTrack(null);
+        selectReferenceTrack(null, { suppressTransposeReset: true });
         evaluationState.referenceFile = file;
     }
     document.getElementById(labelId).textContent = file
@@ -927,9 +921,15 @@ async function runEvaluation() {
         if (payload.reference_track) {
             evaluationState.selectedReferenceTrack = payload.reference_track;
         }
+        evaluationState.detectedCurrentKey = typeof payload.detected_key_signature === "string" && payload.detected_key_signature.trim()
+            ? payload.detected_key_signature.trim()
+            : null;
+        evaluationState.keyDetection = payload.key_detection || null;
+        evaluationState.transposePitchSequence = Array.isArray(payload.user_pitch_sequence) ? payload.user_pitch_sequence : [];
         evaluationState.pitchComparison = payload.pitch_comparison || null;
         evaluationState.report = null;
 
+        syncDetectedCurrentKeyDisplay();
         renderAnalysis();
         renderTransposeSuggestions();
         const analysisId = payload.analysis_id;
@@ -1023,7 +1023,7 @@ async function exportReport() {
 
 async function loadTransposeSuggestions() {
     const analysis = evaluationState.analysis;
-    const currentKey = document.getElementById("transpose-current-key").value.trim();
+    const currentKey = evaluationState.detectedCurrentKey;
     const sourceGender = document.getElementById("transpose-source-gender").value;
     const targetGender = document.getElementById("transpose-target-gender").value;
     const submitBtn = document.getElementById("transpose-submit-btn");
@@ -1033,7 +1033,7 @@ async function loadTransposeSuggestions() {
         return;
     }
     if (!currentKey) {
-        setBanner("transpose-status", "请先填写当前歌曲调性，或先完成一次音高检测。", true);
+        setBanner("transpose-status", "当前歌曲调性暂未识别，请先完成一次评估并确保标准音频能检测到稳定音高。", true);
         return;
     }
     if (!hasOperationalRequestLayer()) {
@@ -1053,7 +1053,7 @@ async function loadTransposeSuggestions() {
                 current_key: currentKey,
                 source_gender: sourceGender,
                 target_gender: targetGender,
-                pitch_sequence: (evaluationState.pitchDetection?.pitch_sequence || []).map((item) => ({
+                pitch_sequence: evaluationState.transposePitchSequence.map((item) => ({
                     time: item.time,
                     frequency: item.frequency,
                     duration: item.duration || null,
@@ -1161,9 +1161,6 @@ function bindEvents() {
     document.getElementById("evaluation-submit-btn").addEventListener("click", runEvaluation);
     document.getElementById("report-export-btn").addEventListener("click", exportReport);
     document.getElementById("transpose-submit-btn").addEventListener("click", loadTransposeSuggestions);
-    document.getElementById("transpose-current-key").addEventListener("input", (event) => {
-        event.currentTarget.dataset.manualOverride = event.currentTarget.value.trim() ? "true" : "false";
-    });
 }
 
 function initializePage() {
@@ -1171,6 +1168,7 @@ function initializePage() {
         renderHeader();
         renderAnalysis();
         clearPitchCanvas();
+        syncDetectedCurrentKeyDisplay();
         renderTransposeSuggestions();
         bindEvents();
         showStartupDiagnostics();

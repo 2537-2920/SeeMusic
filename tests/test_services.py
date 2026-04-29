@@ -126,6 +126,15 @@ def test_evaluate_singing_separates_reference_only_for_a_cappella_user(temp_audi
             {"time": 0.1, "frequency": 441.0, "confidence": 0.9},
         ],
     )
+    monkeypatch.setattr(
+        analysis_service,
+        "analyze_key_signature",
+        lambda sequence: {
+            "key_signature": "G",
+            "confidence": 0.88,
+            "source_count": len(sequence),
+        },
+    )
 
     result = evaluate_singing(
         reference_file_name="standard.wav",
@@ -141,6 +150,8 @@ def test_evaluate_singing_separates_reference_only_for_a_cappella_user(temp_audi
     assert result["reference_separation"]["vocal_track"]["name"] == "vocal"
     assert result["user_separation"] is None
     assert result["rhythm"]["score"] == 80
+    assert result["detected_key_signature"] == "G"
+    assert result["key_detection"]["key_signature"] == "G"
     assert result["pitch_comparison"]["summary"]["matched_points"] > 0
     assert result["overall_score"] >= 80
 
@@ -310,6 +321,15 @@ def test_evaluate_singing_accepts_common_reference_audio_formats(temp_audio_byte
         "detect_pitch_sequence",
         lambda **kwargs: [{"time": 0.0, "frequency": 440.0, "confidence": 0.9}],
     )
+    monkeypatch.setattr(
+        analysis_service,
+        "analyze_key_signature",
+        lambda sequence: {
+            "key_signature": "C",
+            "confidence": 0.0,
+            "source_count": len(sequence),
+        },
+    )
 
     result = evaluate_singing(
         reference_file_name="standard.mp3",
@@ -319,6 +339,8 @@ def test_evaluate_singing_accepts_common_reference_audio_formats(temp_audio_byte
     )
 
     assert result["analysis_id"].startswith("an_")
+    assert result["detected_key_signature"] is None
+    assert result["key_detection"]["confidence"] == 0.0
     assert result["overall_score"] >= 0
 
 

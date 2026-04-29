@@ -25,6 +25,7 @@ from backend.core.pitch.pitch_sequence_utils import (
     extract_note_events_from_result,
     is_note_event_sequence,
 )
+from backend.core.score.key_detection import analyze_key_signature
 from backend.core.score.sheet_extraction import build_score_from_pitch_sequence
 from backend.utils.audio_logger import record_audio_processing_log
 from backend.utils.data_visualizer import build_pitch_curve
@@ -106,6 +107,19 @@ def _json_ready(value: Any) -> Any:
         except Exception:
             pass
     return str(value)
+
+
+def _resolved_detected_key_signature(key_detection: dict[str, Any] | None) -> str | None:
+    if not isinstance(key_detection, dict):
+        return None
+    key_signature = str(key_detection.get("key_signature") or "").strip()
+    if not key_signature:
+        return None
+    try:
+        confidence = float(key_detection.get("confidence") or 0.0)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    return key_signature if confidence > 0 else None
 
 
 def _pitch_meta_from_params(
@@ -747,6 +761,8 @@ def evaluate_singing(
             duration=rhythm_report.get("user_duration"),
             audio_bytes=user_vocal_bytes,
         )
+        key_detection = analyze_key_signature(reference_pitch_sequence)
+        detected_key_signature = _resolved_detected_key_signature(key_detection)
         pitch_comparison = build_pitch_comparison_payload(
             reference_pitch_sequence,
             user_pitch_sequence,
@@ -765,6 +781,8 @@ def evaluate_singing(
             "rhythm_report": rhythm_report,
             "pitch_comparison": pitch_comparison,
             "overall_score": overall_score,
+            "detected_key_signature": detected_key_signature,
+            "key_detection": key_detection,
             "user_audio_mode": normalized_mode,
             "reference_ref_id": normalized_reference_ref_id,
             "reference_track": reference_track,
@@ -804,6 +822,8 @@ def evaluate_singing(
             "overall_score": overall_score,
             "score": rhythm_report.get("score", 0.0),
             "scoring_model": normalized_scoring_model,
+            "detected_key_signature": detected_key_signature,
+            "key_detection": key_detection,
             "user_audio_mode": normalized_mode,
             "resolved_ref_id": normalized_reference_ref_id,
             "reference_track": reference_track,

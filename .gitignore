@@ -41,3 +41,8 @@ storage/
 .codex
 
 Music/*
+*.tar.lz4
+*.zip
+*.png
+__pycache__/
+.DS_Store

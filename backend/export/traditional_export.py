@@ -16,27 +16,41 @@ import xml.etree.ElementTree as ET
 SUPPORTED_TRADITIONAL_EXPORT_FORMATS = {"jianpu", "ly", "pdf", "svg"}
 SEGMENT_VALUES = (4.0, 3.0, 2.0, 1.5, 1.0, 0.75, 0.5, 0.25)
 SAFE_NAME_PATTERN = re.compile(r"[^A-Za-z0-9_.-]+")
+# Symbol-level markup is shared across both instruments because users may add
+# the same technique to either (e.g. trill works on dizi AND guzheng). The
+# instrument-specific dispatch below picks which subset gets applied.
+COMMON_TECHNIQUE_SYMBOL_MARKUP = {
+    # 颤音：通用斜体 tr，对应前端 "tr" 角标
+    '^"颤"': r'^\markup { \center-align \italic \fontsize #-3 "tr" }',
+    # 波音：mordent 形 𝆑，对应前端 "𝆑" 角标
+    '^"波"': r'^\markup { \center-align \fontsize #-3 "𝆑" }',
+    # 滑音：箭头，与前端 "↗" 一致
+    '^"滑"': r'^\markup { \center-align \fontsize #-3 "↗" }',
+    # 泛音：圆圈，与前端 "○" 一致
+    '^"○"': r'^\markup { \center-align \fontsize #-3 "○" }',
+    # 断奏 / 打音：staccato 点
+    '^"断"': r'^\markup { \center-align \fontsize #-3 "·" }',
+    # 重音 / 叠音：accent
+    '^"重"': r'^\markup { \center-align \fontsize #-3 ">" }',
+    # 换气点：通用换气逗号
+    '^"换"': r'^\markup { \center-align \fontsize #-3 "," }',
+    # 倚音：小字号 "倚"
+    '^"倚"': r'^\markup { \center-align \italic \fontsize #-4 "倚" }',
+}
+
 GUZHENG_TECHNIQUE_SYMBOL_MARKUP = {
+    **COMMON_TECHNIQUE_SYMBOL_MARKUP,
     # 上下滑音：箭头线（接近通用记谱里 portamento/glissando 的指向）
     '^"上滑"': r'^\markup { \center-align \fontsize #-3 "↗" }',
     '^"下滑"': r'^\markup { \center-align \fontsize #-3 "↘" }',
-    # 按音：用小号汉字 "按" 代替 ⌒（连线弧），避免与 slur 混淆
-    '^"按"': r'^\markup { \center-align \fontsize #-3 "按" }',
-    # 摇指：三斜线，与 LilyPond \tremolo 的视觉惯例一致
+    # 按音：波浪线（与前端 ∽ 标记一致；上游 token 已直接发 ∽）
+    '^"∽"': r'^\markup { \center-align \fontsize #-3 "∽" }',
+    # 摇指（heuristic 推导出的）：三斜线，与前端 "⫻" 角标对齐
     '^"摇"': r'^\markup { \center-align \fontsize #-3 \concat { "/" "/" "/" } }',
 }
 
-# 笛子专属技法符号（jianpu-ly 输出 ^"..."，由 LilyPond markup 替换）
-DIZI_TECHNIQUE_SYMBOL_MARKUP = {
-    # 颤音：通用斜体 tr 标记
-    '^"颤"': r'^\markup { \center-align \italic \fontsize #-3 "tr" }',
-    # 滑音：箭头线
-    '^"滑"': r'^\markup { \center-align \fontsize #-3 "↗" }',
-    # 倚音：小字号 "倚"，比单纯文字更紧凑
-    '^"倚"': r'^\markup { \center-align \italic \fontsize #-4 "倚" }',
-    # 换气点：通用换气逗号
-    '^"换"': r'^\markup { \center-align \fontsize #-3 "," }',
-}
+# 笛子专属技法符号
+DIZI_TECHNIQUE_SYMBOL_MARKUP = dict(COMMON_TECHNIQUE_SYMBOL_MARKUP)
 
 
 class TraditionalExportError(RuntimeError):
@@ -104,12 +118,32 @@ def _escape_jianpu_text(value: str) -> str:
 
 def _technique_token(note: dict[str, Any], instrument_type: str) -> str:
     tags = [str(item or "").strip() for item in list(note.get("technique_tags") or []) if str(item or "").strip()]
+
+    # User-asserted techniques (from MusicXML <notations>) are checked first.
+    # The frontend manual-edit workbench writes these tags via _extract_user_techniques
+    # in backend/core/guitar/lead_sheet.py and they survive the
+    # melody-materialization pipeline thanks to the user_techniques carry-over
+    # in guzheng/dizi notation modules. This is what makes manual edits visible
+    # in the final PDF output.
+    user_priority = (
+        ("user_trill", "颤"),
+        ("user_tremolo", "摇"),
+        ("user_mordent", "波"),
+        ("user_glissando", "滑"),
+        ("user_harmonic", "○"),
+        ("user_staccato", "断"),
+        ("user_accent", "重"),
+    )
+    for label, short in user_priority:
+        if label in tags:
+            return short
+
     if instrument_type == "guzheng":
         for label, short in (
             ("摇指候选", "摇"),
             ("上滑音候选", "上滑"),
             ("下滑音候选", "下滑"),
-            ("按音候选", "按"),
+            ("按音候选", "∽"),
         ):
             if label in tags:
                 return short

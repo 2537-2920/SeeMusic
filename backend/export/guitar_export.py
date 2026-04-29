@@ -73,34 +73,15 @@ def _paragraph_placeholder(value: str | None) -> str:
     return _safe_paragraph_text(text) if text else " "
 
 
-def _build_chord_lyric_pairs(line: dict[str, Any]) -> list[dict[str, str]]:
+def _build_line_chord_cells(line: dict[str, Any]) -> list[str]:
     measures = list(line.get("measures") or [])
-    all_chords: list[dict[str, Any]] = []
-    for measure in measures:
-        all_chords.extend(list(measure.get("chords") or []))
-
-    lyric_text = str(line.get("lyric_text") or line.get("lyric") or line.get("lyric_placeholder") or "歌词待补").strip()
-    lyric_segments = [segment for segment in lyric_text.split() if segment]
-
-    if not all_chords and not lyric_segments:
-        return []
-    if not all_chords:
-        return [{"chord": "", "lyric": segment} for segment in lyric_segments] or [{"chord": "", "lyric": lyric_text or "歌词待补"}]
-
-    pairs: list[dict[str, str]] = []
-    for index, chord in enumerate(all_chords):
-        lyric = ""
-        if index < len(lyric_segments):
-            lyric = " ".join(lyric_segments[index:]) if index == len(all_chords) - 1 else lyric_segments[index]
-        elif index == 0 and not lyric_segments:
-            lyric = lyric_text or "歌词待补"
-        pairs.append(
-            {
-                "chord": str(chord.get("symbol") or "").strip(),
-                "lyric": lyric,
-            }
-        )
-    return pairs
+    cells: list[str] = []
+    for index, measure in enumerate(measures, start=1):
+        measure_no = int(measure.get("measure_no") or index)
+        chords = [str(chord.get("symbol") or "").strip() for chord in list(measure.get("chords") or []) if str(chord.get("symbol") or "").strip()]
+        chord_text = "  ".join(chords) if chords else "—"
+        cells.append(f"| {measure_no}  {chord_text}")
+    return cells
 
 
 def _resolve_display_sections(result: dict[str, Any]) -> list[dict[str, Any]]:
@@ -211,15 +192,6 @@ def export_guitar_lead_sheet_pdf(
         textColor=colors.HexColor("#14364b"),
         alignment=TA_LEFT,
     )
-    lyric_style = ParagraphStyle(
-        "GuitarLyric",
-        parent=styles["BodyText"],
-        fontName=font_name,
-        fontSize=10,
-        leading=13,
-        textColor=colors.HexColor("#2d3b45"),
-        alignment=TA_LEFT,
-    )
     small_style = ParagraphStyle(
         "GuitarSmall",
         parent=styles["BodyText"],
@@ -290,18 +262,17 @@ def export_guitar_lead_sheet_pdf(
 
         lines = list(section.get("display_lines") or section.get("lines") or [])
         for line in lines:
-            pairs = _build_chord_lyric_pairs(line)
-            if not pairs:
+            cells = _build_line_chord_cells(line)
+            if not cells:
                 continue
 
-            weights = [max(1.0, len(pair["chord"]) * 0.8, len(pair["lyric"]) * 0.7, 4.5) for pair in pairs]
+            line_label = str(line.get("line_label") or "").strip()
+            if line_label:
+                story.append(Paragraph(_safe_paragraph_text(line_label), small_style))
+            weights = [max(5.5, len(cell) * 0.48) for cell in cells]
             total_weight = sum(weights) or 1.0
             col_widths = [(weight / total_weight) * doc.width for weight in weights]
-            cells = [
-                [Paragraph(_paragraph_placeholder(pair["chord"]), chord_style) for pair in pairs],
-                [Paragraph(_paragraph_placeholder(pair["lyric"]), lyric_style) for pair in pairs],
-            ]
-            line_table = Table(cells, colWidths=col_widths)
+            line_table = Table([[Paragraph(_paragraph_placeholder(cell), chord_style) for cell in cells]], colWidths=col_widths)
             line_table.setStyle(
                 TableStyle(
                     [

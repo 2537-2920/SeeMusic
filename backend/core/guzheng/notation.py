@@ -219,7 +219,11 @@ def _technique_tags(
     *,
     degree_payload: dict[str, Any],
 ) -> list[str]:
-    tags: list[str] = []
+    # User-asserted techniques (from MusicXML <notations> via the manual edit
+    # workbench) come first so the export-step priority lookup picks them
+    # before any heuristic fallback. This is what makes manual edits visible
+    # in the final LilyPond/PDF output.
+    tags: list[str] = list(current_note.get("user_techniques") or [])
     if float(current_note.get("beats") or 0.0) >= 2.0:
         tags.append("摇指候选")
     if degree_payload.get("press_note_candidate"):
@@ -414,6 +418,9 @@ def _materialize_measures_from_melody(
                     ((measure_no - 1) * total_beats + (start_beat - 1.0)) * 60.0 / max(int(tempo), 1),
                     3,
                 ),
+                # Preserve user-set MusicXML notations through the pipeline so
+                # _technique_tags (and the export step) can honor manual edits.
+                "user_techniques": list(item.get("user_techniques") or []),
             }
         )
 

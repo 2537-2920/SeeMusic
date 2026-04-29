@@ -63,12 +63,13 @@ def generate_guitar_lead_sheet_from_audio(
         **lead_sheet,
         "analysis_id": analysis_id,
         "pitch_sequence": list(extraction["raw_pitch_sequence"]),
+        "melody_pitch_sequence": list(extraction["pitch_sequence"]),
         "detected_key_signature": extraction["detected_key_signature"],
         "key_detection": extraction["key_detection"],
         "melody_track": extraction["melody_track"],
         "melody_track_candidates": extraction["melody_track_candidates"],
         "separation": extraction["separation"],
-        "warnings": extraction["warnings"],
+        "warnings": list(extraction.get("warnings") or []),
         "pipeline": extraction["pipeline"],
     }
 

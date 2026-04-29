@@ -672,6 +672,10 @@ select:focus {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(244, 248, 250, 0.96));
 }
 
+.preview-page-nav[hidden] {
+    display: none !important;
+}
+
 .preview-page-nav .ghost-button {
     min-width: 32px;
     padding: 6px 10px;
@@ -736,6 +740,12 @@ select:focus {
 .guitar-debug-summary-copy {
     display: grid;
     gap: 14px;
+}
+
+body[data-instrument-type="guitar"] #piano-analysis-grid,
+body[data-instrument-type="guzheng"] #piano-analysis-grid,
+body[data-instrument-type="dizi"] #piano-analysis-grid {
+    display: none !important;
 }
 
 .guitar-debug-summary {
@@ -1257,10 +1267,8 @@ select:focus {
     line-height: 1.7;
 }
 
-.guzheng-sheet-metrics,
 .guzheng-sheet-meta,
 .guzheng-technique-metrics,
-.dizi-sheet-metrics,
 .dizi-sheet-meta,
 .dizi-technique-metrics {
     display: grid;
@@ -2080,26 +2088,11 @@ select:focus {
 }
 
 .guitar-folk-block,
-.guitar-folk-sheet,
-.guitar-lyric-lines {
+.guitar-folk-sheet {
     display: grid;
     gap: 14px;
 }
-
-.guitar-section-card {
-    display: grid;
-    gap: 14px;
-    padding: 20px;
-    border-radius: 24px;
-    border: 1px solid #e6ebf1;
-    background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(245, 249, 251, 0.95)),
-        linear-gradient(90deg, rgba(69, 123, 157, 0.04), transparent);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
-}
-
-.guitar-section-head,
-.guitar-lyric-line-head {
+.guitar-section-head {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
@@ -2117,108 +2110,16 @@ select:focus {
     margin-bottom: 6px;
 }
 
-.guitar-section-range,
-.guitar-lyric-line-label {
+.guitar-section-range {
     color: var(--accent-strong);
     font-size: 1rem;
     font-weight: 700;
 }
 
-.guitar-section-meta,
-.guitar-lyric-line-meta {
+.guitar-section-meta {
     color: var(--muted);
     font-size: 0.8rem;
     font-weight: 600;
-}
-
-.guitar-lyric-line {
-    display: grid;
-    gap: 10px;
-    padding: 16px;
-    border-radius: 20px;
-    border: 1px solid #e8edf3;
-    background: rgba(255, 255, 255, 0.96);
-}
-
-.guitar-lyric-line-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 10px;
-}
-
-.guitar-lyric-measure {
-    display: grid;
-    gap: 8px;
-    padding: 12px 12px 10px;
-    border-radius: 16px;
-    border: 1px dashed #dbe4ec;
-    background: linear-gradient(180deg, rgba(249, 251, 253, 0.98), rgba(244, 248, 250, 0.95));
-}
-
-.guitar-lyric-measure-index {
-    color: var(--muted);
-    font-size: 0.74rem;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-}
-
-.guitar-lyric-chord-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    align-items: center;
-}
-
-.guitar-lyric-chord {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 30px;
-    padding: 6px 10px;
-    border-radius: 999px;
-    border: 1px solid #dce6ee;
-    background: #ffffff;
-    color: var(--accent-strong);
-    font-size: 0.82rem;
-    font-weight: 700;
-}
-
-.guitar-lyric-chord.secondary_dominant {
-    background: rgba(69, 123, 157, 0.1);
-    border-color: rgba(69, 123, 157, 0.24);
-}
-
-.guitar-lyric-chord.borrowed {
-    background: rgba(123, 184, 189, 0.16);
-    border-color: rgba(123, 184, 189, 0.28);
-}
-
-.guitar-lyric-chord.empty {
-    color: var(--muted);
-    font-weight: 600;
-}
-
-.guitar-lyric-rail {
-    min-height: 40px;
-    border-radius: 14px;
-    border: 1px dashed #d7e1ea;
-    background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 250, 252, 0.94)),
-        repeating-linear-gradient(
-            90deg,
-            transparent 0,
-            transparent 22px,
-            rgba(124, 135, 147, 0.08) 22px,
-            rgba(124, 135, 147, 0.08) 23px
-        );
-    display: flex;
-    align-items: center;
-    padding: 0 12px;
-}
-
-.guitar-lyric-placeholder {
-    color: var(--muted);
-    font-size: 0.78rem;
 }
 
 .guitar-shape-grid {
@@ -2573,44 +2474,6 @@ select:focus {
     letter-spacing: 0.12em;
 }
 
-.guitar-lead-lyric-row {
-    min-height: 42px;
-    padding: 10px 2px 4px;
-    border-bottom: 2px solid #d8e1e8;
-    display: flex;
-    align-items: center;
-    color: var(--accent-strong);
-    font-size: 0.96rem;
-    line-height: 1.5;
-}
-
-.guitar-lead-lyric-row.is-placeholder {
-    color: #8597a5;
-    background:
-        linear-gradient(180deg, transparent 0, transparent calc(100% - 2px), rgba(124, 135, 147, 0.18) calc(100% - 2px), rgba(124, 135, 147, 0.18) 100%),
-        repeating-linear-gradient(
-            90deg,
-            transparent 0,
-            transparent 18px,
-            rgba(124, 135, 147, 0.08) 18px,
-            rgba(124, 135, 147, 0.08) 19px
-        );
-}
-
-.guitar-lead-lyric-row.is-empty .guitar-lead-lyric-text {
-    opacity: 0;
-}
-
-.guitar-lead-lyric-text {
-    white-space: nowrap;
-}
-
-/* ============================================================
-   Compact inline chord-over-lyric layout
-   (replaces the legacy measure-grid layout as the main view)
-   ============================================================ */
-
-/* Section card: no card frame – just spacing between sections */
 .guitar-lead-section {
     border-radius: 0;
     border: none;
@@ -2663,64 +2526,94 @@ select:focus {
     padding: 0 6px;
 }
 
-/* One line of chord-over-lyric pairs */
-.guitar-inline-lyric-line {
+.guitar-inline-chord-line {
     display: flex;
     flex-wrap: wrap;
-    align-items: flex-end;
-    gap: 0 0.4rem;
-    padding: 4px 0;
+    align-items: center;
+    gap: 0.5rem 0.4rem;
+    padding: 8px 0;
+    border-bottom: 1px dashed rgba(148, 163, 184, 0.28);
 }
 
-/* Each pair: chord name on top, syllable below */
-.guitar-inline-pair {
+.guitar-inline-bar {
     display: inline-flex;
-    flex-direction: column;
+    align-items: baseline;
+    gap: 0.28rem;
+    color: #8091a0;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+}
+
+.guitar-inline-bar.closing {
+    margin-left: 0.1rem;
+}
+
+.guitar-inline-bar-mark {
+    color: #9aaab7;
+    font-size: 1rem;
+}
+
+.guitar-inline-bar-number {
+    color: #708396;
+}
+
+.guitar-inline-spacer {
+    display: inline-flex;
+    flex: 0 0 auto;
+}
+
+.guitar-inline-spacer.beat {
+    width: 0.65rem;
+}
+
+.guitar-inline-spacer.measure {
+    width: 1.1rem;
+}
+
+.guitar-inline-chord-token {
+    display: inline-flex;
     align-items: flex-start;
     flex-shrink: 0;
 }
 
-/* Chord name */
 .guitar-inline-chord {
-    font-size: 0.72rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 32px;
+    min-width: 2.25rem;
+    padding: 0.35rem 0.7rem;
+    border-radius: 999px;
+    border: 1px solid rgba(224, 90, 90, 0.22);
+    background: rgba(255, 255, 255, 0.94);
+    color: #d95e5e;
+    font-size: 0.82rem;
     font-weight: 700;
-    color: #e05a5a;
-    min-height: 1.3em;
-    min-width: 1.5ch;
     white-space: nowrap;
-    padding-bottom: 1px;
     cursor: pointer;
-    transition: color 0.15s ease;
+    transition: color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
     user-select: none;
 }
 
-.guitar-inline-chord.is-empty {
-    visibility: hidden;
-    pointer-events: none;
-}
-
 .guitar-inline-chord.secondary_dominant {
-    color: #c07a30;
+    color: #b7792e;
+    border-color: rgba(183, 121, 46, 0.24);
+    background: rgba(250, 243, 232, 0.92);
 }
 
 .guitar-inline-chord.borrowed {
-    color: #4aabb2;
+    color: #2f8f97;
+    border-color: rgba(47, 143, 151, 0.24);
+    background: rgba(236, 248, 249, 0.94);
 }
 
-.guitar-inline-pair.is-highlighted .guitar-inline-chord {
+.guitar-inline-chord-token.is-highlighted .guitar-inline-chord {
     color: var(--accent-strong);
-    text-decoration: underline;
+    border-color: rgba(29, 53, 87, 0.34);
+    box-shadow: 0 8px 18px rgba(29, 53, 87, 0.12);
+    transform: translateY(-1px);
 }
-
-/* Lyric syllable */
-.guitar-inline-syllable {
-    font-size: 1.05rem;
-    color: var(--text-primary, #e0e0e6);
-    white-space: nowrap;
-    line-height: 1.4;
-}
-
-/* ============================================================ */
 
 .guitar-chord-rail {
     position: sticky;
@@ -4398,7 +4291,6 @@ textarea:disabled {
     .summary-head,
     .panel-header-actions,
     .guitar-section-head,
-    .guitar-lyric-line-head,
     .guitar-sheet-headline,
     .guitar-lead-body-head,
     .guitar-chord-rail-head,
@@ -4413,14 +4305,12 @@ textarea:disabled {
         align-items: stretch;
     }
 
-    .guzheng-sheet-metrics,
     .guzheng-sheet-meta,
     .traditional-summary-grid,
     .traditional-technique-grid,
     .guzheng-note-row,
     .guzheng-string-grid,
     .guzheng-technique-metrics,
-    .dizi-sheet-metrics,
     .dizi-sheet-meta,
     .dizi-note-row,
     .dizi-fingering-grid,
@@ -4428,7 +4318,6 @@ textarea:disabled {
     .guitar-sheet-metrics,
     .guitar-sheet-meta,
     .guitar-aux-grid,
-    .guitar-lyric-line-grid,
     .guitar-measure-grid,
     .guitar-shape-grid {
         grid-template-columns: 1fr;
@@ -4810,18 +4699,18 @@ textarea:disabled {
 
 /* Click target on jianpu */
 .guzheng-jianpu-note-group[data-mxml-index],
-.guitar-inline-pair[data-mxml-index] {
+.guitar-inline-chord-token[data-mxml-index] {
     cursor: pointer;
     transition: filter 0.15s ease, background 0.15s ease;
 }
 
 .guzheng-jianpu-note-group[data-mxml-index]:hover,
-.guitar-inline-pair[data-mxml-index]:hover {
+.guitar-inline-chord-token[data-mxml-index]:hover {
     filter: drop-shadow(0 0 6px rgba(99, 102, 241, 0.36));
 }
 
 .guzheng-jianpu-note-group.is-edit-selected,
-.guitar-inline-pair.is-edit-selected {
+.guitar-inline-chord-token.is-edit-selected {
     background: rgba(99, 102, 241, 0.12);
     border-radius: 8px;
     outline: 2px solid rgba(99, 102, 241, 0.55);
@@ -4859,7 +4748,10 @@ textarea:disabled {
     box-shadow: inset 0 0 0 1px rgba(126, 34, 206, 0.4);
 }
 
-/* Manual-edit shell beneath LilyPond engraved preview (guzheng / dizi) */
+/* Manual-edit shell beneath LilyPond engraved preview (guzheng / dizi).
+   Stripped-down jianpu layout: large digits, octave dots only — sustain
+   dashes, rhythm underlines, technique badges and grace clusters are
+   hidden so each character stays clean and clickable. */
 .traditional-edit-shell {
     margin-top: 18px;
     padding: 18px;
@@ -4880,6 +4772,187 @@ textarea:disabled {
 .traditional-edit-shell-head .helper-text {
     color: #475569;
     margin: 0;
+}
+
+/* Strip auto-derived clutter inside the edit view — keep digits readable.
+   Curves/lines that hovered around each character (technique badges, slurs,
+   sustain dashes, rhythm underlines, dotted-note dots) are dropped because
+   they overlap the digit and make it hard to click. */
+.traditional-edit-shell .guzheng-jianpu-ornaments,
+.traditional-edit-shell .guzheng-jianpu-slur-part,
+.traditional-edit-shell .guzheng-jianpu-press-text,
+.traditional-edit-shell .traditional-jianpu-annotation,
+.traditional-edit-shell .guzheng-jianpu-grace-cluster,
+.traditional-edit-shell .guzheng-jianpu-technique-badges,
+.traditional-edit-shell .guzheng-jianpu-sustain,
+.traditional-edit-shell .guzheng-jianpu-underlines,
+.traditional-edit-shell .guzheng-jianpu-dot,
+.traditional-edit-shell .guzheng-jianpu-running-header,
+.traditional-edit-shell .guzheng-jianpu-running-meta,
+.traditional-edit-shell .guzheng-jianpu-page-footer {
+    display: none !important;
+}
+
+/* Tone down the heavy paper styling, keep digits clean */
+.traditional-edit-shell .guzheng-jianpu-paper,
+.traditional-edit-shell .traditional-jianpu-paper {
+    background: transparent;
+    box-shadow: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+}
+
+.traditional-edit-shell .guzheng-jianpu-page,
+.traditional-edit-shell .traditional-jianpu-page {
+    background: transparent;
+    box-shadow: none;
+    border-radius: 0;
+    padding: 4px 0;
+    margin-bottom: 8px;
+}
+
+.traditional-edit-shell .guzheng-jianpu-header {
+    display: none;
+}
+
+/* Bigger, easier-to-click digits with generous vertical breathing room */
+.traditional-edit-shell .guzheng-jianpu-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 6px;
+    margin-bottom: 16px;
+}
+
+.traditional-edit-shell .guzheng-jianpu-line-marker {
+    flex: 0 0 auto;
+    min-width: 28px;
+    padding-right: 6px;
+    color: #94a3b8;
+    font-size: 0.78rem;
+    font-weight: 700;
+    align-self: center;
+}
+
+.traditional-edit-shell .guzheng-jianpu-line-content {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    flex: 1 1 auto;
+}
+
+.traditional-edit-shell .guzheng-jianpu-measure {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(99, 102, 241, 0.12);
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.traditional-edit-shell .guzheng-jianpu-measure:hover {
+    background: rgba(99, 102, 241, 0.04);
+    border-color: rgba(99, 102, 241, 0.25);
+}
+
+.traditional-edit-shell .guzheng-jianpu-measure-notes {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.traditional-edit-shell .guzheng-jianpu-bar {
+    display: inline-block;
+    width: 1px;
+    height: 28px;
+    background: rgba(15, 23, 42, 0.2);
+}
+
+.traditional-edit-shell .guzheng-jianpu-note-group {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.05s ease;
+}
+
+.traditional-edit-shell .guzheng-jianpu-note-group:hover {
+    background: rgba(99, 102, 241, 0.12);
+}
+
+.traditional-edit-shell .guzheng-jianpu-note-group:active {
+    transform: scale(0.97);
+}
+
+.traditional-edit-shell .guzheng-jianpu-note-group.is-edit-selected {
+    background: rgba(99, 102, 241, 0.18);
+    outline: 2px solid rgba(99, 102, 241, 0.6);
+    outline-offset: 0;
+}
+
+/* Edit-view layout: 3-row grid (octave-top / digit / octave-bottom).
+   Sustain dashes, underlines, dotted dots and technique badges are hidden
+   above so digits stay clean and easy to click. */
+.traditional-edit-shell .guzheng-jianpu-note {
+    display: inline-grid;
+    grid-template-rows: 12px auto 10px;
+    grid-template-columns: minmax(28px, max-content);
+    justify-items: center;
+    align-items: center;
+    row-gap: 4px;
+    min-width: 32px;
+    padding: 4px 0;
+}
+
+.traditional-edit-shell .guzheng-jianpu-octave-top {
+    grid-row: 1;
+    min-height: 12px;
+    font-size: 0.7rem;
+    color: #475569;
+    line-height: 1;
+    letter-spacing: 0.1em;
+}
+
+.traditional-edit-shell .guzheng-jianpu-glyph {
+    grid-row: 2;
+    display: inline-flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 2px;
+    min-height: 32px;
+    line-height: 1;
+}
+
+.traditional-edit-shell .guzheng-jianpu-digit {
+    font-size: 1.7rem;
+    font-weight: 700;
+    color: #1e293b;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+.traditional-edit-shell .guzheng-jianpu-accidental {
+    font-size: 0.95rem;
+    color: #475569;
+    line-height: 1;
+}
+
+.traditional-edit-shell .guzheng-jianpu-octave-bottom {
+    grid-row: 3;
+    min-height: 10px;
+    font-size: 0.7rem;
+    color: #475569;
+    line-height: 1;
+    letter-spacing: 0.1em;
+}
+
+.traditional-edit-shell .guzheng-jianpu-note.is-rest .guzheng-jianpu-digit {
+    color: #94a3b8;
 }
 
 /* Replacement symbols for HTML jianpu */

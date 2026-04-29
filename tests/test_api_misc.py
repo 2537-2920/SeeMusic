@@ -2,6 +2,7 @@ import json
 from dataclasses import replace as dataclass_replace
 
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
 from backend.api.api_routes import (
     audio_log,
@@ -15,6 +16,7 @@ from backend.api.api_routes import (
     generation_guzheng_score_api,
     generation_guitar_lead_sheet_export,
     generation_guitar_lead_sheet,
+    generation_transpose_suggestions,
     generation_variations,
     get_history,
     get_user_preferences,
@@ -47,10 +49,12 @@ from backend.api.schemas import (
     PreferencesUpdateRequest,
     RegisterRequest,
     ReportExportRequest,
+    TransposeSuggestionRequest,
     VariationSuggestionRequest,
 )
 from backend.db.models import PitchSequence
 from backend.db.session import session_scope
+from backend.main import app
 from backend.services.analysis_service import cache_analysis_result
 from backend.services.analysis_service import clear_analysis_results, save_analysis_result
 from backend.user.user_system import get_current_user
@@ -210,6 +214,56 @@ def test_guitar_lead_sheet_export_route_supports_pdf(tmp_path, monkeypatch):
     assert export_result["data"]["format"] == "pdf"
     assert export_result["data"]["content_type"] == "application/pdf"
     assert export_result["data"]["download_url"].endswith(".pdf")
+
+
+def test_generation_transpose_suggestions_route_returns_structured_payload():
+    result = generation_transpose_suggestions(
+        TransposeSuggestionRequest(
+            analysis_id="an_route_001",
+            current_key="C",
+            source_gender="male",
+            target_gender="female",
+            pitch_sequence=[{"time": 0.0, "frequency": 261.63, "duration": 0.5, "confidence": 0.95}],
+        )
+    )
+
+    data = result["data"]
+    assert data["analysis_id"] == "an_route_001"
+    assert data["current_key"] == "C"
+    assert len(data["suggestions"]) == 3
+
+
+def test_generation_transpose_suggestions_api_rejects_invalid_key():
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/generation/transpose-suggestions",
+        json={
+            "analysis_id": "an_invalid_key",
+            "current_key": "H",
+            "source_gender": "male",
+            "target_gender": "female",
+            "pitch_sequence": [],
+        },
+    )
+
+    assert response.status_code == 400
+    assert "不支持的调号" in response.json()["detail"]
+
+
+def test_generation_transpose_suggestions_api_rejects_missing_current_key():
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/generation/transpose-suggestions",
+        json={
+            "analysis_id": "an_missing_key",
+            "current_key": "",
+            "source_gender": "male",
+            "target_gender": "female",
+            "pitch_sequence": [],
+        },
+    )
+
+    assert response.status_code == 422
 
 
 def test_pitch_compare_accepts_json_paths(tmp_path):

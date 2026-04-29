@@ -225,8 +225,8 @@ def test_apply_traditional_symbol_markup_replaces_guzheng_techniques_with_small_
     assert '^"摇"' not in result
     assert 'fontsize #-3 "↗"' in result
     assert 'fontsize #-3 "↘"' in result
-    assert 'fontsize #-3 "⌒"' in result
-    assert 'fontsize #-4 \\concat { "〰" "〰" }' in result
+    assert 'fontsize #-3 "∽"' in result
+    assert 'fontsize #-3 \\concat { "/" "/" "/" }' in result
     assert '_"11弦"' in result
 
 
@@ -452,8 +452,8 @@ def test_export_traditional_score_writes_symbol_markup_into_guzheng_lilypond(tmp
     content = Path(payload["file_path"]).read_text(encoding="utf-8")
     assert 'fontsize #-3 "↗"' in content
     assert 'fontsize #-3 "↘"' in content
-    assert 'fontsize #-3 "⌒"' in content
-    assert 'fontsize #-4 \\concat { "〰" "〰" }' in content
+    assert 'fontsize #-3 "∽"' in content
+    assert 'fontsize #-3 \\concat { "/" "/" "/" }' in content
 
 
 def test_export_guitar_lead_sheet_pdf_writes_printable_file(tmp_path: Path):
@@ -477,7 +477,7 @@ def test_export_guitar_lead_sheet_pdf_writes_printable_file(tmp_path: Path):
                 "measure_end": 2,
                 "display_lines": [
                     {
-                        "lyric_text": "歌词 待补",
+                        "line_label": "第 1 行",
                         "measures": [
                             {"measure_no": 1, "chords": [{"symbol": "C"}]},
                             {"measure_no": 2, "chords": [{"symbol": "G"}]},

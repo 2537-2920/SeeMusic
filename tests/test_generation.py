@@ -18,9 +18,12 @@ from backend.core.guzheng.notation import (
     generate_guzheng_score_from_pitch_sequence,
 )
 from backend.core.guitar.audio_pipeline import generate_guitar_lead_sheet_from_audio
-from backend.core.guitar.lead_sheet import generate_guitar_lead_sheet
+from backend.core.guitar.lead_sheet import generate_guitar_lead_sheet, generate_guitar_lead_sheet_from_musicxml
 from backend.core.generation.chord_generation import generate_chord_sequence
+from backend.core.generation.transpose_suggestions import generate_transpose_suggestions
 from backend.core.generation.variation_suggestions import generate_variation_suggestions
+from backend.core.score.note_mapping import note_to_frequency
+from backend.core.score.sheet_extraction import build_score_from_pitch_sequence
 from backend.core.separation.multi_track_separation import separate_tracks
 from backend.core.traditional.traditional_instruments import get_traditional_instruments
 
@@ -79,11 +82,12 @@ def test_generate_guitar_lead_sheet_returns_measure_layout_shapes_and_capo():
     assert result["strumming_pattern"]["pattern"]
     assert "capo" in result["capo_suggestion"]
     assert all("shape" in chord for chord in result["chords"])
-    assert result["lyric_lines"]
     assert result["sections"]
     assert result["display_lines"]
     assert result["display_sections"]
     assert result["chord_diagrams"]
+    assert "lyric_lines" not in result
+    assert all("lyric_text" not in line for line in result["display_lines"])
 
 
 def test_generate_guitar_lead_sheet_returns_structured_strumming_guidance():
@@ -117,6 +121,33 @@ def test_generate_guitar_lead_sheet_returns_structured_strumming_guidance():
     assert section_patterns[1]["section_role"] == "chorus"
     assert section_patterns[0]["display_pattern"]
     assert section_patterns[1]["display_pattern"]
+
+
+def test_generate_guitar_lead_sheet_from_musicxml_uses_melody_staff_without_lyrics_metadata():
+    source_score = build_score_from_pitch_sequence(
+        [
+            {"time": 0.0, "frequency": 261.63, "duration": 0.5, "note": "C4"},
+            {"time": 0.5, "frequency": 293.66, "duration": 0.5, "note": "D4"},
+        ],
+        tempo=120,
+        time_signature="4/4",
+        key_signature="C",
+        title="童年",
+        arrangement_mode="piano_solo",
+    )
+
+    result = generate_guitar_lead_sheet_from_musicxml(
+        musicxml=source_score["musicxml"],
+        key="C",
+        tempo=120,
+        time_signature="4/4",
+        style="folk",
+        title="童年",
+    )
+
+    assert result["melody_size"] == 2
+    assert result["display_sections"][0]["display_lines"][0]["tokens"]
+    assert all(token["type"] != "lyric" for token in result["display_sections"][0]["display_lines"][0]["tokens"])
 
 
 def test_generate_guitar_lead_sheet_resolves_secondary_dominant_before_target():
@@ -314,6 +345,82 @@ def test_generate_variation_suggestions_returns_expected_shape():
     assert result["score_id"] == "score_001"
     assert result["style"] == "traditional"
     assert result["suggestions"]
+
+
+def test_generate_transpose_suggestions_returns_cross_gender_baseline():
+    result = generate_transpose_suggestions(
+        analysis_id="an_transpose_001",
+        current_key="C",
+        source_gender="male",
+        target_gender="female",
+        pitch_sequence=[],
+    )
+
+    suggestions = {item["tier"]: item for item in result["suggestions"]}
+    assert result["current_key"] == "C"
+    assert result["used_audio_adjustment"] is False
+    assert suggestions["recommended"]["semitones"] == 4
+    assert suggestions["recommended"]["target_key"] == "E"
+    assert suggestions["conservative"]["semitones"] == 3
+    assert suggestions["bright"]["semitones"] == 5
+
+
+def test_generate_transpose_suggestions_returns_same_gender_defaults():
+    result = generate_transpose_suggestions(
+        analysis_id="an_transpose_002",
+        current_key="Am",
+        source_gender="female",
+        target_gender="female",
+        pitch_sequence=[],
+    )
+
+    tiers = {item["tier"]: item for item in result["suggestions"]}
+    assert tiers["recommended"]["semitones"] == 0
+    assert tiers["recommended"]["target_key"] == "Am"
+    assert tiers["lower"]["semitones"] == -2
+    assert tiers["bright"]["semitones"] == 2
+
+
+def test_generate_transpose_suggestions_uses_audio_range_to_adjust_main_recommendation():
+    pitch_sequence = [
+        {"time": index * 0.2, "frequency": note_to_frequency(note), "duration": 0.2, "confidence": 0.95}
+        for index, note in enumerate(["B2", "C3", "C3", "D3", "C3", "B2", "C3", "D3", "C3", "B2"])
+    ]
+
+    result = generate_transpose_suggestions(
+        analysis_id="an_transpose_003",
+        current_key="C",
+        source_gender="male",
+        target_gender="female",
+        pitch_sequence=pitch_sequence,
+    )
+
+    recommended = next(item for item in result["suggestions"] if item["tier"] == "recommended")
+    assert result["used_audio_adjustment"] is True
+    assert result["detected_range"]["median_note"] == "C3"
+    assert recommended["semitones"] == 6
+    assert recommended["target_key"] == "F#"
+
+
+def test_generate_transpose_suggestions_falls_back_when_audio_points_are_insufficient():
+    pitch_sequence = [
+        {"time": 0.0, "frequency": note_to_frequency("C3"), "duration": 0.2, "confidence": 0.95},
+        {"time": 0.2, "frequency": note_to_frequency("D3"), "duration": 0.2, "confidence": 0.95},
+        {"time": 0.4, "frequency": note_to_frequency("E3"), "duration": 0.2, "confidence": 0.95},
+    ]
+
+    result = generate_transpose_suggestions(
+        analysis_id="an_transpose_004",
+        current_key="G",
+        source_gender="male",
+        target_gender="female",
+        pitch_sequence=pitch_sequence,
+    )
+
+    recommended = next(item for item in result["suggestions"] if item["tier"] == "recommended")
+    assert result["used_audio_adjustment"] is False
+    assert result["detected_range"] is None
+    assert recommended["semitones"] == 4
 
 
 def test_separate_tracks_returns_requested_stems(temp_audio_bytes):

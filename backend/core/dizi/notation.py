@@ -264,7 +264,9 @@ def _technique_tags(
     *,
     gap_beats: float,
 ) -> list[str]:
-    tags: list[str] = []
+    # User-asserted techniques win priority — see guzheng/notation.py for the
+    # rationale; same model so manual edits round-trip into the dizi PDF.
+    tags: list[str] = list(current_note.get("user_techniques") or [])
     beats = float(current_note.get("beats") or 0.0)
     if beats >= 2.0:
         tags.append("颤音/长音保持候选")
@@ -313,6 +315,8 @@ def _materialize_measures_from_melody(
                     ((measure_no - 1) * total_beats + (start_beat - 1.0)) * 60.0 / max(int(tempo), 1),
                     3,
                 ),
+                # Preserve user-set MusicXML notations through the pipeline.
+                "user_techniques": list(item.get("user_techniques") or []),
             }
         )
 
@@ -588,11 +592,11 @@ def _build_dizi_jianpu_ir(
             build_jianpu_note_ir(
                 note,
                 annotation_text=(
-                    "超"
+                    "↑"
                     if note.get("out_of_range")
-                    else "特"
+                    else "✱"
                     if note.get("special_fingering_candidate")
-                    else "半"
+                    else "◐"
                     if note.get("half_hole_candidate")
                     else ""
                 ),

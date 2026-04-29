@@ -371,7 +371,6 @@ def create_score_from_pitch_sequence(payload: Dict[str, Any]) -> Dict[str, Any]:
         title=payload.get("title"),
         auto_detect_key=bool(payload.get("auto_detect_key", False)),
         arrangement_mode=str(payload.get("arrangement_mode") or "piano_solo"),
-        lyrics_payload=payload.get("lyrics_payload"),
     )
     extra_payload = {
         key: value

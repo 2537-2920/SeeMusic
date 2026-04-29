@@ -22,3 +22,9 @@ demucs>=4.0,<5.0
 torch>=2.0,<3.0
 mutagen>=1.47,<2.0
 whisperx>=3.3,<4.0
+# certifi: fallback CA bundle for hosts whose system OpenSSL trust store is
+# missing/broken (see backend/ssl_bootstrap.py).
+certifi>=2024.2.2
+# zhconv: pure-Python 繁/简体中文转换。WhisperX 输出有时是繁体（训练语料
+# 混合所致），统一转成简体后再返回前端歌词面板。
+zhconv>=1.4.3

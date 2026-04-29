@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 COMMUNITY_TZ = timezone(timedelta(hours=8))
 DEFAULT_AUTHOR = "社区用户"
-COMMUNITY_TAGS = ["钢琴", "古筝", "吉他", "笛子"]
+COMMUNITY_TAGS = ["精选", "流行", "古典", "钢琴", "古筝", "吉他", "笛子"]
 COMMUNITY_TAGS_OTHER = "其他"  # 「其他」过滤项的标志
 
 USE_DB: bool = True
@@ -414,6 +414,25 @@ def _serialize_db_score(session: Any, post: Any, current_user: dict[str, Any] | 
         "source_file_name": post.source_file_name,
         "download_url": f"/api/v1/community/scores/{score_id}/download",
     }
+    
+
+def get_community_score_cover(score_id: str) -> tuple[bytes, str]:
+    _ensure_seeded()
+    if USE_DB:
+        from backend.db.models import CommunityPost
+        with _session_scope() as session:
+            row = session.execute(
+                select(CommunityPost.cover_image, CommunityPost.cover_content_type)
+                .where(CommunityPost.score_id == score_id)
+            ).first()
+            if row is None or not row.cover_image:
+                raise KeyError(f"community score {score_id} cover not found")
+            return bytes(row.cover_image), str(row.cover_content_type or "image/png")
+            
+    entry = _get_score_mem(score_id)
+    if not entry.get("cover_image"):
+        raise KeyError(f"community score {score_id} cover not found")
+    return bytes(entry.get("cover_image")), str(entry.get("cover_content_type") or "image/png")
 
 
 def _ensure_seeded_db() -> None:
@@ -501,62 +520,87 @@ def list_community_scores(
 ) -> dict[str, Any]:
     _ensure_seeded()
     if USE_DB:
-        from backend.db.models import CommunityPost
+        from backend.db.models import CommunityPost, User
+        from sqlalchemy.orm import defer
 
         normalized_keyword = (keyword or "").strip().lower()
         normalized_tag = (tag or "").strip()
         with _session_scope() as session:
-            items = list(session.execute(select(CommunityPost).where(CommunityPost.is_public.is_(True))).scalars())
-            serialized = [_serialize_db_score(session, post, current_user=current_user) for post in items]
-        if normalized_keyword:
+            posts = list(
+                session.execute(
+                    select(CommunityPost)
+                    .where(CommunityPost.is_public.is_(True))
+                    .options(defer(CommunityPost.file_content_base64))
+                ).scalars()
+            )
+
+            # Eagerly load user information to session cache to avoid N+1 queries and allow filtering by nickname
+            user_ids = {post.user_id for post in posts if post.user_id}
+            users = {}
+            if user_ids:
+                user_records = session.execute(select(User).where(User.id.in_(user_ids))).scalars()
+                users = {u.id: u for u in user_records}
+
+            filtered_posts = []
+            for post in posts:
+                user = users.get(post.user_id) if post.user_id else None
+                author = user.nickname if user and user.nickname else str(post.author_name or DEFAULT_AUTHOR)
+
+                if normalized_keyword:
+                    search_text = " ".join(
+                        [
+                            str(post.title),
+                            str(author),
+                            str(post.content or ""),
+                            str(post.style or ""),
+                            str(post.instrument or ""),
+                            " ".join(post.tags or []),
+                        ]
+                    ).lower()
+                    if normalized_keyword not in search_text:
+                        continue
+
+                if normalized_tag:
+                    if normalized_tag == COMMUNITY_TAGS_OTHER:
+                        known_tags = set(COMMUNITY_TAGS)
+                        if (
+                            post.style in known_tags
+                            or post.instrument in known_tags
+                            or any(t in known_tags for t in (post.tags or []))
+                        ):
+                            continue
+                    else:
+                        if not (
+                            normalized_tag == post.style
+                            or normalized_tag == post.instrument
+                            or normalized_tag in (post.tags or [])
+                        ):
+                            continue
+
+                filtered_posts.append(post)
+
+            filtered_posts.sort(
+                key=lambda post: (
+                    "精选" in (post.tags or []),
+                    int(post.download_count or 0),
+                    int(post.like_count or 0),
+                    _to_community_iso(post.create_time),
+                ),
+                reverse=True,
+            )
+
+            total = len(filtered_posts)
+            start = (page - 1) * page_size
+            paged_posts = filtered_posts[start : start + page_size]
+
             serialized = [
-                entry
-                for entry in serialized
-                if normalized_keyword in " ".join(
-                    [
-                        str(entry.get("title", "")),
-                        str(entry.get("author", "")),
-                        str(entry.get("description", "")),
-                        str(entry.get("style", "")),
-                        str(entry.get("instrument", "")),
-                        " ".join(entry.get("tags", [])),
-                    ]
-                ).lower()
+                _serialize_db_score(session, post, current_user=current_user)
+                for post in paged_posts
             ]
-        if normalized_tag:
-            if normalized_tag == COMMUNITY_TAGS_OTHER:
-                # 「其他」：选出 style、instrument、tags 均不属于已定义主标签的曲谱
-                known_tags = set(COMMUNITY_TAGS)
-                serialized = [
-                    entry
-                    for entry in serialized
-                    if entry.get("style") not in known_tags
-                    and entry.get("instrument") not in known_tags
-                    and not any(t in known_tags for t in entry.get("tags", []))
-                ]
-            else:
-                serialized = [
-                    entry
-                    for entry in serialized
-                    if normalized_tag == entry.get("style")
-                    or normalized_tag == entry.get("instrument")
-                    or normalized_tag in entry.get("tags", [])
-                ]
-        serialized.sort(
-            key=lambda entry: (
-                "精选" in entry.get("tags", []),
-                entry.get("downloads", 0),
-                entry.get("likes", 0),
-                entry.get("published_at", ""),
-            ),
-            reverse=True,
-        )
-        total = len(serialized)
-        start = (page - 1) * page_size
-        paged = serialized[start : start + page_size]
+
         return {
             "total": total,
-            "items": paged,
+            "items": serialized,
             "page": page,
             "page_size": page_size,
             "has_more": start + page_size < total,
@@ -661,24 +705,34 @@ def list_community_tags() -> dict[str, Any]:
     _ensure_seeded()
     known_tags = set(COMMUNITY_TAGS)
     if USE_DB:
+        from backend.db.models import CommunityPost
+
+        with _session_scope() as session:
+            rows = session.execute(
+                select(CommunityPost.style, CommunityPost.instrument, CommunityPost.tags).where(
+                    CommunityPost.is_public.is_(True)
+                )
+            ).all()
+
         items = []
-        listing = list_community_scores(page=1, page_size=1000)["items"]
         for tag in COMMUNITY_TAGS:
-            count = len(
-                [
-                    entry
-                    for entry in listing
-                    if tag == entry.get("style") or tag == entry.get("instrument") or tag in entry.get("tags", [])
-                ]
-            )
+            count = 0
+            for row in rows:
+                row_tags = row.tags or []
+                if tag == row.style or tag == row.instrument or tag in row_tags:
+                    count += 1
             items.append({"name": tag, "count": count})
-        # 计算「其他」的数量
-        other_count = len([
-            entry for entry in listing
-            if entry.get("style") not in known_tags
-            and entry.get("instrument") not in known_tags
-            and not any(t in known_tags for t in entry.get("tags", []))
-        ])
+
+        other_count = 0
+        for row in rows:
+            row_tags = row.tags or []
+            if (
+                row.style not in known_tags
+                and row.instrument not in known_tags
+                and not any(t in known_tags for t in row_tags)
+            ):
+                other_count += 1
+
         if other_count > 0:
             items.append({"name": COMMUNITY_TAGS_OTHER, "count": other_count})
         return {"items": items}

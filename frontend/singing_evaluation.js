@@ -1,11 +1,110 @@
-﻿const {
-    requestJson,
-    getCurrentUser,
-    getAuthToken,
-    buildServerUrl,
-    avatarUrl,
-    syncPageUsers,
-} = window.SeeMusicApp;
+﻿const SHARED_STORAGE_KEYS = {
+    authToken: "seemusic.auth.token",
+    currentUser: "seemusic.auth.user",
+};
+const DEFAULT_BACKEND_ORIGIN = "http://127.0.0.1:8000";
+const SeeMusicApp = window.SeeMusicApp || {};
+const runtimeCapabilities = {
+    requestJson: typeof SeeMusicApp.requestJson === "function",
+    getCurrentUser: typeof SeeMusicApp.getCurrentUser === "function",
+    getAuthToken: typeof SeeMusicApp.getAuthToken === "function",
+    buildServerUrl: typeof SeeMusicApp.buildServerUrl === "function",
+    avatarUrl: typeof SeeMusicApp.avatarUrl === "function",
+    syncPageUsers: typeof SeeMusicApp.syncPageUsers === "function",
+};
+
+function readStoredUser() {
+    try {
+        return JSON.parse(window.localStorage.getItem(SHARED_STORAGE_KEYS.currentUser) || "null");
+    } catch {
+        return null;
+    }
+}
+
+function getCurrentUser() {
+    return runtimeCapabilities.getCurrentUser ? SeeMusicApp.getCurrentUser() : readStoredUser();
+}
+
+function getAuthToken() {
+    if (runtimeCapabilities.getAuthToken) {
+        return SeeMusicApp.getAuthToken();
+    }
+    return window.localStorage.getItem(SHARED_STORAGE_KEYS.authToken) || "";
+}
+
+function buildServerUrl(path) {
+    if (runtimeCapabilities.buildServerUrl) {
+        return SeeMusicApp.buildServerUrl(path);
+    }
+    if (/^https?:\/\//i.test(path || "")) {
+        return path;
+    }
+    return `${DEFAULT_BACKEND_ORIGIN}${String(path || "").startsWith("/") ? path : `/${path || ""}`}`;
+}
+
+function avatarUrl(inputData) {
+    if (runtimeCapabilities.avatarUrl) {
+        return SeeMusicApp.avatarUrl(inputData);
+    }
+    if (typeof inputData === "object" && inputData !== null && inputData.avatar) {
+        const avatarPath = String(inputData.avatar);
+        return /^https?:\/\//i.test(avatarPath) ? avatarPath : `${DEFAULT_BACKEND_ORIGIN}${avatarPath}`;
+    }
+    const seed = typeof inputData === "string" && inputData.trim()
+        ? inputData.trim()
+        : [inputData?.nickname, inputData?.username, inputData?.email].find((value) => typeof value === "string" && value.trim()) || "SeeMusic";
+    return `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed)}`;
+}
+
+function syncPageUsers(options) {
+    if (runtimeCapabilities.syncPageUsers) {
+        return SeeMusicApp.syncPageUsers(options);
+    }
+
+    const config = options || {};
+    const root = config.root || document;
+    const user = Object.prototype.hasOwnProperty.call(config, "user") ? config.user : getCurrentUser();
+    const fallbackName = config.fallbackName || "游客模式";
+    const displayName = [config.displayName, user?.nickname, user?.username, user?.email, fallbackName]
+        .find((value) => typeof value === "string" && value.trim()) || fallbackName;
+    const avatarSrc = avatarUrl(user || config.fallbackSeed || "SeeMusic");
+
+    if (root && typeof root.querySelectorAll === "function") {
+        root.querySelectorAll(config.containerSelector || "[data-seemusic-user]").forEach((container) => {
+            const avatarElement = container.querySelector("[data-seemusic-user-avatar]");
+            const nameElement = container.querySelector("[data-seemusic-user-name]");
+            if (avatarElement) {
+                avatarElement.src = avatarSrc;
+                avatarElement.alt = `${displayName} avatar`;
+            }
+            if (nameElement) {
+                nameElement.textContent = displayName;
+            }
+        });
+    }
+
+    return {
+        user,
+        displayName,
+        avatarSrc,
+        loggedIn: Boolean(user),
+    };
+}
+
+function requestLayerErrorMessage(action = "连接后端") {
+    return `页面资源未正确更新，无法${action}，请强制刷新后重试。`;
+}
+
+async function requestJson(path, options) {
+    if (!runtimeCapabilities.requestJson) {
+        throw new Error(requestLayerErrorMessage("连接后端"));
+    }
+    return SeeMusicApp.requestJson(path, options);
+}
+
+function hasOperationalRequestLayer() {
+    return runtimeCapabilities.requestJson;
+}
 
 const evaluationState = {
     referenceFile: null,
@@ -21,6 +120,9 @@ const evaluationState = {
 
 function setBanner(id, message, isError = false) {
     const el = document.getElementById(id);
+    if (!el) {
+        return;
+    }
     if (!message) {
         el.className = "hidden text-xs rounded-xl px-4 py-3";
         el.textContent = "";
@@ -83,6 +185,12 @@ function renderHeader() {
         fallbackName: "游客模式",
         fallbackSeed: "SeeMusic",
     });
+}
+
+function showStartupDiagnostics() {
+    if (!hasOperationalRequestLayer()) {
+        setBanner("evaluation-status", requestLayerErrorMessage("提交歌唱评估"), true);
+    }
 }
 
 function referenceDisplayName(track = evaluationState.selectedReferenceTrack, fallbackFile = evaluationState.referenceFile) {
@@ -706,6 +814,10 @@ async function searchReferenceTracks() {
         renderReferenceSearchResults([], "请输入歌曲名、歌手或关键词。");
         return;
     }
+    if (!hasOperationalRequestLayer()) {
+        renderReferenceSearchResults([], requestLayerErrorMessage("搜索参考曲库"));
+        return;
+    }
     renderReferenceSearchResults([], "正在搜索参考曲库...");
     try {
         const payload = await requestJson(`/reference-tracks/search?keyword=${encodeURIComponent(keyword)}&limit=10`);
@@ -716,7 +828,7 @@ async function searchReferenceTracks() {
 }
 
 async function saveHistory(payload) {
-    if (!getAuthToken()) {
+    if (!hasOperationalRequestLayer() || !getAuthToken()) {
         return;
     }
     try {
@@ -771,6 +883,10 @@ async function runEvaluation() {
     }
     if (!isSupportedAudioFile(userFile.name)) {
         setBanner("evaluation-status", "用户音频格式需为 MP3、M4A、OGG、FLAC 等常见音频格式。", true);
+        return;
+    }
+    if (!hasOperationalRequestLayer()) {
+        setBanner("evaluation-status", requestLayerErrorMessage("提交歌唱评估"), true);
         return;
     }
 
@@ -853,6 +969,10 @@ async function exportReport() {
         setBanner("report-export-status", "请先完成一次分析，再导出报告。", true);
         return;
     }
+    if (!hasOperationalRequestLayer()) {
+        setBanner("report-export-status", requestLayerErrorMessage("导出评估报告"), true);
+        return;
+    }
 
     exportBtn.disabled = true;
     exportBtn.style.opacity = "0.7";
@@ -916,6 +1036,10 @@ async function loadTransposeSuggestions() {
         setBanner("transpose-status", "请先填写当前歌曲调性，或先完成一次音高检测。", true);
         return;
     }
+    if (!hasOperationalRequestLayer()) {
+        setBanner("transpose-status", requestLayerErrorMessage("生成变调建议"), true);
+        return;
+    }
 
     submitBtn.disabled = true;
     submitBtn.style.opacity = "0.7";
@@ -950,26 +1074,37 @@ async function loadTransposeSuggestions() {
 
 
 
-function bindSingleFileUpload(kind, inputId, dropzoneId) {
+function bindFileSelection(kind, inputId) {
+    const input = document.getElementById(inputId);
+    if (!input) {
+        return;
+    }
+    input.addEventListener("change", () => {
+        const file = input.files && input.files[0];
+        setSelectedFile(kind, file || null);
+    });
+}
+
+function bindFileTriggerAccessibility(inputId, triggerId) {
+    const input = document.getElementById(inputId);
+    const trigger = document.getElementById(triggerId);
+    if (!input || !trigger) {
+        return;
+    }
+    trigger.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            input.click();
+        }
+    });
+}
+
+function bindUserDropzoneDragDrop(kind, inputId, dropzoneId) {
     const input = document.getElementById(inputId);
     const dropzone = document.getElementById(dropzoneId);
     if (!input || !dropzone) {
         return;
     }
-    const openPicker = () => openFilePicker(input);
-
-    input.addEventListener("change", () => {
-        const file = input.files && input.files[0];
-        setSelectedFile(kind, file || null);
-    });
-    dropzone.addEventListener("click", openPicker);
-    dropzone.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            openPicker();
-        }
-    });
-
     dropzone.addEventListener("dragover", (event) => {
         event.preventDefault();
         dropzone.classList.add("border-blue-300");
@@ -991,33 +1126,12 @@ function bindSingleFileUpload(kind, inputId, dropzoneId) {
     });
 }
 
-function openFilePicker(input) {
-    if (!input) {
-        return;
-    }
-    if (typeof input.showPicker === "function") {
-        input.showPicker();
-        return;
-    }
-    input.click();
-}
-
-function bindFileInputSelection(kind, inputId, triggerId) {
-    const input = document.getElementById(inputId);
-    const trigger = document.getElementById(triggerId);
-    if (!input || !trigger) {
-        return;
-    }
-    input.addEventListener("change", () => {
-        const file = input.files && input.files[0];
-        setSelectedFile(kind, file || null);
-    });
-    trigger.addEventListener("click", () => openFilePicker(input));
-}
-
 function bindFileUpload() {
-    bindFileInputSelection("reference", "reference-file-input", "reference-upload-btn");
-    bindSingleFileUpload("user", "user-file-input", "user-dropzone");
+    bindFileSelection("reference", "reference-file-input");
+    bindFileSelection("user", "user-file-input");
+    bindFileTriggerAccessibility("reference-file-input", "reference-upload-btn");
+    bindFileTriggerAccessibility("user-file-input", "user-dropzone");
+    bindUserDropzoneDragDrop("user", "user-file-input", "user-dropzone");
 }
 
 function bindEvents() {
@@ -1052,8 +1166,18 @@ function bindEvents() {
     });
 }
 
-renderHeader();
-renderAnalysis();
-clearPitchCanvas();
-renderTransposeSuggestions();
-bindEvents();
+function initializePage() {
+    try {
+        renderHeader();
+        renderAnalysis();
+        clearPitchCanvas();
+        renderTransposeSuggestions();
+        bindEvents();
+        showStartupDiagnostics();
+    } catch (error) {
+        console.error("Failed to initialize singing evaluation page", error);
+        setBanner("evaluation-status", `页面初始化失败：${error.message || "请强制刷新后重试。"}`, true);
+    }
+}
+
+initializePage();

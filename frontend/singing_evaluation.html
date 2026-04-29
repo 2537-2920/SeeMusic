@@ -6,7 +6,7 @@
     <title>歌唱评估与变调建议 - SeeMusic</title>
     <script src="https://modao.cc/agent-py/static/source/js/tailwindcss.3.4.3.js"></script>
     <script src="https://modao.cc/agent-py/static/source/js/iconify-icon.min.1.0.7.js"></script>
-    <link rel="stylesheet" href="singing_evaluation.css?v=20260429-upload-fix-v4"/>
+    <link rel="stylesheet" href="singing_evaluation.css?v=20260429-upload-fix-v6"/>
 </head>
 <body class="pb-12">
 
@@ -76,9 +76,9 @@
                             <button class="text-xs text-blue-600 font-bold" id="reference-clear-btn" type="button">更换</button>
                         </div>
                     </div>
-                    <button class="block w-full mt-3 py-2 rounded-xl bg-white border border-gray-200 text-xs font-bold text-gray-500 hover:text-blue-600 hover:border-blue-200 cursor-pointer text-center" id="reference-upload-btn" type="button">
+                    <label class="block w-full mt-3 py-2 rounded-xl bg-white border border-gray-200 text-xs font-bold text-gray-500 hover:text-blue-600 hover:border-blue-200 cursor-pointer text-center" for="reference-file-input" id="reference-upload-btn" role="button" tabindex="0">
                         手动上传标准音频备用
-                    </button>
+                    </label>
                     <p class="text-xs text-[#457b9d] mt-2" id="reference-file-name">尚未选择标准歌曲或上传音频</p>
                 </div>
                 <div class="hidden border-2 border-dashed border-gray-200 rounded-2xl h-48 flex-col items-center justify-center bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer group" id="reference-dropzone">
@@ -87,12 +87,12 @@
                     <p class="text-xs text-gray-400 mt-1">允许带伴奏，后端会先分离人声</p>
                     <p class="text-xs text-[#457b9d] mt-3" id="reference-file-name-legacy">尚未选择标准音频</p>
                 </div>
-                <div class="border-2 border-dashed border-gray-200 rounded-2xl h-48 flex flex-col items-center justify-center bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer group" id="user-dropzone" role="button" tabindex="0">
+                <label class="border-2 border-dashed border-gray-200 rounded-2xl h-48 flex flex-col items-center justify-center bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer group" for="user-file-input" id="user-dropzone" role="button" tabindex="0">
                     <iconify-icon class="text-4xl text-gray-300 group-hover:text-blue-400 transition-colors" icon="solar:microphone-3-bold"></iconify-icon>
                     <p class="mt-2 text-sm text-gray-500">上传用户音频</p>
                     <p class="text-xs text-gray-400 mt-1">可选择清唱或带伴奏版本</p>
                     <p class="text-xs text-[#457b9d] mt-3" id="user-file-name">尚未选择用户音频</p>
-                </div>
+                </label>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -313,7 +313,7 @@
     <p class="mt-1">最后分析更新时间：<span id="last-analysis-time">--</span></p>
 </footer>
 
-<script src="app_common.js"></script>
-<script src="singing_evaluation.js?v=20260429-upload-fix-v5"></script>
+<script src="app_common.js?v=20260429-shared-app-v1"></script>
+<script src="singing_evaluation.js?v=20260429-upload-fix-v7"></script>
 </body>
 </html>

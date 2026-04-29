@@ -4,6 +4,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const html = fs.readFileSync(path.join(__dirname, "../frontend/transcription.html"), "utf8");
+const indexHtml = fs.readFileSync(path.join(__dirname, "../frontend/index.html"), "utf8");
+const loginHtml = fs.readFileSync(path.join(__dirname, "../frontend/login.html"), "utf8");
 const communityHtml = fs.readFileSync(path.join(__dirname, "../frontend/community.html"), "utf8");
 const singingHtml = fs.readFileSync(path.join(__dirname, "../frontend/singing_evaluation.html"), "utf8");
 const profileHtml = fs.readFileSync(path.join(__dirname, "../frontend/profile.html"), "utf8");
@@ -146,20 +148,36 @@ test("workspace pages use the same shared user header markup", () => {
     assert.match(appCommonScript, /function syncPageUsers/);
 });
 
+test("main pages load a versioned shared app script to avoid stale caches", () => {
+    [indexHtml, loginHtml, communityHtml, singingHtml, profileHtml, html].forEach((pageMarkup) => {
+        assert.match(pageMarkup, /<script src="app_common\.js\?v=/);
+    });
+});
+
 test("singing evaluation header no longer shows the current date banner", () => {
     assert.ok(!singingHtml.includes('id="current-date"'));
 });
 
 test("singing evaluation script binds both reference and user audio upload controls", () => {
     const singingScript = fs.readFileSync(path.join(__dirname, "../frontend/singing_evaluation.js"), "utf8");
+    assert.match(singingScript, /const SeeMusicApp = window\.SeeMusicApp \|\| \{\};/);
+    assert.match(singingScript, /typeof SeeMusicApp\.requestJson === "function"/);
+    assert.match(singingScript, /function initializePage\(\)/);
     assert.match(singingScript, /function bindFileUpload/);
-    assert.match(singingScript, /bindFileInputSelection\("reference", "reference-file-input", "reference-upload-btn"\)/);
-    assert.match(singingScript, /bindSingleFileUpload\("user", "user-file-input", "user-dropzone"\)/);
+    assert.match(singingScript, /bindFileSelection\("reference", "reference-file-input"\)/);
+    assert.match(singingScript, /bindFileSelection\("user", "user-file-input"\)/);
+    assert.match(singingScript, /bindFileTriggerAccessibility\("reference-file-input", "reference-upload-btn"\)/);
+    assert.match(singingScript, /bindFileTriggerAccessibility\("user-file-input", "user-dropzone"\)/);
+    assert.match(singingScript, /bindUserDropzoneDragDrop\("user", "user-file-input", "user-dropzone"\)/);
+    assert.ok(!singingScript.includes("} = window.SeeMusicApp;"));
+    assert.ok(!singingScript.includes("function openFilePicker"));
+    assert.ok(!singingScript.includes("showPicker"));
 });
 
-test("singing evaluation upload controls use native file-input labels for browser compatibility", () => {
-    assert.match(singingHtml, /<button[^>]+id="reference-upload-btn"[^>]+type="button"/);
-    assert.match(singingHtml, /<div[^>]+id="user-dropzone"[^>]+role="button"[^>]+tabindex="0"/);
+test("singing evaluation upload controls use native file-input associations for browser compatibility", () => {
+    assert.match(singingHtml, /<script src="app_common\.js\?v=/);
+    assert.match(singingHtml, /<label[^>]+for="reference-file-input"[^>]+id="reference-upload-btn"[^>]+role="button"[^>]+tabindex="0"/);
+    assert.match(singingHtml, /<label[^>]+for="user-file-input"[^>]+id="user-dropzone"[^>]+role="button"[^>]+tabindex="0"/);
     assert.match(singingHtml, /class="file-input-proxy" id="reference-file-input"/);
     assert.match(singingHtml, /class="file-input-proxy" id="user-file-input"/);
 });

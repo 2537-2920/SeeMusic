@@ -45,6 +45,8 @@ GUZHENG_TECHNIQUE_SYMBOL_MARKUP = {
     '^"下滑"': r'^\markup { \center-align \fontsize #-3 "↘" }',
     # 按音：波浪线（与前端 ∽ 标记一致；上游 token 已直接发 ∽）
     '^"∽"': r'^\markup { \center-align \fontsize #-3 "∽" }',
+    # 向后兼容：历史产物可能仍输出 ^"按"。
+    '^"按"': r'^\markup { \center-align \fontsize #-3 "∽" }',
     # 摇指（heuristic 推导出的）：三斜线，与前端 "⫻" 角标对齐
     '^"摇"': r'^\markup { \center-align \fontsize #-3 \concat { "/" "/" "/" } }',
 }

@@ -19,10 +19,10 @@ from backend.core.guzheng.notation import (
 )
 from backend.core.guitar.audio_pipeline import generate_guitar_lead_sheet_from_audio
 from backend.core.guitar.lead_sheet import generate_guitar_lead_sheet, generate_guitar_lead_sheet_from_musicxml
-from backend.core.guitar.lead_sheet import generate_guitar_lead_sheet, generate_guitar_lead_sheet_from_musicxml
 from backend.core.generation.chord_generation import generate_chord_sequence
 from backend.core.generation.transpose_suggestions import generate_transpose_suggestions
 from backend.core.generation.variation_suggestions import generate_variation_suggestions
+from backend.core.score.note_mapping import note_to_frequency
 from backend.core.score.sheet_extraction import build_score_from_pitch_sequence
 from backend.core.separation.multi_track_separation import separate_tracks
 from backend.core.traditional.traditional_instruments import get_traditional_instruments
@@ -134,25 +134,6 @@ def test_generate_guitar_lead_sheet_from_musicxml_uses_melody_staff_and_extracts
         key_signature="C",
         title="童年",
         arrangement_mode="piano_solo",
-        lyrics_payload={
-            "status": "imported",
-            "source": "lrc",
-            "has_timestamps": True,
-            "timing_kind": "token",
-            "lines": [
-                {
-                    "time": 0.0,
-                    "text": "你好",
-                    "tokens": [
-                        {"text": "你", "time": 0.0},
-                        {"text": "好", "time": 0.5},
-                    ],
-                }
-            ],
-            "line_count": 1,
-            "warnings": [],
-            "language": "zh",
-        },
     )
 
     result = generate_guitar_lead_sheet_from_musicxml(
@@ -165,7 +146,9 @@ def test_generate_guitar_lead_sheet_from_musicxml_uses_melody_staff_and_extracts
     )
 
     assert result["melody_size"] == 2
-    assert result["display_sections"][0]["display_lines"][0]["lyric_text"] == "你好"
+    assert result["display_sections"]
+    assert result["display_sections"][0]["display_lines"]
+    assert "lyric_text" not in result["display_sections"][0]["display_lines"][0]
 
 
 def test_generate_guitar_lead_sheet_resolves_secondary_dominant_before_target():

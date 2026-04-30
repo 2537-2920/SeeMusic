@@ -24,6 +24,7 @@ from backend.db.models import (
 from backend.db.repositories import get_sheet_by_score_id
 from backend.db.session import get_engine, get_session_factory, reset_database_state, resolve_database_url, session_scope
 from backend.services import analysis_service, community_service, report_service
+from backend.services import score_service
 from backend.services.analysis_service import clear_analysis_results, get_saved_pitch_sequence, save_analysis_result
 from backend.services.score_service import create_score_from_pitch_sequence
 from backend.user import history_manager, user_system
@@ -90,6 +91,7 @@ def mysql_database(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     report_service.USE_DB = True
     community_service.set_db_session_factory(factory)
     community_service.USE_DB = True
+    score_service.USE_DB = True
 
     try:
         yield {"database_url": resolve_database_url()}
@@ -100,6 +102,7 @@ def mysql_database(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
             analysis_service.USE_DB = False
             report_service.USE_DB = False
             community_service.USE_DB = False
+            score_service.USE_DB = False
             clear_analysis_results()
             _recreate_schema()
         finally:

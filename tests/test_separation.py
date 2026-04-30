@@ -383,8 +383,17 @@ class TestAudioProcessing:
         def fail_simple(y, sr, stems):
             raise AssertionError("simple fallback should not run")
 
+        def fake_enhance(vocal_audio, *, original_mix, sr):
+            return np.asarray(vocal_audio, dtype=np.float32)
+
+        def fake_save_track(audio_data, sr, task_id, track_name, source_file):
+            # Keep this test focused on backend selection rather than filesystem I/O.
+            return f"/tmp/{task_id}_{track_name}.wav"
+
         monkeypatch.setattr(separator, "_run_demucs_separation", fake_demucs)
         monkeypatch.setattr(separator, "_simple_separation", fail_simple)
+        monkeypatch.setattr(separator, "_enhance_vocal_track", fake_enhance)
+        monkeypatch.setattr(separator, "_save_track", fake_save_track)
 
         result = separator.separate(
             file_name="test.wav",

@@ -2,7 +2,9 @@
     authToken: "seemusic.auth.token",
     currentUser: "seemusic.auth.user",
 };
-const DEFAULT_BACKEND_ORIGIN = "http://127.0.0.1:8000";
+const DEFAULT_BACKEND_ORIGIN = window.location.protocol.startsWith("http")
+    ? window.location.origin
+    : "http://127.0.0.1:8000";
 const SeeMusicApp = window.SeeMusicApp || {};
 const runtimeCapabilities = {
     requestJson: typeof SeeMusicApp.requestJson === "function",

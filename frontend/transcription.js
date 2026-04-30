@@ -23,7 +23,9 @@ const LEGACY_STORAGE_KEYS = [
     "seemusic.transcription.diziDebugExpanded",
 ];
 const TRANSCRIPTION_UI_BUILD = "2026-04-29-lyrics-ui-removed-v1";
-const DEFAULT_BACKEND_ORIGIN = "http://127.0.0.1:8000";
+const DEFAULT_BACKEND_ORIGIN = window.location.protocol.startsWith("http")
+    ? window.location.origin
+    : "http://127.0.0.1:8000";
 const DEFAULT_API_BASE = `${DEFAULT_BACKEND_ORIGIN}/api/v1`;
 const VEROVIO_RESOURCE_PATH = "/data";
 const VEROVIO_GLYPHNAMES_PATH = `${VEROVIO_RESOURCE_PATH}/glyphnames.json`;
@@ -970,7 +972,7 @@ function apiOrigin() {
     try {
         return new URL(state.apiBase).origin;
     } catch {
-        return "http://127.0.0.1:8000";
+        return DEFAULT_BACKEND_ORIGIN;
     }
 }
 

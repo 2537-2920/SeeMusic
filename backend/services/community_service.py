@@ -13,7 +13,9 @@ from fastapi import HTTPException
 import os                 
 from sqlalchemy import select
 
-UPLOAD_DIR = "D:/SeeMusic_data/avatars"
+from backend.config.settings import settings
+
+UPLOAD_DIR = str(settings.storage_dir / "avatars")
 logger = logging.getLogger(__name__)
 
 
@@ -1103,7 +1105,7 @@ def get_score_pdf_content(score_id: str) -> tuple[bytes, str]:
         
 def save_user_avatar(user_id: str, file_content: bytes, filename: str) -> str:
     from backend.db.models import User, CommunityPost, CommunityComment
-    # 头像保存路径：D:/SeeMusic_data/avatars/用户ID.png
+    # Keep avatar files under the configured application storage directory.
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     file_path = os.path.join(UPLOAD_DIR, f"{user_id}.png")
     

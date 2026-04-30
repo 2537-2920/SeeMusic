@@ -7,7 +7,9 @@
     };
     const SHARED_HEADER_STYLE_ID = "seemusic-shared-header-user-style";
 
-    const DEFAULT_BACKEND_ORIGIN = "http://127.0.0.1:8000";
+    const DEFAULT_BACKEND_ORIGIN = window.location.protocol.startsWith("http")
+        ? window.location.origin
+        : "http://127.0.0.1:8000";
     const DEFAULT_API_BASE = `${DEFAULT_BACKEND_ORIGIN}/api/v1`;
 
     function normalizeApiBase(rawValue) {
@@ -136,9 +138,8 @@
 
     function avatarUrl(inputData) {
         if (typeof inputData === "object" && inputData !== null && inputData.avatar) {
-            const baseUrl = "http://127.0.0.1:8000";
             const timestamp = Date.now();
-            const path = inputData.avatar.startsWith("http") ? inputData.avatar : `${baseUrl}${inputData.avatar}`;
+            const path = inputData.avatar.startsWith("http") ? inputData.avatar : `${getApiOrigin()}${inputData.avatar}`;
             return path.includes("?") ? `${path}&t=${timestamp}` : `${path}?t=${timestamp}`;
         }
 

@@ -470,7 +470,7 @@ function setupEditProfileModal() {
                 formData.append("file", avatarFile);
 
                 // 调用你写好的头像上传接口
-                const avatarResp = await fetch("http://127.0.0.1:8000/api/v1/users/avatar", {
+                const avatarResp = await fetch(buildApiUrl("/users/avatar"), {
                     method: "POST",
                     headers: {
                         "Authorization": `Bearer ${localStorage.getItem("seemusic.auth.token")}`//这里的原因，传错了token
@@ -484,11 +484,10 @@ function setupEditProfileModal() {
                     const newRelativePath = avatarResult.data.avatar_url;
                     payload.avatar = newRelativePath;
                     // --- 核心修复：定义 fullUrl 并加上时间戳 ---
-                    const API_BASE = "http://127.0.0.1:8000"; // 确保定义了后端地址
                     const timestamp = new Date().getTime();   // 生成当前时间戳
 
                     // 拼接完整的、带“防缓存”标记的 URL
-                    const fullUrl = `${API_BASE}${newRelativePath}?t=${timestamp}`;
+                    const fullUrl = `${buildServerUrl(newRelativePath)}?t=${timestamp}`;
 
                     console.log("正在实时更新界面头像:", fullUrl);
 
@@ -624,7 +623,7 @@ async function uploadAvatar() {
     const formData = new FormData();
     formData.append("file", file);
     try {
-        const response = await fetch("http://127.0.0.1:8000/api/v1/users/avatar", {
+        const response = await fetch(buildApiUrl("/users/avatar"), {
             method: "POST",
             headers: {
                 "Authorization": `Bearer ${localStorage.getItem("seemusic.auth.token")}`
@@ -634,7 +633,7 @@ async function uploadAvatar() {
         const result = await response.json();
         if (result.code === 0) {
             alert("头像上传成功！");
-            const newAvatarUrl = "http://127.0.0.1:8000" + result.data.avatar_url;
+            const newAvatarUrl = buildServerUrl(result.data.avatar_url);
             document.getElementById("profile-avatar").src = newAvatarUrl;
             // 1. 调用现成的全局函数获取当前用户（这能确保你拿到的是正确的抽屉内容）
             const currentUser = getCurrentUser();
